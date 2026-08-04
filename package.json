@@ -1,0 +1,36 @@
+{
+  "name": "projeto-discord",
+  "version": "1.0.0",
+  "description": "Estrutura inicial de bot Discord.js v14 com SQLite e dotenv",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon --watch src --exec \"node src/index.js\"",
+    "lint": "eslint src tests --ext .js",
+    "format": "prettier --write \"src/**/*.js\" \"tests/**/*.js\"",
+    "test": "jest"
+  },
+  "keywords": [
+    "discord",
+    "discord.js",
+    "bot",
+    "sqlite",
+    "dotenv"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "discord.js": "^14.13.0",
+    "dotenv": "^16.0.0",
+    "sqlite3": "^5.1.6"
+  },
+  "devDependencies": {
+    "eslint": "^8.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "eslint-plugin-import": "^2.40.0",
+    "jest": "^29.0.0",
+    "nodemon": "^3.0.0",
+    "prettier": "^3.0.0"
+  }
+}
