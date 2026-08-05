@@ -5,6 +5,7 @@ const commandHandler = require('./handlers/commandHandler');
 const eventHandler = require('./handlers/eventHandler');
 const config = require('./config');
 const database = require('./database/database');
+const queueMessageService = require('./services/queueMessageService');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -15,8 +16,11 @@ client.once('clientReady', async () => {
   try {
     await commandHandler.registerCommands(client, config);
     console.log('Slash commands registrados no Discord.');
+
+    await queueMessageService.initPanel(client);
+    console.log('Painel de fila inicializado.');
   } catch (error) {
-    console.error('Erro ao registrar os Slash Commands:', error);
+    console.error('Erro ao registrar os Slash Commands ou inicializar painel:', error);
   }
 });
 

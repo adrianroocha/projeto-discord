@@ -1,4 +1,5 @@
 const queueService = require('../services/queueService');
+const queueMessageService = require('../services/queueMessageService');
 
 module.exports = {
   customId: 'join_queue',
@@ -26,6 +27,10 @@ module.exports = {
       await interaction.reply({
         content: '✅ Você entrou na fila com sucesso.',
         ephemeral: true,
+      });
+
+      queueMessageService.updatePanel(interaction.client).catch((error) => {
+        console.error('Erro ao atualizar painel após entrar na fila:', error);
       });
       return;
     }

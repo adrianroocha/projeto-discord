@@ -29,7 +29,7 @@ async function initDatabase() {
     CREATE TABLE IF NOT EXISTS lobbies (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-      status TEXT DEFAULT 'open'
+      status TEXT DEFAULT 'forming'
     )
   `;
 
@@ -49,6 +49,14 @@ async function initDatabase() {
   db.exec(createQueueEntriesTableSql);
   db.exec(createLobbiesTableSql);
   db.exec(createLobbyPlayersTableSql);
+
+  const lobbyInfo = db.prepare("PRAGMA table_info(lobbies)").all();
+  const hasLobbyStatus = lobbyInfo.some((column) => column.name === 'status');
+  if (!hasLobbyStatus) {
+    db.exec("ALTER TABLE lobbies ADD COLUMN status TEXT NOT NULL DEFAULT 'forming'");
+  }
+
+  db.exec("UPDATE lobbies SET status = 'forming' WHERE status = 'open'");
 
   const queueInfo = db.prepare("PRAGMA table_info(queue_entries)").all();
   const hasDisplayName = queueInfo.some((column) => column.name === 'display_name');

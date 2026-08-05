@@ -17,6 +17,7 @@ module.exports = {
   subscriberRoleId: process.env.SUBSCRIBER_ROLE_ID || null,
   queueChannelId: process.env.QUEUE_CHANNEL_ID || null,
   lobbyChannelId: process.env.LOBBY_CHANNEL_ID || null,
+  queuePanelChannelId: process.env.QUEUE_PANEL_CHANNEL_ID || null,
   queueOpenTime: process.env.QUEUE_OPEN_TIME || null,
   queueCloseTime: process.env.QUEUE_CLOSE_TIME || null,
   nodeEnv: process.env.NODE_ENV || 'development',
