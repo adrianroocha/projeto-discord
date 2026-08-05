@@ -13,7 +13,19 @@ async function initDatabase() {
     )
   `;
 
+  const createQueueEntriesTableSql = `
+    CREATE TABLE IF NOT EXISTS queue_entries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      discord_id TEXT UNIQUE NOT NULL,
+      username TEXT NOT NULL,
+      is_subscriber INTEGER DEFAULT 0,
+      joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      status TEXT DEFAULT 'waiting'
+    )
+  `;
+
   db.exec(createUsersTableSql);
+  db.exec(createQueueEntriesTableSql);
 }
 
 module.exports = {
