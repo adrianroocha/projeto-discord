@@ -4,6 +4,7 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const commandHandler = require('./handlers/commandHandler');
 const eventHandler = require('./handlers/eventHandler');
 const config = require('./config');
+const database = require('./database/database');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -36,9 +37,16 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-console.log('Iniciando o bot do Discord...');
-client.login(config.discordToken).catch((error) => {
-  console.error('Falha ao fazer login no Discord. Verifique o token e a conexão.');
-  console.error(error);
-  process.exit(1);
-});
+async function start() {
+  try {
+    await database.initDatabase();
+    console.log('Banco de dados inicializado em', config.databasePath);
+    console.log('Iniciando o bot do Discord...');
+    await client.login(config.discordToken);
+  } catch (error) {
+    console.error('Erro ao iniciar o bot:', error);
+    process.exit(1);
+  }
+}
+
+start();

@@ -1,4 +1,28 @@
+# Node modules
 node_modules/
+
+# Environment files
 .env
-data/*.sqlite
+
+# SQLite database files
+*.sqlite
+*.db
+
+data/**/*.sqlite
+ndata/**/*.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# OS and editor files
 .DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# IDE directories
+.vscode/
+.vs/

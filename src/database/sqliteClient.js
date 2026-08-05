@@ -1,16 +1,50 @@
-const sqlite3 = require('sqlite3').verbose();
+const Database = require('better-sqlite3');
 const { databasePath } = require('../config');
 
-const db = new sqlite3.Database(
-  databasePath,
-  sqlite3.OPEN_READWRITE | sqlite3.OPEN_CREATE,
-  (err) => {
-    if (err) {
-      console.error('Erro ao conectar ao SQLite:', err);
-      return;
-    }
-    console.log('Conectado ao SQLite em', databasePath);
-  }
-);
+let db = null;
 
-module.exports = db;
+function openConnection() {
+  return new Promise((resolve, reject) => {
+    if (db) {
+      return resolve(db);
+    }
+
+    try {
+      db = new Database(databasePath, { readonly: false, fileMustExist: false });
+      resolve(db);
+    } catch (err) {
+      db = null;
+      reject(err);
+    }
+  });
+}
+
+function closeConnection() {
+  return new Promise((resolve, reject) => {
+    if (!db) {
+      return resolve();
+    }
+
+    try {
+      db.close();
+      db = null;
+      resolve();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+function getDatabase() {
+  if (!db) {
+    throw new Error('Conexão SQLite não aberta.');
+  }
+  return db;
+}
+
+module.exports = {
+  openConnection,
+  closeConnection,
+  getDatabase,
+  databasePath,
+};
