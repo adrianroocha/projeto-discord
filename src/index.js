@@ -5,13 +5,6 @@ const commandHandler = require('./handlers/commandHandler');
 const eventHandler = require('./handlers/eventHandler');
 const config = require('./config');
 
-const token = process.env.DISCORD_TOKEN;
-if (!token) {
-  console.error('Erro: variável DISCORD_TOKEN não definida no arquivo .env.');
-  console.error('Copie .env.example para .env e informe seu token do Discord.');
-  process.exit(1);
-}
-
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
 commandHandler.loadCommands(client);
@@ -44,7 +37,7 @@ process.on('uncaughtException', (error) => {
 });
 
 console.log('Iniciando o bot do Discord...');
-client.login(token).catch((error) => {
+client.login(config.discordToken).catch((error) => {
   console.error('Falha ao fazer login no Discord. Verifique o token e a conexão.');
   console.error(error);
   process.exit(1);
