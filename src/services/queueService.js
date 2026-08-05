@@ -72,9 +72,55 @@ function isUserInQueue(discordId) {
   return row.count > 0;
 }
 
+function getActiveLobbies() {
+  const db = getDatabase();
+  const stmt = db.prepare(`
+    SELECT
+      l.id AS lobby_id,
+      l.status AS status,
+      l.created_at AS created_at,
+      lp.discord_id AS discord_id,
+      lp.username AS username,
+      lp.display_name AS display_name,
+      qe.is_subscriber AS is_subscriber,
+      lp.position AS position
+    FROM lobbies l
+    JOIN lobby_players lp ON lp.lobby_id = l.id
+    LEFT JOIN queue_entries qe ON qe.discord_id = lp.discord_id
+    ORDER BY l.id ASC, lp.position ASC
+  `);
+
+  const rows = stmt.all();
+  const lobbies = [];
+  let currentLobby = null;
+
+  for (const row of rows) {
+    if (!currentLobby || currentLobby.id !== row.lobby_id) {
+      currentLobby = {
+        id: row.lobby_id,
+        status: row.status,
+        createdAt: row.created_at,
+        players: [],
+      };
+      lobbies.push(currentLobby);
+    }
+
+    currentLobby.players.push({
+      discordId: row.discord_id,
+      username: row.username,
+      displayName: row.display_name,
+      isSubscriber: Boolean(row.is_subscriber),
+      position: row.position,
+    });
+  }
+
+  return lobbies;
+}
+
 module.exports = {
   addToQueue,
   removeFromQueue,
   getQueue,
   isUserInQueue,
+  getActiveLobbies,
 };
