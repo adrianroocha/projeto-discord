@@ -5,6 +5,7 @@ module.exports = {
   async execute(interaction) {
     const discordId = interaction.user.id;
     const username = `${interaction.user.username}#${interaction.user.discriminator}`;
+    const displayName = interaction.member?.displayName || interaction.user.username;
 
     if (queueService.isUserInQueue(discordId)) {
       await interaction.reply({
@@ -17,6 +18,7 @@ module.exports = {
     const added = queueService.addToQueue({
       discordId,
       username,
+      displayName,
       isSubscriber: 0,
     });
 
