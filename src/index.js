@@ -1,8 +1,9 @@
 require('dotenv').config();
 
 const { Client, GatewayIntentBits } = require('discord.js');
-const path = require('path');
-const fs = require('fs');
+const commandHandler = require('./handlers/commandHandler');
+const eventHandler = require('./handlers/eventHandler');
+const config = require('./config');
 
 const token = process.env.DISCORD_TOKEN;
 if (!token) {
@@ -13,18 +14,17 @@ if (!token) {
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-const readyEventPath = path.join(__dirname, 'events', 'ready.js');
-if (!fs.existsSync(readyEventPath)) {
-  console.error('Erro: arquivo de evento ready não encontrado em src/events/ready.js');
-  process.exit(1);
-}
+commandHandler.loadCommands(client);
+eventHandler.loadEvents(client);
 
-const readyEvent = require(readyEventPath);
-if (readyEvent.once) {
-  client.once(readyEvent.name, (...args) => readyEvent.execute(...args));
-} else {
-  client.on(readyEvent.name, (...args) => readyEvent.execute(...args));
-}
+client.once('clientReady', async () => {
+  try {
+    await commandHandler.registerCommands(client, config);
+    console.log('Slash commands registrados no Discord.');
+  } catch (error) {
+    console.error('Erro ao registrar os Slash Commands:', error);
+  }
+});
 
 client.on('error', (error) => {
   console.error('Erro do client do Discord:', error);
