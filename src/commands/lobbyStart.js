@@ -8,8 +8,8 @@ module.exports = {
     .setDescription('Inicia um lobby em formação.')
     .addIntegerOption((option) =>
       option
-        .setName('lobby_id')
-        .setDescription('ID do lobby para iniciar')
+        .setName('numero')
+        .setDescription('Número público da lobby para iniciar')
         .setRequired(false),
     ),
   async execute(interaction) {
@@ -31,26 +31,26 @@ module.exports = {
       return;
     }
 
-    const lobbyIdOption = interaction.options.getInteger('lobby_id');
-    let lobbyId = lobbyIdOption;
+    const lobbyNumberOption = interaction.options.getInteger('numero');
+    let lobbyNumber = lobbyNumberOption;
 
-    if (!lobbyId) {
+    if (!lobbyNumber) {
       if (formingLobbies.length === 1) {
-        lobbyId = formingLobbies[0].id;
+        lobbyNumber = formingLobbies[0].lobbyNumber;
       } else {
-        const lobbyList = formingLobbies.map((lobby) => `• Lobby #${lobby.id}`).join('\n');
+        const lobbyList = formingLobbies.map((lobby) => `• Lobby #${lobby.lobbyNumber}`).join('\n');
         await interaction.reply({
-          content: `Lobbies em formação:\n${lobbyList}\n\nUse /lobby-start lobby_id:<ID> para iniciar um lobby.`,
+          content: `Lobbies em formação:\n${lobbyList}\n\nUse /lobby-start numero:<NÚMERO> para iniciar uma lobby.`,
           ephemeral: true,
         });
         return;
       }
     }
 
-    const started = queueService.startLobby(lobbyId);
+    const started = queueService.startLobbyByNumber(lobbyNumber);
     if (!started) {
       await interaction.reply({
-        content: 'Não foi possível iniciar esse lobby. Verifique se ele ainda está em formação.',
+        content: 'Não foi possível iniciar essa lobby. Verifique se ela ainda está em formação.',
         ephemeral: true,
       });
       return;
@@ -59,7 +59,7 @@ module.exports = {
     await queueMessageService.updatePanel(interaction.client);
 
     await interaction.reply({
-      content: `Lobby #${lobbyId} iniciado com sucesso.`,
+      content: `Lobby #${lobbyNumber} iniciada com sucesso.`,
       ephemeral: true,
     });
   },

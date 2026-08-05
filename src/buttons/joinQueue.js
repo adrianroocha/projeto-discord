@@ -16,28 +16,41 @@ module.exports = {
       return;
     }
 
-    const added = queueService.addToQueue({
+    const result = queueService.addToQueue({
       discordId,
       username,
       displayName,
       isSubscriber: 0,
     });
 
-    if (added) {
-      await interaction.reply({
-        content: '✅ Você entrou na fila com sucesso.',
-        ephemeral: true,
-      });
+    if (!result || result.success === false) {
+      const reason = result && result.reason;
+      if (reason === 'in_forming_lobby') {
+        await interaction.reply({ content: 'Você já está em uma lobby em formação.', ephemeral: true });
+        return;
+      }
 
-      queueMessageService.updatePanel(interaction.client).catch((error) => {
-        console.error('Erro ao atualizar painel após entrar na fila:', error);
+      if (reason === 'already_waiting') {
+        await interaction.reply({ content: 'Você já está na fila.', ephemeral: true });
+        return;
+      }
+
+      await interaction.reply({
+        content: 'Não foi possível entrar na fila. Tente novamente mais tarde.',
+        ephemeral: true,
       });
       return;
     }
 
-    await interaction.reply({
-      content: 'Não foi possível entrar na fila. Tente novamente mais tarde.',
-      ephemeral: true,
+    // success
+    if (result.joinedLobby) {
+      await interaction.reply({ content: '✅ Você foi adicionado diretamente a uma lobby em formação.', ephemeral: true });
+    } else {
+      await interaction.reply({ content: '✅ Você entrou na fila com sucesso.', ephemeral: true });
+    }
+
+    queueMessageService.updatePanel(interaction.client).catch((error) => {
+      console.error('Erro ao atualizar painel após entrar na fila:', error);
     });
   },
 };

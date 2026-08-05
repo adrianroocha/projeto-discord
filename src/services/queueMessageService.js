@@ -3,8 +3,14 @@ const queueService = require('./queueService');
 const queueEvents = require('./queueEvents');
 const config = require('../config');
 
-function buildPanelContent(lobbies, queueEntries) {
-  const lines = ['# 🎮 Sistema de Fila', '', '## Fila de espera', ''];
+function buildPanelContent(allLobbies, queueEntries) {
+  const lines = [
+    '# 🎮 Sistema de Fila',
+    '⏳ Após entrar na fila, é necessário aguardar 2 minutos antes de poder sair.',
+    '.',
+    '👥 Jogadores em espera',
+    '',
+  ];
 
   if (!queueEntries.length) {
     lines.push('Nenhum jogador aguardando.');
@@ -17,22 +23,47 @@ function buildPanelContent(lobbies, queueEntries) {
     });
   }
 
-  lines.push('', '━━━━━━━━━━━━━━━━', '', '## Lobbies ativos', '');
+  lines.push('', '━━━━━━━━━━━━━━━━', '');
+  lines.push('🧩 Lobbies em formação', '');
 
-  if (!lobbies.length) {
-    lines.push('Nenhum lobby ativo.');
+  const forming = allLobbies.filter((l) => l.status === 'forming');
+  if (!forming.length) {
+    lines.push('Nenhum lobby em formação.');
   } else {
-    lobbies.forEach((lobby, index) => {
-      lines.push(`### Lobby #${index + 1}`, '');
+    forming.forEach((lobby, idx) => {
+      lines.push(`Lobby #${lobby.lobbyNumber}`);
       lobby.players.forEach((player) => {
         const name = player.displayName?.trim() ? player.displayName : player.username;
         const subscriberTag = player.isSubscriber ? ' (Sub)👑' : '';
         lines.push(`${name}${subscriberTag}`);
       });
-      lines.push('', '━━━━━━━━━━━━━━━━', '');
+      if (idx < forming.length - 1) {
+        lines.push('', '━━━━━━━━━━━━━━━━', '');
+      }
     });
   }
 
+  lines.push('', '━━━━━━━━━━━━━━━━', '');
+  lines.push('🔥 Lobbies ativas', '');
+
+  const inGame = allLobbies.filter((l) => l.status === 'in_game');
+  if (!inGame.length) {
+    lines.push('Nenhum lobby ativa.');
+  } else {
+    inGame.forEach((lobby, idx) => {
+      lines.push(`Lobby #${lobby.lobbyNumber}`);
+      lobby.players.forEach((player) => {
+        const name = player.displayName?.trim() ? player.displayName : player.username;
+        const subscriberTag = player.isSubscriber ? ' (Sub)👑' : '';
+        lines.push(`${name}${subscriberTag}`);
+      });
+      if (idx < inGame.length - 1) {
+        lines.push('', '━━━━━━━━━━━━━━━━', '');
+      }
+    });
+  }
+
+  lines.push('.');
   return lines.join('\n');
 }
 
@@ -40,7 +71,7 @@ function createActionRow() {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('join_queue')
-      .setLabel('🎮 Entrar na fila')
+      .setLabel(' 🎮 Entrar na fila')
       .setStyle(ButtonStyle.Success),
     new ButtonBuilder()
       .setCustomId('leave_queue')

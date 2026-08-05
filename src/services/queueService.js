@@ -3,39 +3,54 @@ const queueEvents = require('./queueEvents');
 
 function selectWaitingEntries(limit = 4) {
   const db = getDatabase();
-  const query = `SELECT id, discord_id, username, display_name, is_subscriber, joined_at FROM queue_entries WHERE status = 'waiting' ORDER BY is_subscriber DESC, joined_at ASC LIMIT ${limit}`;
+  const query = `SELECT id, discord_id, username, display_name, is_subscriber, joined_at FROM queue_entries ORDER BY is_subscriber DESC, joined_at ASC LIMIT ${limit}`;
   const stmt = db.prepare(query);
   return stmt.all();
 }
 
-function createLobbyWithEntries(entries) {
+function createLobbyWithEntries(entries, creationType = 'automatic', lobbyNumber = null) {
   if (!entries.length) {
     return null;
   }
 
   const db = getDatabase();
-  const insertLobby = db.prepare(`INSERT INTO lobbies (status) VALUES ('forming')`);
-  const insertLobbyPlayer = db.prepare(
-    `INSERT INTO lobby_players (lobby_id, discord_id, username, display_name, position) VALUES (?, ?, ?, ?, ?)`,
+  const insertLobby = db.prepare(
+    `INSERT INTO lobbies (status, creation_type, lobby_number) VALUES ('forming', ?, ?)`,
   );
-  const updateQueueStatus = db.prepare(`UPDATE queue_entries SET status = 'assigned' WHERE id = ?`);
+  const insertLobbyPlayer = db.prepare(
+    `INSERT INTO lobby_players (lobby_id, discord_id, username, display_name, position, original_joined_at, is_subscriber) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  const deleteQueueEntry = db.prepare(`DELETE FROM queue_entries WHERE id = ?`);
 
-  const lobbyInfo = insertLobby.run();
+  const assignedLobbyNumber = lobbyNumber || getNextLobbyNumber();
+  const lobbyInfo = insertLobby.run(creationType, assignedLobbyNumber);
   const lobbyId = lobbyInfo.lastInsertRowid;
 
   entries.forEach((entry, index) => {
-    insertLobbyPlayer.run(lobbyId, entry.discord_id, entry.username, entry.display_name, index + 1);
-    updateQueueStatus.run(entry.id);
+    const originalJoinedAt = entry.original_joined_at || entry.joined_at || new Date().toISOString();
+    insertLobbyPlayer.run(
+      lobbyId,
+      entry.discord_id,
+      entry.username,
+      entry.display_name,
+      index + 1,
+      originalJoinedAt,
+      entry.is_subscriber ? 1 : 0,
+    );
+
+    if (entry.id) {
+      deleteQueueEntry.run(entry.id);
+    }
   });
 
-  return lobbyId;
+  return { lobbyId, lobbyNumber: assignedLobbyNumber };
 }
 
 function assignLobbies() {
   let entries = selectWaitingEntries(4);
 
   while (entries.length === 4) {
-    createLobbyWithEntries(entries);
+    createLobbyWithEntries(entries, 'automatic');
     entries = selectWaitingEntries(4);
   }
 }
@@ -46,7 +61,8 @@ function getLobbyPlayerInfo(discordId) {
     SELECT
       l.id AS lobby_id,
       l.status AS lobby_status,
-      lp.position AS position
+      lp.position AS position,
+      l.creation_type AS creation_type
     FROM lobby_players lp
     JOIN lobbies l ON l.id = lp.lobby_id
     WHERE lp.discord_id = ?
@@ -55,15 +71,76 @@ function getLobbyPlayerInfo(discordId) {
   return stmt.get(discordId);
 }
 
+function getNextLobbyNumber(reservedNumbers = []) {
+  const db = getDatabase();
+  const rows = db.prepare(`SELECT lobby_number FROM lobbies`).all();
+  const reserved = new Set(reservedNumbers);
+  rows.forEach((row) => {
+    if (row.lobby_number) {
+      reserved.add(row.lobby_number);
+    }
+  });
+
+  let next = 1;
+  while (reserved.has(next)) {
+    next += 1;
+  }
+  return next;
+}
+
 function getNextWaitingEntry() {
   const db = getDatabase();
   const stmt = db.prepare(`
     SELECT id, discord_id, username, display_name, is_subscriber FROM queue_entries
-    WHERE status = 'waiting'
     ORDER BY is_subscriber DESC, joined_at ASC
     LIMIT 1
   `);
   return stmt.get();
+}
+
+function getLeaveCooldown(discordId) {
+  const db = getDatabase();
+
+  const queueEntry = db
+    .prepare(`SELECT joined_at FROM queue_entries WHERE discord_id = ?`)
+    .get(discordId);
+
+  const formingLobbyEntry = db
+    .prepare(`
+      SELECT lp.original_joined_at AS joined_at
+      FROM lobby_players lp
+      JOIN lobbies l ON l.id = lp.lobby_id
+      WHERE lp.discord_id = ? AND l.status = 'forming'
+      ORDER BY lp.id DESC
+      LIMIT 1
+    `)
+    .get(discordId);
+
+  let referenceTimestamp = null;
+  if (queueEntry) {
+    referenceTimestamp = queueEntry.joined_at;
+  } else if (formingLobbyEntry) {
+    referenceTimestamp = formingLobbyEntry.joined_at;
+  }
+
+  if (process.env.NODE_ENV === 'development' && /^test-user-/.test(discordId)) {
+    return { canLeave: true, remainingSeconds: 0 };
+  }
+
+  if (!referenceTimestamp) {
+    return { canLeave: true, remainingSeconds: 0 };
+  }
+
+  const then = new Date(referenceTimestamp).getTime();
+  const now = Date.now();
+  const elapsedSeconds = Math.floor((now - then) / 1000);
+  const cooldownSeconds = 120;
+
+  if (elapsedSeconds >= cooldownSeconds) {
+    return { canLeave: true, remainingSeconds: 0 };
+  }
+
+  return { canLeave: false, remainingSeconds: cooldownSeconds - elapsedSeconds };
 }
 
 function removePlayerFromFormingLobby(discordId) {
@@ -73,41 +150,48 @@ function removePlayerFromFormingLobby(discordId) {
     return null;
   }
 
-  if (lobbyInfo.lobby_status !== 'forming' && lobbyInfo.lobby_status !== 'open') {
+  if (lobbyInfo.lobby_status !== 'forming') {
     return { locked: true, status: lobbyInfo.lobby_status };
   }
 
   const deleteLobbyPlayer = db.prepare(`DELETE FROM lobby_players WHERE lobby_id = ? AND discord_id = ?`);
-  const deleteQueueEntry = db.prepare(`DELETE FROM queue_entries WHERE discord_id = ? AND status = 'assigned'`);
   const insertLobbyPlayer = db.prepare(
     `INSERT INTO lobby_players (lobby_id, discord_id, username, display_name, position) VALUES (?, ?, ?, ?, ?)`,
   );
-  const updateQueueStatus = db.prepare(`UPDATE queue_entries SET status = 'assigned' WHERE id = ?`);
-  const selectRemainingPlayers = db.prepare(
-    `SELECT id FROM lobby_players WHERE lobby_id = ? ORDER BY position ASC`,
-  );
+  const deleteQueueById = db.prepare(`DELETE FROM queue_entries WHERE id = ?`);
+  const selectRemainingPlayers = db.prepare(`SELECT id FROM lobby_players WHERE lobby_id = ? ORDER BY position ASC`);
   const updatePosition = db.prepare(`UPDATE lobby_players SET position = ? WHERE id = ?`);
+  const getCreationTypeStmt = db.prepare(`SELECT creation_type FROM lobbies WHERE id = ?`);
 
   deleteLobbyPlayer.run(lobbyInfo.lobby_id, discordId);
-  deleteQueueEntry.run(discordId);
 
-  const waitingEntry = getNextWaitingEntry();
-  if (waitingEntry) {
-    insertLobbyPlayer.run(
-      lobbyInfo.lobby_id,
-      waitingEntry.discord_id,
-      waitingEntry.username,
-      waitingEntry.display_name,
-      lobbyInfo.position,
-    );
-    updateQueueStatus.run(waitingEntry.id);
-  } else {
-    const remainingPlayers = selectRemainingPlayers.all(lobbyInfo.lobby_id);
-    let position = 1;
-    for (const player of remainingPlayers) {
-      updatePosition.run(position, player.id);
-      position += 1;
+  const lt = getCreationTypeStmt.get(lobbyInfo.lobby_id);
+  const creationType = lt ? lt.creation_type : 'automatic';
+
+  if (creationType === 'automatic') {
+    const waitingEntry = getNextWaitingEntry();
+    if (waitingEntry) {
+      // fill the vacancy with next waiting
+      insertLobbyPlayer.run(
+        lobbyInfo.lobby_id,
+        waitingEntry.discord_id,
+        waitingEntry.username,
+        waitingEntry.display_name,
+        lobbyInfo.position,
+      );
+      // remove that waiting entry from queue
+      if (waitingEntry.id) {
+        deleteQueueById.run(waitingEntry.id);
+      }
     }
+  }
+
+  // Reindex positions to be contiguous starting at 1
+  const remainingPlayers = selectRemainingPlayers.all(lobbyInfo.lobby_id);
+  let position = 1;
+  for (const player of remainingPlayers) {
+    updatePosition.run(position, player.id);
+    position += 1;
   }
 
   return { removed: true, lobbyId: lobbyInfo.lobby_id };
@@ -115,84 +199,291 @@ function removePlayerFromFormingLobby(discordId) {
 
 function addToQueue({ discordId, username, displayName, isSubscriber = 0 }) {
   const db = getDatabase();
-  const stmt = db.prepare(
+
+  // Pre-checks (not modifying DB)
+  const alreadyWaiting = db.prepare(`SELECT id FROM queue_entries WHERE discord_id = ?`).get(discordId);
+  if (alreadyWaiting) {
+    return { success: false, reason: 'already_waiting' };
+  }
+
+  const inForming = db
+    .prepare(
+      `SELECT l.id FROM lobby_players lp JOIN lobbies l ON l.id = lp.lobby_id WHERE lp.discord_id = ? AND l.status = 'forming' LIMIT 1`,
+    )
+    .get(discordId);
+  if (inForming) {
+    return { success: false, reason: 'in_forming_lobby' };
+  }
+
+  const insertStmt = db.prepare(
     `INSERT INTO queue_entries (discord_id, username, display_name, is_subscriber) VALUES (?, ?, ?, ?)`,
+  );
+  const insertLobbyPlayer = db.prepare(
+    `INSERT INTO lobby_players (lobby_id, discord_id, username, display_name, position, original_joined_at, is_subscriber) VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
 
   const transaction = db.transaction((payload) => {
-    stmt.run(payload.discordId, payload.username, payload.displayName, payload.isSubscriber ? 1 : 0);
-    assignLobbies();
+    insertStmt.run(payload.discordId, payload.username, payload.displayName, payload.isSubscriber ? 1 : 0);
+    rebuildAutomaticFormingLobbies(null);
+    return { joinedLobby: false };
   });
 
   try {
-    transaction({ discordId, username, displayName, isSubscriber });
+    const result = transaction({ discordId, username, displayName, isSubscriber });
+    // Emit event once after successful commit
     queueEvents.emit('queueUpdated');
-    return true;
+    return { success: true, joinedLobby: !!result.joinedLobby };
   } catch (error) {
-    if (error.message.includes('UNIQUE')) {
-      return false;
+    if (error.message && error.message.includes('UNIQUE')) {
+      return { success: false, reason: 'already_waiting' };
     }
     throw error;
   }
 }
 
+function addMultipleToQueue(entries) {
+  const db = getDatabase();
+  const insertStmt = db.prepare(
+    `INSERT INTO queue_entries (discord_id, username, display_name, is_subscriber, joined_at) VALUES (?, ?, ?, ?, ?)`,
+  );
+
+  const transaction = db.transaction((payload) => {
+    for (const player of payload) {
+      insertStmt.run(player.discordId, player.username, player.displayName, player.isSubscriber ? 1 : 0, player.joinedAt);
+    }
+
+    rebuildAutomaticFormingLobbies(null);
+  });
+
+  const result = transaction(entries);
+  queueEvents.emit('queueUpdated');
+  return result;
+}
+
 function forceCreateLobby(limit = 4) {
+  const db = getDatabase();
   const entries = selectWaitingEntries(limit);
   if (!entries.length) {
-    return null;
+    return { success: false, available: 0 };
   }
 
-  const lobbyId = createLobbyWithEntries(entries);
-  if (lobbyId) {
-    queueEvents.emit('queueUpdated');
+  if (entries.length < limit) {
+    return { success: false, available: entries.length };
   }
 
-  return entries;
+  const transaction = db.transaction(() => {
+    createLobbyWithEntries(entries, 'forced');
+  });
+
+  transaction();
+  // emit after commit
+  queueEvents.emit('queueUpdated');
+  return { success: true, entries };
+}
+
+function rebuildAutomaticFormingLobbies(excludedDiscordId) {
+  const db = getDatabase();
+
+  const queueEntries = db
+    .prepare(`SELECT id, discord_id, username, display_name, is_subscriber, joined_at FROM queue_entries`)
+    .all();
+
+  const lobbyPlayers = db
+    .prepare(`
+      SELECT lp.discord_id, lp.username, lp.display_name, lp.is_subscriber, lp.original_joined_at
+      FROM lobby_players lp
+      JOIN lobbies l ON l.id = lp.lobby_id
+      WHERE l.status = 'forming' AND l.creation_type = 'automatic'
+    `)
+    .all();
+
+  const playerMap = new Map();
+
+  for (const entry of [...queueEntries, ...lobbyPlayers]) {
+    if (entry.discord_id === excludedDiscordId) {
+      continue;
+    }
+
+    const originalJoinedAt = entry.original_joined_at || entry.joined_at;
+    const existing = playerMap.get(entry.discord_id);
+    if (!existing) {
+      playerMap.set(entry.discord_id, {
+        id: entry.id,
+        discord_id: entry.discord_id,
+        username: entry.username,
+        display_name: entry.display_name,
+        is_subscriber: entry.is_subscriber ? 1 : 0,
+        original_joined_at: originalJoinedAt,
+      });
+      continue;
+    }
+
+    const existingTimestamp = new Date(existing.original_joined_at).getTime();
+    const currentTimestamp = new Date(originalJoinedAt).getTime();
+    const existingSubscriber = existing.is_subscriber ? 1 : 0;
+    const currentSubscriber = entry.is_subscriber ? 1 : 0;
+
+    if (
+      currentSubscriber > existingSubscriber ||
+      (currentSubscriber === existingSubscriber && currentTimestamp < existingTimestamp)
+    ) {
+      playerMap.set(entry.discord_id, {
+        id: entry.id,
+        discord_id: entry.discord_id,
+        username: entry.username,
+        display_name: entry.display_name,
+        is_subscriber: entry.is_subscriber ? 1 : 0,
+        original_joined_at: originalJoinedAt,
+      });
+    }
+  }
+
+  const sortedPlayers = Array.from(playerMap.values()).sort((a, b) => {
+    const subscriberDiff = (b.is_subscriber ? 1 : 0) - (a.is_subscriber ? 1 : 0);
+    if (subscriberDiff !== 0) {
+      return subscriberDiff;
+    }
+    return new Date(a.original_joined_at) - new Date(b.original_joined_at);
+  });
+
+  const allExistingAutoForming = db
+    .prepare(`SELECT id, lobby_number FROM lobbies WHERE status = 'forming' AND creation_type = 'automatic' ORDER BY lobby_number ASC`)
+    .all();
+
+  const autoFormingLobbyIds = allExistingAutoForming.map((row) => row.id);
+  const existingAutoLobbyNumbers = allExistingAutoForming.map((row) => row.lobby_number);
+  const targetLobbyCount = Math.floor(sortedPlayers.length / 4);
+  const preservedNumbers = existingAutoLobbyNumbers.slice(0, targetLobbyCount);
+
+  const reservedOtherLobbyNumbers = db
+    .prepare(`SELECT lobby_number FROM lobbies WHERE NOT (status = 'forming' AND creation_type = 'automatic')`)
+    .all()
+    .map((row) => row.lobby_number);
+
+  const reservedNumbers = new Set([...reservedOtherLobbyNumbers, ...preservedNumbers]);
+  const lobbyNumbersToUse = [...preservedNumbers];
+
+  while (lobbyNumbersToUse.length < targetLobbyCount) {
+    const nextNumber = getNextLobbyNumber([...reservedNumbers]);
+    lobbyNumbersToUse.push(nextNumber);
+    reservedNumbers.add(nextNumber);
+  }
+
+  if (autoFormingLobbyIds.length) {
+    const lobbyIdsPlaceholder = autoFormingLobbyIds.map(() => '?').join(',');
+    db.prepare(`DELETE FROM lobby_players WHERE lobby_id IN (${lobbyIdsPlaceholder})`).run(...autoFormingLobbyIds);
+    db.prepare(`DELETE FROM lobbies WHERE id IN (${lobbyIdsPlaceholder})`).run(...autoFormingLobbyIds);
+  }
+
+  const completeGroups = [];
+  for (let index = 0; index + 4 <= sortedPlayers.length; index += 4) {
+    completeGroups.push(sortedPlayers.slice(index, index + 4));
+  }
+
+  completeGroups.forEach((group, index) => {
+    createLobbyWithEntries(group, 'automatic', lobbyNumbersToUse[index]);
+  });
+
+  const insertQueueEntry = db.prepare(
+    `INSERT OR IGNORE INTO queue_entries (discord_id, username, display_name, is_subscriber, joined_at) VALUES (?, ?, ?, ?, ?)`,
+  );
+
+  const leftoverPlayers = sortedPlayers.slice(completeGroups.length * 4);
+  leftoverPlayers.forEach((player) => {
+    if (player.id) {
+      return;
+    }
+    insertQueueEntry.run(
+      player.discord_id,
+      player.username,
+      player.display_name,
+      player.is_subscriber ? 1 : 0,
+      player.original_joined_at || new Date().toISOString(),
+    );
+  });
 }
 
 function removeFromQueue(discordId) {
   const db = getDatabase();
-  const waitingStmt = db.prepare(`SELECT id FROM queue_entries WHERE discord_id = ? AND status = 'waiting'`);
-  const waitingRow = waitingStmt.get(discordId);
 
-  if (waitingRow) {
-    const deleteStmt = db.prepare(`DELETE FROM queue_entries WHERE id = ?`);
-    deleteStmt.run(waitingRow.id);
-    queueEvents.emit('queueUpdated');
-    return { success: true, type: 'waiting' };
+  const cooldown = getLeaveCooldown(discordId);
+  if (!cooldown.canLeave) {
+    return { success: false, reason: 'cooldown', remainingSeconds: cooldown.remainingSeconds };
   }
 
-  const lobbyInfo = getLobbyPlayerInfo(discordId);
-  if (!lobbyInfo) {
+  const selectQueueEntryStmt = db.prepare(`SELECT id FROM queue_entries WHERE discord_id = ?`);
+  const deleteQueueById = db.prepare(`DELETE FROM queue_entries WHERE id = ?`);
+  const selectForcedFormingLobbies = db.prepare(`
+    SELECT l.id AS lobby_id
+    FROM lobby_players lp
+    JOIN lobbies l ON l.id = lp.lobby_id
+    WHERE lp.discord_id = ? AND l.status = 'forming' AND l.creation_type = 'forced'
+  `);
+  const selectAutomaticFormingCount = db.prepare(`
+    SELECT COUNT(DISTINCT l.id) AS count
+    FROM lobby_players lp
+    JOIN lobbies l ON l.id = lp.lobby_id
+    WHERE lp.discord_id = ? AND l.status = 'forming' AND l.creation_type = 'automatic'
+  `);
+  const deleteForcedLobbyPlayer = db.prepare(
+    `DELETE FROM lobby_players WHERE lobby_id = ? AND discord_id = ?`,
+  );
+
+  const transaction = db.transaction((payload) => {
+    const { discordId } = payload;
+
+    const waitingRow = selectQueueEntryStmt.get(discordId);
+    const removedFromQueue = !!waitingRow;
+    if (waitingRow) {
+      deleteQueueById.run(waitingRow.id);
+    }
+
+    const forcedLobbies = selectForcedFormingLobbies.all(discordId);
+    let removedFromForced = 0;
+    for (const lobby of forcedLobbies) {
+      deleteForcedLobbyPlayer.run(lobby.lobby_id, discordId);
+      removedFromForced += 1;
+    }
+
+    const automaticForming = selectAutomaticFormingCount.get(discordId);
+    let rebuilt = false;
+    if (automaticForming && automaticForming.count > 0) {
+      rebuildAutomaticFormingLobbies(discordId);
+      rebuilt = true;
+    }
+
+    const success = removedFromQueue || removedFromForced || rebuilt;
+    return { success, removedFromQueue, removedFromForced, rebuilt };
+  });
+
+  try {
+    const result = transaction({ discordId });
+    if (result.success) {
+      queueEvents.emit('queueUpdated');
+      return {
+        success: true,
+        removedFromQueue: result.removedFromQueue,
+        removedFromForced: result.removedFromForced,
+        rebuilt: result.rebuilt,
+      };
+    }
     return { success: false, reason: 'not_found' };
+  } catch (err) {
+    throw err;
   }
-
-  const removal = removePlayerFromFormingLobby(discordId);
-  if (removal && removal.locked) {
-    return { success: false, reason: 'locked' };
-  }
-
-  if (removal) {
-    queueEvents.emit('queueUpdated');
-    return { success: true, type: 'forming' };
-  }
-
-  return { success: false, reason: 'not_found' };
 }
 
 function getQueue() {
   const db = getDatabase();
   const stmt = db.prepare(
-    `SELECT id, discord_id, username, display_name, is_subscriber, joined_at, status FROM queue_entries WHERE status = 'waiting' ORDER BY is_subscriber DESC, joined_at ASC`,
+    `SELECT id, discord_id, username, display_name, is_subscriber, joined_at FROM queue_entries ORDER BY is_subscriber DESC, joined_at ASC`,
   );
   return stmt.all();
 }
 
 function isUserInQueue(discordId) {
   const db = getDatabase();
-  const stmt = db.prepare(
-    `SELECT COUNT(1) AS count FROM queue_entries WHERE discord_id = ? AND status IN ('waiting', 'assigned')`,
-  );
+  const stmt = db.prepare(`SELECT COUNT(1) AS count FROM queue_entries WHERE discord_id = ?`);
   const row = stmt.get(discordId);
   return row.count > 0;
 }
@@ -203,33 +494,35 @@ function getActiveLobbies(status = null) {
     ? `
     SELECT
       l.id AS lobby_id,
+      l.lobby_number AS lobby_number,
       l.status AS status,
+      l.creation_type AS creation_type,
       l.created_at AS created_at,
       lp.discord_id AS discord_id,
       lp.username AS username,
       lp.display_name AS display_name,
-      qe.is_subscriber AS is_subscriber,
+      lp.is_subscriber AS is_subscriber,
       lp.position AS position
     FROM lobbies l
     JOIN lobby_players lp ON lp.lobby_id = l.id
-    LEFT JOIN queue_entries qe ON qe.discord_id = lp.discord_id
     WHERE l.status = ?
-    ORDER BY l.id ASC, lp.position ASC
+    ORDER BY l.lobby_number ASC, lp.position ASC
   `
     : `
     SELECT
       l.id AS lobby_id,
+      l.lobby_number AS lobby_number,
       l.status AS status,
       l.created_at AS created_at,
+      l.creation_type AS creation_type,
       lp.discord_id AS discord_id,
       lp.username AS username,
       lp.display_name AS display_name,
-      qe.is_subscriber AS is_subscriber,
+      lp.is_subscriber AS is_subscriber,
       lp.position AS position
     FROM lobbies l
     JOIN lobby_players lp ON lp.lobby_id = l.id
-    LEFT JOIN queue_entries qe ON qe.discord_id = lp.discord_id
-    ORDER BY l.id ASC, lp.position ASC
+    ORDER BY l.lobby_number ASC, lp.position ASC
   `;
   const stmt = db.prepare(query);
   const rows = status ? stmt.all(status) : stmt.all();
@@ -241,6 +534,7 @@ function getActiveLobbies(status = null) {
     if (!currentLobby || currentLobby.id !== row.lobby_id) {
       currentLobby = {
         id: row.lobby_id,
+        lobbyNumber: row.lobby_number,
         status: row.status,
         createdAt: row.created_at,
         players: [],
@@ -272,12 +566,52 @@ function startLobby(lobbyId) {
   return true;
 }
 
+function startLobbyByNumber(lobbyNumber) {
+  const db = getDatabase();
+  const stmt = db.prepare(`UPDATE lobbies SET status = 'in_game' WHERE lobby_number = ? AND status IN ('forming', 'open')`);
+  const info = stmt.run(lobbyNumber);
+  if (info.changes === 0) {
+    return false;
+  }
+
+  queueEvents.emit('queueUpdated');
+  return true;
+}
+
+function clearTestData() {
+  const db = getDatabase();
+  const deleteQueueEntries = db.prepare(`DELETE FROM queue_entries WHERE discord_id LIKE 'test-user-%'`);
+  const deleteLobbyPlayers = db.prepare(`DELETE FROM lobby_players WHERE discord_id LIKE 'test-user-%'`);
+  const selectEmptyLobbies = db.prepare(`SELECT id FROM lobbies WHERE id NOT IN (SELECT DISTINCT lobby_id FROM lobby_players)`);
+  const deleteEmptyLobbies = db.prepare(`DELETE FROM lobbies WHERE id = ?`);
+
+  const transaction = db.transaction(() => {
+    deleteQueueEntries.run();
+    deleteLobbyPlayers.run();
+
+    const emptyLobbies = selectEmptyLobbies.all();
+    for (const lobby of emptyLobbies) {
+      deleteEmptyLobbies.run(lobby.id);
+    }
+
+    rebuildAutomaticFormingLobbies(null);
+  });
+
+  transaction();
+  queueEvents.emit('queueUpdated');
+  return true;
+}
+
 module.exports = {
   addToQueue,
+  addMultipleToQueue,
   removeFromQueue,
+  getLeaveCooldown,
   getQueue,
   isUserInQueue,
   getActiveLobbies,
   startLobby,
+  startLobbyByNumber,
   forceCreateLobby,
+  clearTestData,
 };

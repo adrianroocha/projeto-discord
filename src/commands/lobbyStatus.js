@@ -25,9 +25,9 @@ module.exports = {
 
     const lines = ['🎯 Lobbies ativos', '', '━━━━━━━━━━━━━━', ''];
 
-    lobbies.forEach((lobby, index) => {
+    lobbies.forEach((lobby) => {
       const statusLabel = lobby.status === 'open' ? 'aguardando partida' : lobby.status;
-      lines.push(`Lobby #${index + 1}`, '');
+      lines.push(`Lobby #${lobby.lobbyNumber}`, '');
       lobby.players.forEach((player) => {
         lines.push(formatPlayerLine(player));
       });
