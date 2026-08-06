@@ -2,7 +2,12 @@ jest.mock('../src/database/kickAccountsRepository', () => ({
   findByDiscordId: jest.fn(),
 }));
 
+jest.mock('../src/services/subscriberEligibilityService', () => ({
+  getEligibility: jest.fn(),
+}));
+
 const kickAccountsRepository = require('../src/database/kickAccountsRepository');
+const subscriberEligibilityService = require('../src/services/subscriberEligibilityService');
 const command = require('../src/commands/kickStatus');
 
 describe('/kick-status command', () => {
@@ -10,8 +15,29 @@ describe('/kick-status command', () => {
     jest.clearAllMocks();
   });
 
-  test('usuário sem vínculo recebe orientação amigável', async () => {
-    kickAccountsRepository.findByDiscordId.mockReturnValue(null);
+  test('usuário sem vínculo pode estar elegível apenas por concessão manual', async () => {
+    subscriberEligibilityService.getEligibility.mockReturnValue({
+      eligible: true,
+      sources: {
+        kick: {
+          linked: false,
+          active: false,
+          observed: false,
+          kickUserId: null,
+          kickUsername: null,
+          startedAtMs: null,
+          expiresAtMs: null,
+          subscriptionType: null,
+        },
+        manual: {
+          active: true,
+          reason: 'Pix',
+          grantedByDiscordId: 'admin-1',
+          grantedAtMs: 1000,
+          expiresAtMs: null,
+        },
+      },
+    });
 
     const interaction = {
       inGuild: () => true,
@@ -23,13 +49,41 @@ describe('/kick-status command', () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: 'Nenhuma conta Kick está vinculada. Use /kick-link para vincular sua conta.',
+        content: expect.stringContaining('Conta Kick: não vinculada'),
         ephemeral: true,
       }),
     );
+
+    const payload = interaction.reply.mock.calls[0][0];
+    expect(payload.content).toContain('Concessão manual: ativa');
+    expect(payload.content).toContain('Elegibilidade: ativa');
+    expect(payload.content).toContain('Fontes ativas:\n- Concessão manual');
   });
 
   test('usuário com vínculo recebe username e kick id corretos', async () => {
+    subscriberEligibilityService.getEligibility.mockReturnValue({
+      eligible: false,
+      sources: {
+        kick: {
+          linked: true,
+          active: false,
+          observed: false,
+          kickUserId: '75942843',
+          kickUsername: 'adrianroocha',
+          startedAtMs: null,
+          expiresAtMs: null,
+          subscriptionType: null,
+        },
+        manual: {
+          active: false,
+          reason: null,
+          grantedByDiscordId: null,
+          grantedAtMs: null,
+          expiresAtMs: null,
+        },
+      },
+    });
+
     kickAccountsRepository.findByDiscordId.mockReturnValue({
       discord_id: 'discord-2',
       kick_user_id: '75942843',
@@ -52,6 +106,29 @@ describe('/kick-status command', () => {
   });
 
   test('converte linked_at_ms para timestamp Discord em segundos', async () => {
+    subscriberEligibilityService.getEligibility.mockReturnValue({
+      eligible: false,
+      sources: {
+        kick: {
+          linked: true,
+          active: false,
+          observed: false,
+          kickUserId: '100',
+          kickUsername: 'user100',
+          startedAtMs: null,
+          expiresAtMs: null,
+          subscriptionType: null,
+        },
+        manual: {
+          active: false,
+          reason: null,
+          grantedByDiscordId: null,
+          grantedAtMs: null,
+          expiresAtMs: null,
+        },
+      },
+    });
+
     kickAccountsRepository.findByDiscordId.mockReturnValue({
       kick_user_id: '100',
       kick_username: 'user100',
@@ -70,7 +147,30 @@ describe('/kick-status command', () => {
     expect(payload.content).toContain('<t:1725111222:F>');
   });
 
-  test('não afirma status de subscriber', async () => {
+  test('mostra elegibilidade inativa sem afirmar cargo sincronizado', async () => {
+    subscriberEligibilityService.getEligibility.mockReturnValue({
+      eligible: false,
+      sources: {
+        kick: {
+          linked: true,
+          active: false,
+          observed: false,
+          kickUserId: '101',
+          kickUsername: 'user101',
+          startedAtMs: null,
+          expiresAtMs: null,
+          subscriptionType: null,
+        },
+        manual: {
+          active: false,
+          reason: null,
+          grantedByDiscordId: null,
+          grantedAtMs: null,
+          expiresAtMs: null,
+        },
+      },
+    });
+
     kickAccountsRepository.findByDiscordId.mockReturnValue({
       kick_user_id: '101',
       kick_username: 'user101',
@@ -86,12 +186,35 @@ describe('/kick-status command', () => {
     await command.execute(interaction);
 
     const payload = interaction.reply.mock.calls[0][0];
-    expect(payload.content).toContain('Status da assinatura: ainda não sincronizado');
-    expect(payload.content).not.toContain('é SUB');
-    expect(payload.content).not.toContain('não é SUB');
+    expect(payload.content).toContain('Assinatura Kick: ainda não observada por webhook');
+    expect(payload.content).toContain('Elegibilidade: inativa');
+    expect(payload.content).toContain('Cargo e prioridade ainda não são sincronizados nesta etapa.');
   });
 
   test('responde sempre ephemeral', async () => {
+    subscriberEligibilityService.getEligibility.mockReturnValue({
+      eligible: false,
+      sources: {
+        kick: {
+          linked: true,
+          active: false,
+          observed: false,
+          kickUserId: '102',
+          kickUsername: 'user102',
+          startedAtMs: null,
+          expiresAtMs: null,
+          subscriptionType: null,
+        },
+        manual: {
+          active: false,
+          reason: null,
+          grantedByDiscordId: null,
+          grantedAtMs: null,
+          expiresAtMs: null,
+        },
+      },
+    });
+
     kickAccountsRepository.findByDiscordId.mockReturnValue({
       kick_user_id: '102',
       kick_username: 'user102',
@@ -119,6 +242,7 @@ describe('/kick-status command', () => {
     await command.execute(interaction);
 
     expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(subscriberEligibilityService.getEligibility).not.toHaveBeenCalled();
     expect(kickAccountsRepository.findByDiscordId).not.toHaveBeenCalled();
   });
 });

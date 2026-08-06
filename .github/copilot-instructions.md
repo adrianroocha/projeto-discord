@@ -1,0 +1,1 @@
+Ao criar, remover ou alterar qualquer slash command, botão, permissão, parâmetro ou comportamento de interação do bot, atualize imediatamente DISCORD_COMMANDS.md e a seção correspondente no README.md no mesmo PR/commit.

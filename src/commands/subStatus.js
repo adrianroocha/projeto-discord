@@ -1,5 +1,5 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
-const manualSubGrantService = require('../services/manualSubGrantService');
+const subscriberEligibilityService = require('../services/subscriberEligibilityService');
 
 function toDiscordTimestamp(ms) {
   return `<t:${Math.floor(ms / 1000)}:F>`;
@@ -11,6 +11,41 @@ function formatExpiresAt(expiresAtMs) {
   }
 
   return toDiscordTimestamp(expiresAtMs);
+}
+
+function formatOptionalTimestamp(ms) {
+  if (ms === null || ms === undefined) {
+    return 'indisponível';
+  }
+  return toDiscordTimestamp(ms);
+}
+
+function mapKickStatus(source) {
+  if (!source.linked) {
+    return 'não vinculada';
+  }
+
+  if (source.active) {
+    return 'ativa';
+  }
+
+  if (source.observed) {
+    return 'expirada';
+  }
+
+  return 'ainda não observada por webhook';
+}
+
+function mapSubscriptionType(type) {
+  if (type === 'direct') {
+    return 'direta';
+  }
+
+  if (type === 'gifted') {
+    return 'presenteada';
+  }
+
+  return 'indisponível';
 }
 
 module.exports = {
@@ -45,35 +80,41 @@ module.exports = {
     const targetUser = interaction.options.getUser('usuario', true);
 
     try {
-      const status = manualSubGrantService.getStatus(targetUser.id);
+      const eligibility = subscriberEligibilityService.getEligibility(targetUser.id);
+      const kickSource = eligibility.sources.kick;
+      const manualSource = eligibility.sources.manual;
+
+      const activeSources = [];
+      if (kickSource.active) {
+        activeSources.push('- Kick');
+      }
+      if (manualSource.active) {
+        activeSources.push('- Concessão manual');
+      }
 
       const lines = [];
       lines.push(`Usuário: <@${targetUser.id}>`);
 
-      if (status.active) {
-        lines.push('Concessão manual: ativa');
-        lines.push(`Motivo: ${status.active.reason}`);
-        lines.push(`Concedida por: <@${status.active.grantedByDiscordId}>`);
-        lines.push(`Concedida em: ${toDiscordTimestamp(status.active.grantedAtMs)}`);
-        lines.push(`Vencimento: ${formatExpiresAt(status.active.expiresAtMs)}`);
-      } else if (status.latestGrant) {
-        lines.push('Concessão manual: inativa');
-        lines.push(`Último motivo: ${status.latestGrant.reason}`);
-        lines.push(`Última concessão por: <@${status.latestGrant.grantedByDiscordId}>`);
-        lines.push(`Última concessão em: ${toDiscordTimestamp(status.latestGrant.grantedAtMs)}`);
-        lines.push(`Último vencimento: ${formatExpiresAt(status.latestGrant.expiresAtMs)}`);
+      lines.push(`Conta Kick: ${kickSource.linked ? kickSource.kickUsername : 'não vinculada'}`);
+      lines.push(`Kick ID: ${kickSource.linked ? kickSource.kickUserId : 'indisponível'}`);
+      lines.push(`Assinatura Kick: ${mapKickStatus(kickSource)}`);
+      lines.push(`Tipo Kick: ${kickSource.observed ? mapSubscriptionType(kickSource.subscriptionType) : 'indisponível'}`);
+      lines.push(`Vencimento Kick: ${formatOptionalTimestamp(kickSource.expiresAtMs)}`);
+
+      lines.push(`Concessão manual: ${manualSource.active ? 'ativa' : 'inativa'}`);
+      if (manualSource.active) {
+        lines.push(`Motivo manual: ${manualSource.reason}`);
+        lines.push(`Concedida por: <@${manualSource.grantedByDiscordId}>`);
+        lines.push(`Concedida em: ${toDiscordTimestamp(manualSource.grantedAtMs)}`);
+        lines.push(`Vencimento manual: ${formatExpiresAt(manualSource.expiresAtMs)}`);
       } else {
-        lines.push('Concessão manual: inativa');
-        lines.push('Nenhum histórico de concessão manual encontrado.');
+        lines.push('Motivo manual: indisponível');
+        lines.push('Vencimento manual: indisponível');
       }
 
-      if (status.latestRevocation) {
-        lines.push(`Última revogação por: <@${status.latestRevocation.revokedByDiscordId}>`);
-        lines.push(`Última revogação em: ${toDiscordTimestamp(status.latestRevocation.revokedAtMs)}`);
-        lines.push(`Motivo da revogação: ${status.latestRevocation.revokeReason}`);
-      }
-
-      lines.push('Kick: ainda não sincronizada');
+      lines.push(`Elegibilidade: ${eligibility.eligible ? 'ativa' : 'inativa'}`);
+      lines.push('Fontes ativas:');
+      lines.push(activeSources.length > 0 ? activeSources.join('\n') : '- nenhuma');
       lines.push('Cargo: ainda não sincronizado nesta etapa');
 
       await interaction.reply({

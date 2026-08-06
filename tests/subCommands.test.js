@@ -5,6 +5,10 @@ jest.mock('../src/services/manualSubGrantService', () => ({
   hasActiveGrant: jest.fn(),
 }));
 
+jest.mock('../src/services/subscriberEligibilityService', () => ({
+  getEligibility: jest.fn(),
+}));
+
 jest.mock('../src/services/queueService', () => ({
   addToQueue: jest.fn(),
   removeFromQueue: jest.fn(),
@@ -13,6 +17,7 @@ jest.mock('../src/services/queueService', () => ({
 
 const { PermissionFlagsBits } = require('discord.js');
 const service = require('../src/services/manualSubGrantService');
+const eligibilityService = require('../src/services/subscriberEligibilityService');
 const queueService = require('../src/services/queueService');
 const subGrantCommand = require('../src/commands/subGrant');
 const subRevokeCommand = require('../src/commands/subRevoke');
@@ -236,16 +241,27 @@ describe('sub admin commands', () => {
   });
 
   test('status ativo', async () => {
-    service.getStatus.mockReturnValue({
-      active: {
-        reason: 'Pix',
-        grantedByDiscordId: 'admin-1',
-        grantedAtMs: 10_000,
-        expiresAtMs: null,
+    eligibilityService.getEligibility.mockReturnValue({
+      eligible: true,
+      sources: {
+        kick: {
+          linked: true,
+          active: true,
+          observed: true,
+          kickUserId: 'kick-user-7',
+          kickUsername: 'kick7',
+          startedAtMs: 5_000,
+          expiresAtMs: 20_000,
+          subscriptionType: 'direct',
+        },
+        manual: {
+          active: true,
+          reason: 'Pix',
+          grantedByDiscordId: 'admin-1',
+          grantedAtMs: 10_000,
+          expiresAtMs: null,
+        },
       },
-      latestGrant: null,
-      latestRevocation: null,
-      history: [],
     });
 
     const interaction = makeBaseInteraction({
@@ -260,21 +276,35 @@ describe('sub admin commands', () => {
 
     const payload = interaction.reply.mock.calls[0][0];
     expect(payload.content).toContain('Concessão manual: ativa');
-    expect(payload.content).toContain('Kick: ainda não sincronizada');
+    expect(payload.content).toContain('Assinatura Kick: ativa');
+    expect(payload.content).toContain('Tipo Kick: direta');
+    expect(payload.content).toContain('Elegibilidade: ativa');
+    expect(payload.content).toContain('Fontes ativas:\n- Kick\n- Concessão manual');
     expect(payload.content).toContain('Cargo: ainda não sincronizado nesta etapa');
   });
 
-  test('status expirado (inativo com último grant)', async () => {
-    service.getStatus.mockReturnValue({
-      active: null,
-      latestGrant: {
-        reason: 'Cortesia expirada',
-        grantedByDiscordId: 'admin-1',
-        grantedAtMs: 10_000,
-        expiresAtMs: 12_000,
+  test('status manual-only não afirma subscriber Kick', async () => {
+    eligibilityService.getEligibility.mockReturnValue({
+      eligible: true,
+      sources: {
+        kick: {
+          linked: true,
+          active: false,
+          observed: false,
+          kickUserId: 'kick-user-8',
+          kickUsername: 'kick8',
+          startedAtMs: null,
+          expiresAtMs: null,
+          subscriptionType: null,
+        },
+        manual: {
+          active: true,
+          reason: 'Cortesia',
+          grantedByDiscordId: 'admin-1',
+          grantedAtMs: 10_000,
+          expiresAtMs: 12_000,
+        },
       },
-      latestRevocation: null,
-      history: [],
     });
 
     const interaction = makeBaseInteraction({
@@ -288,25 +318,34 @@ describe('sub admin commands', () => {
     await subStatusCommand.execute(interaction);
 
     const payload = interaction.reply.mock.calls[0][0];
-    expect(payload.content).toContain('Concessão manual: inativa');
-    expect(payload.content).toContain('Último motivo: Cortesia expirada');
+    expect(payload.content).toContain('Assinatura Kick: ainda não observada por webhook');
+    expect(payload.content).toContain('Concessão manual: ativa');
+    expect(payload.content).toContain('Elegibilidade: ativa');
+    expect(payload.content).toContain('Fontes ativas:\n- Concessão manual');
   });
 
-  test('status revogado mostra última revogação', async () => {
-    service.getStatus.mockReturnValue({
-      active: null,
-      latestGrant: {
-        reason: 'Convidado',
-        grantedByDiscordId: 'admin-1',
-        grantedAtMs: 10_000,
-        expiresAtMs: null,
+  test('status inativo sem fontes ativas', async () => {
+    eligibilityService.getEligibility.mockReturnValue({
+      eligible: false,
+      sources: {
+        kick: {
+          linked: false,
+          active: false,
+          observed: false,
+          kickUserId: null,
+          kickUsername: null,
+          startedAtMs: null,
+          expiresAtMs: null,
+          subscriptionType: null,
+        },
+        manual: {
+          active: false,
+          reason: null,
+          grantedByDiscordId: null,
+          grantedAtMs: null,
+          expiresAtMs: null,
+        },
       },
-      latestRevocation: {
-        revokedByDiscordId: 'admin-2',
-        revokedAtMs: 20_000,
-        revokeReason: 'Revogado',
-      },
-      history: [],
     });
 
     const interaction = makeBaseInteraction({
@@ -320,8 +359,10 @@ describe('sub admin commands', () => {
     await subStatusCommand.execute(interaction);
 
     const payload = interaction.reply.mock.calls[0][0];
-    expect(payload.content).toContain('Última revogação por: <@admin-2>');
-    expect(payload.content).toContain('Motivo da revogação: Revogado');
+    expect(payload.content).toContain('Conta Kick: não vinculada');
+    expect(payload.content).toContain('Concessão manual: inativa');
+    expect(payload.content).toContain('Elegibilidade: inativa');
+    expect(payload.content).toContain('Fontes ativas:\n- nenhuma');
   });
 
   test('não altera cargo e não altera fila nesta etapa', async () => {

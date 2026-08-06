@@ -101,6 +101,8 @@ QUEUE_TEST_INTERVAL_MINUTES=5
 
 ## Comandos disponíveis
 
+Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COMMANDS.md](DISCORD_COMMANDS.md).
+
 ### Comandos administrativos
 
 - `/scheduler-open` - abre a fila manualmente e reinicia o ciclo atual.
@@ -198,11 +200,11 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 
 ## Kick (etapa atual)
 
-- `/kick-status` mostra o estado do vínculo atual da Kick para o usuário do Discord que executou o comando.
+- `/kick-status` mostra o estado do vínculo Kick do usuário, o estado observado da assinatura via webhook e a elegibilidade consolidada.
 - `/kick-unlink` inicia a desvinculação com confirmação explícita por botões.
 - A confirmação de desvinculação usa identificador temporário, de uso único e com expiração de 5 minutos.
 - Se o bot reiniciar, confirmações de desvinculação pendentes são invalidadas.
-- A sincronização de subscriber e o controle de cargo no Discord ainda não estão implementados nesta etapa.
+- A sincronização automática de cargo/prioridade no Discord ainda não está implementada nesta etapa.
 
 ## Concessão manual de benefício SUB (etapa atual)
 
@@ -210,7 +212,7 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - A concessão manual é registrada separadamente para auditoria e não representa assinatura Kick.
 - Os registros de concessão e revogação são preservados no histórico.
 - Nesta etapa, não há sincronização de cargo e não há alteração da fila por esses comandos.
-- A elegibilidade final futura considerará assinatura Kick e concessão manual ativa, sem misturar os conceitos.
+- A elegibilidade final atual considera assinatura Kick ativa OU concessão manual ativa, sem misturar os conceitos.
 
 ## Kick Webhooks (etapa atual)
 
