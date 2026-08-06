@@ -8,6 +8,28 @@ function getRequiredEnv(key) {
   return value;
 }
 
+function parseKickScopes(rawScopes) {
+  if (!rawScopes || !rawScopes.trim()) {
+    return [];
+  }
+
+  return rawScopes
+    .split(/\s+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean);
+}
+
+function parsePositiveInteger(value, fallback) {
+  const parsed = Number(value);
+  if (Number.isInteger(parsed) && parsed > 0) {
+    return parsed;
+  }
+  return fallback;
+}
+
+const kickClientId = process.env.KICK_CLIENT_ID || null;
+const kickClientSecret = process.env.KICK_CLIENT_SECRET || null;
+
 module.exports = {
   databasePath:
     process.env.DATABASE_PATH || path.join(__dirname, '../../data/database.sqlite'),
@@ -22,5 +44,11 @@ module.exports = {
   queueCloseTime: process.env.QUEUE_CLOSE_TIME || '06:00',
   queueTimezone: process.env.QUEUE_TIMEZONE || 'America/Sao_Paulo',
   queueTestIntervalMinutes: Number(process.env.QUEUE_TEST_INTERVAL_MINUTES || '5'),
+  kickClientId,
+  kickClientSecret,
+  kickRedirectUri: process.env.KICK_REDIRECT_URI || 'http://localhost:3000/kick/callback',
+  kickOauthScopes: parseKickScopes(process.env.KICK_OAUTH_SCOPES || 'user:read events:subscribe'),
+  kickPort: parsePositiveInteger(process.env.KICK_PORT || '3000', 3000),
+  kickEnabled: Boolean(kickClientId && kickClientSecret),
   nodeEnv: process.env.NODE_ENV || 'development',
 };

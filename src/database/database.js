@@ -49,10 +49,21 @@ async function initDatabase() {
     )
   `;
 
+  const createKickAccountsTableSql = `
+    CREATE TABLE IF NOT EXISTS kick_accounts (
+      discord_id TEXT PRIMARY KEY,
+      kick_user_id TEXT NOT NULL UNIQUE,
+      kick_username TEXT NOT NULL,
+      linked_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL
+    )
+  `;
+
   db.exec(createUsersTableSql);
   db.exec(createQueueEntriesTableSql);
   db.exec(createLobbiesTableSql);
   db.exec(createLobbyPlayersTableSql);
+  db.exec(createKickAccountsTableSql);
 
   const lobbyInfo = db.prepare("PRAGMA table_info(lobbies)").all();
   const hasLobbyStatus = lobbyInfo.some((column) => column.name === 'status');

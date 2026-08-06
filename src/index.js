@@ -7,6 +7,7 @@ const config = require('./config');
 const database = require('./database/database');
 const queueMessageService = require('./services/queueMessageService');
 const schedulerService = require('./services/schedulerService');
+const { startKickHttpServer } = require('./services/kickHttpServer');
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 let schedulerStarted = false;
@@ -52,6 +53,16 @@ async function start() {
   try {
     await database.initDatabase();
     console.log('Banco de dados inicializado em', config.databasePath);
+
+    try {
+      const kickServer = await startKickHttpServer();
+      if (kickServer.started) {
+        console.log(`Servidor local da Kick ativo na porta ${kickServer.port}.`);
+      }
+    } catch (kickServerError) {
+      console.error('Falha ao iniciar servidor local da Kick (seguindo sem integração Kick):', kickServerError.message);
+    }
+
     console.log('Iniciando o bot do Discord...');
     await client.login(config.discordToken);
   } catch (error) {

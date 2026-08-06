@@ -186,3 +186,10 @@ Durante os testes, o banco é isolado em arquivos temporários para não tocar n
 ## Status do projeto
 
 O projeto já possui base funcional e suíte automatizada. A próxima expansão natural é integrar o fluxo com sistemas externos, como Kick, sem quebrar a lógica central da fila.
+
+## Kick OAuth (etapa 2)
+
+- O vínculo com a Kick usa OAuth 2.1 Authorization Code com PKCE (`S256`) e escopo `user:read`.
+- A tentativa de vínculo (`state` + `code_verifier`) é armazenada em memória por 10 minutos.
+- O `state` é de uso único e é removido após consumo ou expiração.
+- Se o bot reiniciar, tentativas pendentes são perdidas e o usuário deve gerar novo link pelo comando.
