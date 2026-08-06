@@ -193,3 +193,11 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - A tentativa de vínculo (`state` + `code_verifier`) é armazenada em memória por 10 minutos.
 - O `state` é de uso único e é removido após consumo ou expiração.
 - Se o bot reiniciar, tentativas pendentes são perdidas e o usuário deve gerar novo link pelo comando.
+
+## Kick (etapa atual)
+
+- `/kick-status` mostra o estado do vínculo atual da Kick para o usuário do Discord que executou o comando.
+- `/kick-unlink` inicia a desvinculação com confirmação explícita por botões.
+- A confirmação de desvinculação usa identificador temporário, de uso único e com expiração de 5 minutos.
+- Se o bot reiniciar, confirmações de desvinculação pendentes são invalidadas.
+- A sincronização de subscriber e o controle de cargo no Discord ainda não estão implementados nesta etapa.

@@ -1,16 +1,32 @@
 const joinQueueButton = require('../buttons/joinQueue');
 const leaveQueueButton = require('../buttons/leaveQueue');
+const kickUnlinkConfirmButton = require('../buttons/kickUnlinkConfirm');
+const kickUnlinkCancelButton = require('../buttons/kickUnlinkCancel');
 
 const buttonHandlers = {
   [joinQueueButton.customId]: joinQueueButton,
   [leaveQueueButton.customId]: leaveQueueButton,
 };
 
+const prefixButtonHandlers = [kickUnlinkConfirmButton, kickUnlinkCancelButton];
+
+function getButtonHandler(customId) {
+  const exactHandler = buttonHandlers[customId];
+  if (exactHandler) {
+    return exactHandler;
+  }
+
+  return prefixButtonHandlers.find(
+    (handler) =>
+      typeof handler.customIdPrefix === 'string' && customId.startsWith(handler.customIdPrefix),
+  );
+}
+
 module.exports = {
   name: 'interactionCreate',
   async execute(interaction) {
     if (interaction.isButton()) {
-      const handler = buttonHandlers[interaction.customId];
+      const handler = getButtonHandler(interaction.customId);
       if (!handler) return;
 
       try {
