@@ -209,3 +209,15 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - Os registros de concessão e revogação são preservados no histórico.
 - Nesta etapa, não há sincronização de cargo e não há alteração da fila por esses comandos.
 - A elegibilidade final futura considerará assinatura Kick e concessão manual ativa, sem misturar os conceitos.
+
+## Kick Webhooks (etapa atual)
+
+- Endpoint local: `POST /kick/webhooks`.
+- Assinatura do webhook é obrigatória e validada com RSA SHA-256 sobre o corpo bruto da requisição.
+- Eventos suportados: `channel.subscription.new`, `channel.subscription.renewal` e `channel.subscription.gifts`.
+- Idempotência por `event_message_id`, com persistência em `kick_webhook_events`.
+- Assinaturas são persistidas em `kick_subscriptions` com controle por `expires_at_ms` (sem booleano fixo de subscriber).
+- Renovação e eventos fora de ordem não reduzem `expires_at_ms`.
+- O endpoint permanece local (loopback), ainda não acessível externamente pela Kick nesta etapa.
+- Cadastro de subscriptions e URL pública serão feitos em etapa posterior.
+- Cargo Discord e fila ainda não são sincronizados por webhook nesta etapa.

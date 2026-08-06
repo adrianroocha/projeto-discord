@@ -1,9 +1,29 @@
 const http = require('http');
 const config = require('../config');
 const kickAuthService = require('./kickAuthService');
+const kickWebhookSignatureService = require('./kickWebhookSignatureService');
+const kickSubscriptionEventService = require('./kickSubscriptionEventService');
 
 let server = null;
 const LOOPBACK_IPV4 = '127.0.0.1';
+
+function readRawRequestBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+
+    req.on('data', (chunk) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+
+    req.on('end', () => {
+      resolve(Buffer.concat(chunks));
+    });
+
+    req.on('error', (error) => {
+      reject(error);
+    });
+  });
+}
 
 function writeHtml(res, statusCode, title, message) {
   const body = `<!doctype html>
@@ -87,11 +107,102 @@ function mapCallbackError(error) {
 
 function createRequestHandler(dependencies = {}) {
   const authService = dependencies.kickAuthService || kickAuthService;
+  const webhookSignatureService =
+    dependencies.kickWebhookSignatureService || kickWebhookSignatureService;
+  const subscriptionEventService =
+    dependencies.kickSubscriptionEventService || kickSubscriptionEventService;
   const cfg = dependencies.config || config;
   const logger = dependencies.logger || console;
 
   return async function requestHandler(req, res) {
     const requestUrl = new URL(req.url || '/', `http://127.0.0.1:${cfg.kickPort}`);
+
+    if (requestUrl.pathname === '/kick/webhooks') {
+      if (req.method !== 'POST') {
+        res.statusCode = 405;
+        res.end('Method Not Allowed');
+        return;
+      }
+
+      let rawBody;
+      try {
+        rawBody = await readRawRequestBody(req);
+      } catch (_error) {
+        res.statusCode = 500;
+        res.end('Internal Server Error');
+        return;
+      }
+
+      let signatureValidation;
+      try {
+        signatureValidation = await webhookSignatureService.validateRequest({
+          headers: req.headers,
+          rawBody,
+        });
+      } catch (error) {
+        if (typeof logger?.warn === 'function') {
+          logger.warn(`Kick webhook assinatura indisponível: ${error?.code || 'unknown'}`);
+        }
+        res.statusCode = 500;
+        res.end('Internal Server Error');
+        return;
+      }
+
+      if (!signatureValidation.ok) {
+        if (signatureValidation.reason === 'missing_headers') {
+          res.statusCode = 400;
+          res.end('Bad Request');
+          return;
+        }
+
+        res.statusCode = 401;
+        res.end('Unauthorized');
+        return;
+      }
+
+      let eventPayload;
+      try {
+        eventPayload = JSON.parse(rawBody.toString('utf8'));
+      } catch (_error) {
+        res.statusCode = 400;
+        res.end('Bad Request');
+        return;
+      }
+
+      try {
+        const result = subscriptionEventService.processEvent({
+          eventHeaders: signatureValidation.headers,
+          eventPayload,
+        });
+
+        if (
+          result.status === 'processed' ||
+          result.status === 'duplicate' ||
+          result.status === 'ignored_other_broadcaster' ||
+          result.status === 'ignored_unsupported'
+        ) {
+          res.statusCode = 204;
+          res.end('');
+          return;
+        }
+
+        if (result.status === 'webhook_disabled_unconfigured') {
+          res.statusCode = 503;
+          res.end('Service Unavailable');
+          return;
+        }
+
+        res.statusCode = 500;
+        res.end('Internal Server Error');
+      } catch (error) {
+        if (typeof logger?.warn === 'function') {
+          logger.warn(`Kick webhook processamento falhou: ${error?.code || 'processing_error'}`);
+        }
+        res.statusCode = 500;
+        res.end('Internal Server Error');
+      }
+      return;
+    }
 
     if (req.method !== 'GET') {
       res.statusCode = 404;

@@ -35,6 +35,7 @@ async function createTestContext(options = {}) {
   process.env.QUEUE_CLOSE_TIME = options.queueCloseTime || '06:00';
   process.env.QUEUE_TIMEZONE = options.queueTimezone || 'America/Sao_Paulo';
   process.env.QUEUE_TEST_INTERVAL_MINUTES = String(options.queueTestIntervalMinutes || 5);
+  process.env.KICK_BROADCASTER_USER_ID = options.kickBroadcasterUserId || '';
 
   const database = require(databaseModulePath);
   const sqliteClient = require(sqliteClientModulePath);
@@ -63,6 +64,7 @@ async function createTestContext(options = {}) {
     delete process.env.QUEUE_CLOSE_TIME;
     delete process.env.QUEUE_TIMEZONE;
     delete process.env.QUEUE_TEST_INTERVAL_MINUTES;
+    delete process.env.KICK_BROADCASTER_USER_ID;
 
     jest.resetModules();
     jest.restoreAllMocks();

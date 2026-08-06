@@ -49,6 +49,7 @@ module.exports = {
   kickRedirectUri: process.env.KICK_REDIRECT_URI || 'http://localhost:3000/kick/callback',
   kickOauthScopes: parseKickScopes(process.env.KICK_OAUTH_SCOPES || 'user:read events:subscribe'),
   kickPort: parsePositiveInteger(process.env.KICK_PORT || '3000', 3000),
+  kickBroadcasterUserId: process.env.KICK_BROADCASTER_USER_ID || null,
   kickEnabled: Boolean(kickClientId && kickClientSecret),
   nodeEnv: process.env.NODE_ENV || 'development',
 };

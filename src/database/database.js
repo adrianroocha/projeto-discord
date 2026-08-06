@@ -73,12 +73,40 @@ async function initDatabase() {
     )
   `;
 
+  const createKickSubscriptionsTableSql = `
+    CREATE TABLE IF NOT EXISTS kick_subscriptions (
+      broadcaster_user_id TEXT NOT NULL,
+      kick_user_id TEXT NOT NULL,
+      kick_username TEXT NOT NULL,
+      subscription_type TEXT NOT NULL,
+      started_at_ms INTEGER NOT NULL,
+      expires_at_ms INTEGER NOT NULL,
+      last_event_message_id TEXT NOT NULL,
+      updated_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (broadcaster_user_id, kick_user_id)
+    )
+  `;
+
+  const createKickWebhookEventsTableSql = `
+    CREATE TABLE IF NOT EXISTS kick_webhook_events (
+      event_message_id TEXT PRIMARY KEY,
+      event_subscription_id TEXT,
+      event_type TEXT NOT NULL,
+      event_version TEXT NOT NULL,
+      event_timestamp TEXT NOT NULL,
+      received_at_ms INTEGER NOT NULL,
+      processed_at_ms INTEGER NOT NULL
+    )
+  `;
+
   db.exec(createUsersTableSql);
   db.exec(createQueueEntriesTableSql);
   db.exec(createLobbiesTableSql);
   db.exec(createLobbyPlayersTableSql);
   db.exec(createKickAccountsTableSql);
   db.exec(createManualSubGrantsTableSql);
+  db.exec(createKickSubscriptionsTableSql);
+  db.exec(createKickWebhookEventsTableSql);
 
   const lobbyInfo = db.prepare("PRAGMA table_info(lobbies)").all();
   const hasLobbyStatus = lobbyInfo.some((column) => column.name === 'status');
@@ -163,6 +191,29 @@ async function initDatabase() {
   if (manualSubIndexByActive && manualSubIndexByActive.c === 0) {
     db.exec(
       'CREATE INDEX idx_manual_sub_grants_active_lookup ON manual_sub_grants(discord_id, revoked_at_ms, expires_at_ms, granted_at_ms)',
+    );
+  }
+
+  const kickSubByKickUser = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='idx_kick_subscriptions_kick_user_id'")
+    .get();
+  if (kickSubByKickUser && kickSubByKickUser.c === 0) {
+    db.exec('CREATE INDEX idx_kick_subscriptions_kick_user_id ON kick_subscriptions(kick_user_id)');
+  }
+
+  const kickSubByExpires = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='idx_kick_subscriptions_expires_at_ms'")
+    .get();
+  if (kickSubByExpires && kickSubByExpires.c === 0) {
+    db.exec('CREATE INDEX idx_kick_subscriptions_expires_at_ms ON kick_subscriptions(expires_at_ms)');
+  }
+
+  const kickSubByBroadcaster = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='idx_kick_subscriptions_broadcaster_user_id'")
+    .get();
+  if (kickSubByBroadcaster && kickSubByBroadcaster.c === 0) {
+    db.exec(
+      'CREATE INDEX idx_kick_subscriptions_broadcaster_user_id ON kick_subscriptions(broadcaster_user_id)',
     );
   }
 }
