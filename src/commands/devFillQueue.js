@@ -79,7 +79,7 @@ module.exports = {
 
     const startIndex = getNextTestUserIndex();
     const players = [];
-    const now = Date.now();
+    const baseTime = Date.now();
 
     for (let i = 0; i < quantidade; i += 1) {
       const index = startIndex + i;
@@ -90,7 +90,7 @@ module.exports = {
         username: name,
         displayName: name,
         isSubscriber: i < subs ? 1 : 0,
-        joinedAt: new Date(now + i * 1000).toISOString(),
+        joinedAtMs: baseTime + i,
       });
     }
 

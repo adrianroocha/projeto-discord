@@ -1,5 +1,6 @@
 const queueService = require('../services/queueService');
 const queueMessageService = require('../services/queueMessageService');
+const schedulerService = require('../services/schedulerService');
 
 module.exports = {
   customId: 'leave_queue',
@@ -9,7 +10,7 @@ module.exports = {
       const result = queueService.removeFromQueue(discordId);
       if (result && result.success) {
         await interaction.reply({ content: '❌ Você saiu da fila e das suas lobbies atuais.', ephemeral: true });
-        await queueMessageService.updatePanel(interaction.client).catch((error) => {
+        await queueMessageService.updatePanel(interaction.client, { isQueueOpen: schedulerService.isQueueOpen() }).catch((error) => {
           console.error('Erro ao atualizar painel após sair da fila:', error);
         });
         return;

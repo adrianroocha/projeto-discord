@@ -9,7 +9,7 @@ async function initDatabase() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       discord_id TEXT UNIQUE NOT NULL,
       username TEXT NOT NULL,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      created_at_ms INTEGER NOT NULL
     )
   `;
 
@@ -20,7 +20,7 @@ async function initDatabase() {
       username TEXT NOT NULL,
       display_name TEXT NOT NULL,
       is_subscriber INTEGER DEFAULT 0,
-      joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      joined_at_ms INTEGER NOT NULL,
       status TEXT DEFAULT 'waiting'
     )
   `;
@@ -28,7 +28,7 @@ async function initDatabase() {
   const createLobbiesTableSql = `
     CREATE TABLE IF NOT EXISTS lobbies (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      created_at_ms INTEGER NOT NULL,
       status TEXT DEFAULT 'forming',
       creation_type TEXT NOT NULL DEFAULT 'automatic',
       lobby_number INTEGER NOT NULL
@@ -43,7 +43,7 @@ async function initDatabase() {
       username TEXT NOT NULL,
       display_name TEXT NOT NULL,
       position INTEGER NOT NULL,
-      original_joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      original_joined_at_ms INTEGER NOT NULL,
       is_subscriber INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (lobby_id) REFERENCES lobbies(id)
     )
@@ -73,12 +73,13 @@ async function initDatabase() {
     db.exec("ALTER TABLE lobbies ADD COLUMN lobby_number INTEGER NOT NULL DEFAULT 0");
   }
 
-  const hasOriginalJoinedAt = db.prepare("PRAGMA table_info(lobby_players)").all().some((column) => column.name === 'original_joined_at');
-  if (!hasOriginalJoinedAt) {
-    db.exec("ALTER TABLE lobby_players ADD COLUMN original_joined_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+  const lobbyPlayersInfo = db.prepare("PRAGMA table_info(lobby_players)").all();
+  const hasOriginalJoinedAtMs = lobbyPlayersInfo.some((column) => column.name === 'original_joined_at_ms');
+  if (!hasOriginalJoinedAtMs) {
+    db.exec("ALTER TABLE lobby_players ADD COLUMN original_joined_at_ms INTEGER NOT NULL DEFAULT 0");
   }
 
-  const hasLobbyPlayerSubscriber = db.prepare("PRAGMA table_info(lobby_players)").all().some((column) => column.name === 'is_subscriber');
+  const hasLobbyPlayerSubscriber = lobbyPlayersInfo.some((column) => column.name === 'is_subscriber');
   if (!hasLobbyPlayerSubscriber) {
     db.exec("ALTER TABLE lobby_players ADD COLUMN is_subscriber INTEGER NOT NULL DEFAULT 0");
   }
@@ -87,6 +88,17 @@ async function initDatabase() {
   const hasDisplayName = queueInfo.some((column) => column.name === 'display_name');
   if (!hasDisplayName) {
     db.exec("ALTER TABLE queue_entries ADD COLUMN display_name TEXT NOT NULL DEFAULT ''");
+  }
+
+  const hasJoinedAtMs = queueInfo.some((column) => column.name === 'joined_at_ms');
+  if (!hasJoinedAtMs) {
+    db.exec("ALTER TABLE queue_entries ADD COLUMN joined_at_ms INTEGER NOT NULL DEFAULT 0");
+  }
+
+  const lobbiesInfo = db.prepare("PRAGMA table_info(lobbies)").all();
+  const hasCreatedAtMs = lobbiesInfo.some((column) => column.name === 'created_at_ms');
+  if (!hasCreatedAtMs) {
+    db.exec("ALTER TABLE lobbies ADD COLUMN created_at_ms INTEGER NOT NULL DEFAULT 0");
   }
 
   // Ensure queue_entries does not contain players that are already in lobbies

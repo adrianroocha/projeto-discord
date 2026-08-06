@@ -3,14 +3,22 @@ const queueService = require('./queueService');
 const queueEvents = require('./queueEvents');
 const config = require('../config');
 
-function buildPanelContent(allLobbies, queueEntries) {
+function buildPanelContent(allLobbies, queueEntries, options = {}) {
+  const isQueueOpen = options.isQueueOpen !== false;
   const lines = [
     '# 🎮 Sistema de Fila',
+  ];
+
+  if (!isQueueOpen) {
+    lines.push('🔒 Fila fechada no momento.');
+  }
+
+  lines.push(
     '⏳ Após entrar na fila, é necessário aguardar 2 minutos antes de poder sair.',
     '.',
     '👥 Jogadores em espera',
     '',
-  ];
+  );
 
   if (!queueEntries.length) {
     lines.push('Nenhum jogador aguardando.');
@@ -67,16 +75,18 @@ function buildPanelContent(allLobbies, queueEntries) {
   return lines.join('\n');
 }
 
-function createActionRow() {
+function createActionRow(isQueueOpen) {
   return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('join_queue')
       .setLabel(' 🎮 Entrar na fila')
-      .setStyle(ButtonStyle.Success),
+      .setStyle(ButtonStyle.Success)
+      .setDisabled(!isQueueOpen),
     new ButtonBuilder()
       .setCustomId('leave_queue')
       .setLabel('❌ Sair da fila')
-      .setStyle(ButtonStyle.Danger),
+      .setStyle(ButtonStyle.Danger)
+      .setDisabled(!isQueueOpen),
   );
 }
 
@@ -139,12 +149,13 @@ async function fetchPanelMessage(channel) {
 
 let panelUpdatePromise = Promise.resolve();
 
-async function doUpdatePanel(client) {
+async function doUpdatePanel(client, options = {}) {
   const channel = await getQueuePanelChannel(client);
   const queueEntries = queueService.getQueue();
   const lobbies = queueService.getActiveLobbies();
-  const content = buildPanelContent(lobbies, queueEntries);
-  const components = [createActionRow()];
+  const isQueueOpen = options.isQueueOpen !== false;
+  const content = buildPanelContent(lobbies, queueEntries, { isQueueOpen });
+  const components = [createActionRow(isQueueOpen)];
 
   let message = await fetchPanelMessage(channel);
   if (!message) {
@@ -162,9 +173,9 @@ async function doUpdatePanel(client) {
   }
 }
 
-async function updatePanel(client) {
+async function updatePanel(client, options = {}) {
   panelUpdatePromise = panelUpdatePromise
-    .then(() => doUpdatePanel(client))
+    .then(() => doUpdatePanel(client, options))
     .catch((error) => {
       console.error('Erro na sequência de atualização do painel de fila:', error);
       throw error;
@@ -192,4 +203,6 @@ module.exports = {
   initPanel,
   startPanelUpdater,
   updatePanel,
+  buildPanelContent,
+  createActionRow,
 };

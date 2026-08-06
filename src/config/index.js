@@ -18,7 +18,9 @@ module.exports = {
   queueChannelId: process.env.QUEUE_CHANNEL_ID || null,
   lobbyChannelId: process.env.LOBBY_CHANNEL_ID || null,
   queuePanelChannelId: process.env.QUEUE_PANEL_CHANNEL_ID || null,
-  queueOpenTime: process.env.QUEUE_OPEN_TIME || null,
-  queueCloseTime: process.env.QUEUE_CLOSE_TIME || null,
+  queueOpenTime: process.env.QUEUE_OPEN_TIME || '18:58',
+  queueCloseTime: process.env.QUEUE_CLOSE_TIME || '06:00',
+  queueTimezone: process.env.QUEUE_TIMEZONE || 'America/Sao_Paulo',
+  queueTestIntervalMinutes: Number(process.env.QUEUE_TEST_INTERVAL_MINUTES || '5'),
   nodeEnv: process.env.NODE_ENV || 'development',
 };

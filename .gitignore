@@ -7,9 +7,14 @@ node_modules/
 # SQLite database files
 *.sqlite
 *.db
+data/test-database.sqlite
+*.sqlite-journal
 
 data/**/*.sqlite
-ndata/**/*.db
+data/**/*.db
+
+# Test coverage
+coverage/
 
 # Logs
 *.log

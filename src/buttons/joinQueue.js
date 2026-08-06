@@ -1,5 +1,6 @@
 const queueService = require('../services/queueService');
 const queueMessageService = require('../services/queueMessageService');
+const schedulerService = require('../services/schedulerService');
 
 module.exports = {
   customId: 'join_queue',
@@ -7,6 +8,11 @@ module.exports = {
     const discordId = interaction.user.id;
     const username = `${interaction.user.username}#${interaction.user.discriminator}`;
     const displayName = interaction.member?.displayName || interaction.user.username;
+
+    if (!schedulerService.isQueueOpen()) {
+      await interaction.reply({ content: '🔒 A fila está fechada no momento.', ephemeral: true });
+      return;
+    }
 
     if (queueService.isUserInQueue(discordId)) {
       await interaction.reply({

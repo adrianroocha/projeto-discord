@@ -9,7 +9,9 @@
     "dev": "nodemon --watch src --exec \"node src/index.js\"",
     "lint": "eslint src tests --ext .js",
     "format": "prettier --write \"src/**/*.js\" \"tests/**/*.js\"",
-    "test": "jest"
+    "test": "jest --runInBand",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage --runInBand"
   },
   "keywords": [
     "discord",
