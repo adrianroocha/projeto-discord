@@ -99,6 +99,17 @@ async function initDatabase() {
     )
   `;
 
+  const createKickFollowEventsTableSql = `
+    CREATE TABLE IF NOT EXISTS kick_follow_events (
+      event_message_id TEXT PRIMARY KEY,
+      broadcaster_user_id TEXT NOT NULL,
+      follower_user_id TEXT NOT NULL,
+      follower_username TEXT NOT NULL,
+      followed_at_ms INTEGER NOT NULL,
+      received_at_ms INTEGER NOT NULL
+    )
+  `;
+
   db.exec(createUsersTableSql);
   db.exec(createQueueEntriesTableSql);
   db.exec(createLobbiesTableSql);
@@ -107,6 +118,7 @@ async function initDatabase() {
   db.exec(createManualSubGrantsTableSql);
   db.exec(createKickSubscriptionsTableSql);
   db.exec(createKickWebhookEventsTableSql);
+  db.exec(createKickFollowEventsTableSql);
 
   const lobbyInfo = db.prepare("PRAGMA table_info(lobbies)").all();
   const hasLobbyStatus = lobbyInfo.some((column) => column.name === 'status');

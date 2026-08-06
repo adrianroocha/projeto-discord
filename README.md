@@ -109,6 +109,7 @@ QUEUE_TEST_INTERVAL_MINUTES=5
 - `/lobby-start` - inicia uma lobby pelo número.
 - `/lobby-form-force` - força a criação de uma lobby com jogadores suficientes.
 - `/kick-events-sync` - sincroniza os event subscriptions oficiais da Kick para o webhook da aplicação.
+- `/kick-webhook-status` - mostra auditoria resumida do último webhook válido recebido pela integração Kick.
 
 ### Comandos de suporte e diagnóstico
 
@@ -215,10 +216,12 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 
 - Endpoint local: `POST /kick/webhooks`.
 - Assinatura do webhook é obrigatória e validada com RSA SHA-256 sobre o corpo bruto da requisição.
-- Eventos suportados: `channel.subscription.new`, `channel.subscription.renewal` e `channel.subscription.gifts`.
+- Eventos suportados: `channel.subscription.new`, `channel.subscription.renewal`, `channel.subscription.gifts` e `channel.followed`.
 - Idempotência por `event_message_id`, com persistência em `kick_webhook_events`.
 - Assinaturas são persistidas em `kick_subscriptions` com controle por `expires_at_ms` (sem booleano fixo de subscriber).
 - Renovação e eventos fora de ordem não reduzem `expires_at_ms`.
+- Eventos `channel.followed` são auditados em `kick_follow_events` apenas para diagnóstico da integração real.
+- `channel.followed` não concede benefício SUB e não altera cargo, fila ou elegibilidade.
 - O endpoint permanece local (loopback), ainda não acessível externamente pela Kick nesta etapa.
 - O cadastro de event subscriptions usa o comando administrativo `/kick-events-sync`.
 - A URL pública do webhook continua configurada manualmente no painel da Kick.
@@ -232,6 +235,7 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 	- `channel.subscription.new` v1
 	- `channel.subscription.renewal` v1
 	- `channel.subscription.gifts` v1
+	- `channel.followed` v1 (temporário para diagnóstico da integração real)
 - A sincronização é idempotente: cria apenas eventos ausentes e preserva subscriptions extras existentes.
 - O comando exige execução em servidor e permissão `Administrator`.
 - O comando responde `ephemeral` e usa defer por envolver chamadas externas.

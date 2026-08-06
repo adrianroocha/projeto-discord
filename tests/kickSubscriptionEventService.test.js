@@ -5,6 +5,7 @@ process.env.GUILD_ID = process.env.GUILD_ID || 'test-guild';
 let createKickSubscriptionEventService;
 let subscriptionsRepository;
 let eventsRepository;
+let followEventsRepository;
 
 function makeHeaders(overrides = {}) {
   return {
@@ -17,6 +18,18 @@ function makeHeaders(overrides = {}) {
   };
 }
 
+function expectProcessingError(fn, code) {
+  let caught = null;
+  try {
+    fn();
+  } catch (error) {
+    caught = error;
+  }
+
+  expect(caught).toBeTruthy();
+  expect(caught.code).toBe(code);
+}
+
 describe('kickSubscriptionEventService', () => {
   let context;
   let db;
@@ -27,6 +40,7 @@ describe('kickSubscriptionEventService', () => {
     ({ createKickSubscriptionEventService } = require('../src/services/kickSubscriptionEventService'));
     subscriptionsRepository = require('../src/database/kickSubscriptionsRepository');
     eventsRepository = require('../src/database/kickWebhookEventsRepository');
+    followEventsRepository = require('../src/database/kickFollowEventsRepository');
   });
 
   afterEach(async () => {
@@ -125,6 +139,237 @@ describe('kickSubscriptionEventService', () => {
     const second = service.processEvent({ eventHeaders: headers, eventPayload: payload });
 
     expect(second).toEqual({ status: 'duplicate', appliedCount: 0 });
+  });
+
+  test('processa channel.followed válido e audita sem criar kick_subscription', () => {
+    const service = createKickSubscriptionEventService({
+      config: { kickBroadcasterUserId: '101' },
+      now: () => 9_999,
+    });
+
+    const result = service.processEvent({
+      eventHeaders: makeHeaders({
+        eventMessageId: 'evt-follow-1',
+        eventType: 'channel.followed',
+        eventTimestamp: '2026-08-06T12:00:00.000Z',
+      }),
+      eventPayload: {
+        broadcaster: { user_id: 101, username: 'broadcaster-name' },
+        follower: { user_id: 202, username: 'follow-user-1' },
+      },
+    });
+
+    expect(result).toEqual({ status: 'processed', appliedCount: 1 });
+
+    const follow = followEventsRepository.findByEventMessageId('evt-follow-1');
+    expect(follow).toEqual(
+      expect.objectContaining({
+        event_message_id: 'evt-follow-1',
+        broadcaster_user_id: '101',
+        follower_user_id: '202',
+        follower_username: 'follow-user-1',
+        followed_at_ms: Date.parse('2026-08-06T12:00:00.000Z'),
+        received_at_ms: 9999,
+      }),
+    );
+
+    expect(eventsRepository.hasProcessed('evt-follow-1')).toBe(true);
+    expect(subscriptionsRepository.findByBroadcasterAndKickUser('101', '202')).toBeNull();
+    const subscriptionRows = db.prepare('SELECT COUNT(1) AS count FROM kick_subscriptions').get();
+    const queueRows = db.prepare('SELECT COUNT(1) AS count FROM queue_entries').get();
+    expect(subscriptionRows.count).toBe(0);
+    expect(queueRows.count).toBe(0);
+  });
+
+  test('channel.followed de outro broadcaster é ignorado sem criar follow', () => {
+    const service = createKickSubscriptionEventService({
+      config: { kickBroadcasterUserId: 'b-target' },
+      now: () => 10_100,
+      logger: { warn: jest.fn() },
+    });
+
+    const result = service.processEvent({
+      eventHeaders: makeHeaders({
+        eventMessageId: 'evt-follow-other-1',
+        eventType: 'channel.followed',
+      }),
+      eventPayload: {
+        broadcaster: { user_id: 'b-other' },
+        follower: { user_id: 'f2', username: 'follow-user-2' },
+      },
+    });
+
+    expect(result).toEqual({ status: 'ignored_other_broadcaster', appliedCount: 0 });
+    expect(eventsRepository.hasProcessed('evt-follow-other-1')).toBe(true);
+    expect(followEventsRepository.findByEventMessageId('evt-follow-other-1')).toBeNull();
+  });
+
+  test('channel.followed duplicado não cria segundo registro', () => {
+    const service = createKickSubscriptionEventService({
+      config: { kickBroadcasterUserId: 'b1' },
+      now: () => 11_100,
+    });
+
+    const payload = {
+      broadcaster: { user_id: 'b1' },
+      follower: { user_id: 'f3', username: 'follow-user-3' },
+    };
+
+    const headers = makeHeaders({
+      eventMessageId: 'evt-follow-dup-1',
+      eventType: 'channel.followed',
+      eventTimestamp: '2026-08-06T13:00:00.000Z',
+    });
+
+    const first = service.processEvent({ eventHeaders: headers, eventPayload: payload });
+    const second = service.processEvent({ eventHeaders: headers, eventPayload: payload });
+
+    expect(first).toEqual({ status: 'processed', appliedCount: 1 });
+    expect(second).toEqual({ status: 'duplicate', appliedCount: 0 });
+    expect(followEventsRepository.countAll()).toBe(1);
+  });
+
+  test('channel.followed inválido rejeita follower ausente', () => {
+    const service = createKickSubscriptionEventService({
+      config: { kickBroadcasterUserId: 'b1' },
+      now: () => 12_100,
+    });
+
+    expectProcessingError(() => {
+      service.processEvent({
+        eventHeaders: makeHeaders({
+          eventMessageId: 'evt-follow-invalid-1',
+          eventType: 'channel.followed',
+        }),
+        eventPayload: {
+          broadcaster: { user_id: 'b1' },
+          follower: { user_id: '', username: '' },
+        },
+      });
+    }, 'invalid_follower');
+
+    expect(eventsRepository.hasProcessed('evt-follow-invalid-1')).toBe(false);
+    expect(followEventsRepository.findByEventMessageId('evt-follow-invalid-1')).toBeNull();
+  });
+
+  test('channel.followed com eventTimestamp inválido falha de forma controlada', () => {
+    const service = createKickSubscriptionEventService({
+      config: { kickBroadcasterUserId: 'b1' },
+      now: () => 13_100,
+    });
+
+    expectProcessingError(() => {
+      service.processEvent({
+        eventHeaders: makeHeaders({
+          eventMessageId: 'evt-follow-invalid-ts-1',
+          eventType: 'channel.followed',
+          eventTimestamp: 'invalid-date',
+        }),
+        eventPayload: {
+          broadcaster: { user_id: 'b1' },
+          follower: { user_id: 'f4', username: 'follow-user-4' },
+        },
+      });
+    }, 'invalid_event_timestamp');
+  });
+
+  test('channel.followed com eventTimestamp ausente falha de forma controlada', () => {
+    const service = createKickSubscriptionEventService({
+      config: { kickBroadcasterUserId: 'b1' },
+      now: () => 13_200,
+    });
+
+    expectProcessingError(() => {
+      service.processEvent({
+        eventHeaders: makeHeaders({
+          eventMessageId: 'evt-follow-missing-ts-1',
+          eventType: 'channel.followed',
+          eventTimestamp: '',
+        }),
+        eventPayload: {
+          broadcaster: { user_id: 'b1' },
+          follower: { user_id: 'f4', username: 'follow-user-4' },
+        },
+      });
+    }, 'invalid_event_timestamp');
+  });
+
+  test('persistência atômica: se falhar em follow_events não grava evento processado', () => {
+    const failingFollowRepo = {
+      ...followEventsRepository,
+      registerFollowEvent: jest.fn(() => {
+        throw new Error('db-follow-failure');
+      }),
+    };
+
+    const service = createKickSubscriptionEventService({
+      config: { kickBroadcasterUserId: 'b1' },
+      now: () => 14_100,
+      kickFollowEventsRepository: failingFollowRepo,
+    });
+
+    expectProcessingError(() => {
+      service.processEvent({
+        eventHeaders: makeHeaders({
+          eventMessageId: 'evt-follow-atomic-1',
+          eventType: 'channel.followed',
+        }),
+        eventPayload: {
+          broadcaster: { user_id: 'b1' },
+          follower: { user_id: 'f5', username: 'follow-user-5' },
+        },
+      });
+    }, 'database_error');
+
+    expect(eventsRepository.hasProcessed('evt-follow-atomic-1')).toBe(false);
+    expect(followEventsRepository.findByEventMessageId('evt-follow-atomic-1')).toBeNull();
+  });
+
+  test('falha de banco em follow permite retry', () => {
+    const failOnceRepo = {
+      ...followEventsRepository,
+      registerFollowEvent: jest
+        .fn()
+        .mockImplementationOnce(() => {
+          throw new Error('db-failure-once');
+        })
+        .mockImplementation((data, txDb) =>
+          followEventsRepository.registerFollowEvent(data, txDb),
+        ),
+    };
+
+    const serviceFailing = createKickSubscriptionEventService({
+      config: { kickBroadcasterUserId: 'b1' },
+      now: () => 15_100,
+      kickFollowEventsRepository: failOnceRepo,
+    });
+
+    const payload = {
+      broadcaster: { user_id: 'b1' },
+      follower: { user_id: 'f6', username: 'follow-user-6' },
+    };
+
+    const headers = makeHeaders({
+      eventMessageId: 'evt-follow-retry-1',
+      eventType: 'channel.followed',
+      eventTimestamp: '2026-08-06T14:00:00.000Z',
+    });
+
+    expectProcessingError(() => {
+      serviceFailing.processEvent({ eventHeaders: headers, eventPayload: payload });
+    }, 'database_error');
+
+    expect(eventsRepository.hasProcessed('evt-follow-retry-1')).toBe(false);
+
+    const serviceRetry = createKickSubscriptionEventService({
+      config: { kickBroadcasterUserId: 'b1' },
+      now: () => 15_200,
+    });
+
+    const retryResult = serviceRetry.processEvent({ eventHeaders: headers, eventPayload: payload });
+    expect(retryResult).toEqual({ status: 'processed', appliedCount: 1 });
+    expect(eventsRepository.hasProcessed('evt-follow-retry-1')).toBe(true);
+    expect(followEventsRepository.findByEventMessageId('evt-follow-retry-1')).not.toBeNull();
   });
 
   test('evento fora de ordem não reduz expiração', () => {
@@ -246,12 +491,12 @@ describe('kickSubscriptionEventService', () => {
       expires_at: '2026-09-01T00:00:00.000Z',
     };
 
-    expect(() => {
+    expectProcessingError(() => {
       serviceWithFailure.processEvent({
         eventHeaders: makeHeaders({ eventMessageId: 'evt-retry-1', eventType: 'channel.subscription.new' }),
         eventPayload: payload,
       });
-    }).toThrow(/db-failure/);
+    }, 'database_error');
 
     expect(eventsRepository.hasProcessed('evt-retry-1')).toBe(false);
     expect(subscriptionsRepository.findByBroadcasterAndKickUser('b1', 'u8')).toBeNull();

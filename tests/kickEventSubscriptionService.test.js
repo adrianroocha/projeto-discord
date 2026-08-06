@@ -81,7 +81,7 @@ describe('kickEventSubscriptionService', () => {
     });
   });
 
-  test('quando nenhum evento existe, cria os três eventos desejados', async () => {
+  test('quando nenhum evento existe, cria todos os eventos desejados', async () => {
     const { service, kickApiService } = createService();
 
     const result = await service.syncDesiredEvents();
@@ -90,7 +90,7 @@ describe('kickEventSubscriptionService', () => {
     const payload = kickApiService.createEventSubscriptions.mock.calls[0][0];
 
     expect(payload.events).toEqual(DESIRED_KICK_EVENTS);
-    expect(result.created).toHaveLength(3);
+    expect(result.created).toHaveLength(DESIRED_KICK_EVENTS.length);
     expect(result.alreadyActive).toHaveLength(0);
     expect(result.failed).toHaveLength(0);
   });
@@ -128,6 +128,13 @@ describe('kickEventSubscriptionService', () => {
               error: null,
               confirmed: true,
             },
+            {
+              name: 'channel.followed',
+              version: 1,
+              subscriptionId: 'sub-followed',
+              error: null,
+              confirmed: true,
+            },
           ],
           diagnostics: [],
         }),
@@ -140,12 +147,14 @@ describe('kickEventSubscriptionService', () => {
     expect(createPayload.events).toEqual([
       { name: 'channel.subscription.new', version: 1 },
       { name: 'channel.subscription.renewal', version: 1 },
+      { name: 'channel.followed', version: 1 },
     ]);
 
     expect(result.alreadyActive).toEqual(['channel.subscription.gifts v1']);
     expect(result.created).toEqual([
       'channel.subscription.new v1',
       'channel.subscription.renewal v1',
+      'channel.followed v1',
     ]);
     expect(result.failed).toEqual([]);
   });
@@ -171,7 +180,7 @@ describe('kickEventSubscriptionService', () => {
     expect(kickApiService.createEventSubscriptions).not.toHaveBeenCalled();
     expect(result.created).toEqual([]);
     expect(result.failed).toEqual([]);
-    expect(result.alreadyActive).toHaveLength(3);
+    expect(result.alreadyActive).toHaveLength(DESIRED_KICK_EVENTS.length);
   });
 
   test('POST com resposta inesperada sem item correspondente vira falha com message da Kick', async () => {
@@ -199,6 +208,7 @@ describe('kickEventSubscriptionService', () => {
       { event: 'channel.subscription.new v1', reason: 'OK' },
       { event: 'channel.subscription.renewal v1', reason: 'OK' },
       { event: 'channel.subscription.gifts v1', reason: 'OK' },
+      { event: 'channel.followed v1', reason: 'OK' },
     ]);
   });
 
@@ -241,6 +251,7 @@ describe('kickEventSubscriptionService', () => {
     expect(result.failed).toEqual([
       { event: 'channel.subscription.new v1', reason: 'SUBSCRIPTION_LIMIT_REACHED' },
       { event: 'channel.subscription.gifts v1', reason: 'OK' },
+      { event: 'channel.followed v1', reason: 'OK' },
     ]);
   });
 
@@ -269,7 +280,54 @@ describe('kickEventSubscriptionService', () => {
     });
 
     const result = await service.syncDesiredEvents();
-    expect(result.created).toHaveLength(3);
+    expect(result.created).toHaveLength(DESIRED_KICK_EVENTS.length);
+    expect(result.failed).toEqual([]);
+  });
+
+  test('quando os três eventos de subscription já existem, cria apenas channel.followed', async () => {
+    const { service, kickApiService } = createService({
+      kickApiService: {
+        listEventSubscriptions: jest.fn().mockResolvedValue({
+          status: 200,
+          message: 'OK',
+          subscriptions: [
+            { name: 'channel.subscription.new', version: 1, broadcasterUserId: '75942843' },
+            { name: 'channel.subscription.renewal', version: 1, broadcasterUserId: '75942843' },
+            { name: 'channel.subscription.gifts', version: 1, broadcasterUserId: '75942843' },
+          ],
+          diagnostics: [],
+        }),
+        createEventSubscriptions: jest.fn().mockResolvedValue({
+          status: 200,
+          message: 'OK',
+          results: [
+            {
+              name: 'channel.followed',
+              version: 1,
+              subscriptionId: 'sub-followed-only',
+              error: null,
+              confirmed: true,
+            },
+          ],
+          diagnostics: [],
+        }),
+      },
+    });
+
+    const result = await service.syncDesiredEvents();
+
+    expect(kickApiService.createEventSubscriptions).toHaveBeenCalledTimes(1);
+    expect(kickApiService.createEventSubscriptions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        events: [{ name: 'channel.followed', version: 1 }],
+      }),
+    );
+    expect(result.created).toEqual(['channel.followed v1']);
+    expect(result.alreadyActive).toEqual([
+      'channel.subscription.new v1',
+      'channel.subscription.renewal v1',
+      'channel.subscription.gifts v1',
+    ]);
     expect(result.failed).toEqual([]);
   });
 
@@ -315,9 +373,9 @@ describe('kickEventSubscriptionService', () => {
     const first = await service.syncDesiredEvents();
     const second = await service.syncDesiredEvents();
 
-    expect(first.created).toHaveLength(3);
+    expect(first.created).toHaveLength(DESIRED_KICK_EVENTS.length);
     expect(second.created).toHaveLength(0);
-    expect(second.alreadyActive).toHaveLength(3);
+    expect(second.alreadyActive).toHaveLength(DESIRED_KICK_EVENTS.length);
     expect(kickApiService.createEventSubscriptions).toHaveBeenCalledTimes(1);
   });
 
@@ -355,7 +413,7 @@ describe('kickEventSubscriptionService', () => {
 
     expect(kickAppTokenService.invalidateToken).toHaveBeenCalledTimes(1);
     expect(kickApiService.listEventSubscriptions).toHaveBeenCalledTimes(2);
-    expect(result.alreadyActive).toHaveLength(3);
+    expect(result.alreadyActive).toHaveLength(DESIRED_KICK_EVENTS.length);
   });
 
   test.each([
@@ -402,6 +460,7 @@ describe('kickEventSubscriptionService', () => {
     expect(result.failed).toEqual([
       { event: 'channel.subscription.new v1', reason: 'RATE_LIMITED' },
       { event: 'channel.subscription.renewal v1', reason: 'RATE_LIMITED' },
+      { event: 'channel.followed v1', reason: 'RATE_LIMITED' },
     ]);
   });
 

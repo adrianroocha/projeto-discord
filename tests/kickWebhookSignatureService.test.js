@@ -71,6 +71,19 @@ describe('kickWebhookSignatureService', () => {
     expect(result).toEqual({ ok: false, reason: 'invalid_signature' });
   });
 
+  test('rejeita quando timestamp do header é alterado após assinatura', async () => {
+    const rawBody = Buffer.from('{"ok":true}', 'utf8');
+    const headers = buildHeaders(rawBody);
+    headers['Kick-Event-Message-Timestamp'] = '2026-08-06T01:00:00.000Z';
+
+    const service = createKickWebhookSignatureService({
+      publicKeyProvider: async () => publicKey.export({ type: 'spki', format: 'pem' }),
+    });
+
+    const result = await service.validateRequest({ headers, rawBody });
+    expect(result).toEqual({ ok: false, reason: 'invalid_signature' });
+  });
+
   test('retorna erro de headers ausentes', async () => {
     const rawBody = Buffer.from('{}', 'utf8');
     const service = createKickWebhookSignatureService({

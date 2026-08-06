@@ -6,6 +6,7 @@ const DESIRED_KICK_EVENTS = Object.freeze([
   Object.freeze({ name: 'channel.subscription.new', version: 1 }),
   Object.freeze({ name: 'channel.subscription.renewal', version: 1 }),
   Object.freeze({ name: 'channel.subscription.gifts', version: 1 }),
+  Object.freeze({ name: 'channel.followed', version: 1 }),
 ]);
 
 class KickEventSubscriptionError extends Error {

@@ -90,7 +90,29 @@ function registerProcessedEvent(data, txDb) {
   };
 }
 
+function countAll(txDb) {
+  const db = getDb(txDb);
+  const row = db.prepare('SELECT COUNT(1) AS count FROM kick_webhook_events').get();
+  return Number(row?.count || 0);
+}
+
+function findLatest(txDb) {
+  const db = getDb(txDb);
+  return (
+    db
+      .prepare(
+        `SELECT event_message_id, event_subscription_id, event_type, event_version, event_timestamp, received_at_ms, processed_at_ms
+         FROM kick_webhook_events
+         ORDER BY received_at_ms DESC, event_message_id DESC
+         LIMIT 1`,
+      )
+      .get() || null
+  );
+}
+
 module.exports = {
   hasProcessed,
   registerProcessedEvent,
+  countAll,
+  findLatest,
 };

@@ -114,6 +114,26 @@ function createRequestHandler(dependencies = {}) {
   const cfg = dependencies.config || config;
   const logger = dependencies.logger || console;
 
+  function logWebhookCategory(statusOrCode) {
+    if (!statusOrCode) {
+      return;
+    }
+
+    const categoryMap = {
+      processed: 'processed',
+      duplicate: 'duplicate',
+      ignored_other_broadcaster: 'wrong_broadcaster',
+      invalid_event_timestamp: 'invalid_event_timestamp',
+      invalid_follower: 'invalid_follower',
+      database_error: 'database_error',
+    };
+
+    const mapped = categoryMap[statusOrCode] || statusOrCode;
+    if (typeof logger?.info === 'function') {
+      logger.info(`Kick webhook status: ${mapped}`);
+    }
+  }
+
   return async function requestHandler(req, res) {
     const requestUrl = new URL(req.url || '/', `http://127.0.0.1:${cfg.kickPort}`);
 
@@ -175,6 +195,8 @@ function createRequestHandler(dependencies = {}) {
           eventPayload,
         });
 
+        logWebhookCategory(result?.status);
+
         if (
           result.status === 'processed' ||
           result.status === 'duplicate' ||
@@ -198,6 +220,7 @@ function createRequestHandler(dependencies = {}) {
         if (typeof logger?.warn === 'function') {
           logger.warn(`Kick webhook processamento falhou: ${error?.code || 'processing_error'}`);
         }
+        logWebhookCategory(error?.code || 'processing_error');
         res.statusCode = 500;
         res.end('Internal Server Error');
       }

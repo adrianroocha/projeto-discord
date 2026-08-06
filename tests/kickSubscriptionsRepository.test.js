@@ -17,7 +17,7 @@ describe('kick subscriptions repositories', () => {
     await context.cleanup();
   });
 
-  test('cria tabelas kick_subscriptions e kick_webhook_events', () => {
+  test('cria tabelas kick_subscriptions, kick_webhook_events e kick_follow_events', () => {
     const subscriptionsTable = db
       .prepare(
         "SELECT COUNT(1) AS count FROM sqlite_master WHERE type='table' AND name='kick_subscriptions'",
@@ -28,9 +28,15 @@ describe('kick subscriptions repositories', () => {
         "SELECT COUNT(1) AS count FROM sqlite_master WHERE type='table' AND name='kick_webhook_events'",
       )
       .get();
+    const followEventsTable = db
+      .prepare(
+        "SELECT COUNT(1) AS count FROM sqlite_master WHERE type='table' AND name='kick_follow_events'",
+      )
+      .get();
 
     expect(subscriptionsTable.count).toBe(1);
     expect(eventsTable.count).toBe(1);
+    expect(followEventsTable.count).toBe(1);
   });
 
   test('upsertFromEvent converte datas ISO para ms e cria assinatura', () => {
