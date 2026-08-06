@@ -8,6 +8,11 @@ jest.mock('../src/buttons/leaveQueue', () => ({
   execute: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../src/buttons/kickLinkStart', () => ({
+  customId: 'kick-link-start',
+  execute: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../src/buttons/kickUnlinkConfirm', () => ({
   customIdPrefix: 'kick-unlink-confirm:',
   execute: jest.fn().mockResolvedValue(undefined),
@@ -20,6 +25,7 @@ jest.mock('../src/buttons/kickUnlinkCancel', () => ({
 
 const joinQueueButton = require('../src/buttons/joinQueue');
 const leaveQueueButton = require('../src/buttons/leaveQueue');
+const kickLinkStartButton = require('../src/buttons/kickLinkStart');
 const kickUnlinkConfirmButton = require('../src/buttons/kickUnlinkConfirm');
 const kickUnlinkCancelButton = require('../src/buttons/kickUnlinkCancel');
 const interactionCreateEvent = require('../src/events/interactionCreate');
@@ -56,6 +62,24 @@ describe('interactionCreate event', () => {
     await interactionCreateEvent.execute(interaction);
 
     expect(kickUnlinkConfirmButton.execute).toHaveBeenCalledWith(interaction);
+    expect(kickUnlinkCancelButton.execute).not.toHaveBeenCalled();
+  });
+
+  test('encaminha botão kick-link-start por custom id exato', async () => {
+    const interaction = {
+      isButton: () => true,
+      isChatInputCommand: () => false,
+      customId: 'kick-link-start',
+      reply: jest.fn().mockResolvedValue(undefined),
+      followUp: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await interactionCreateEvent.execute(interaction);
+
+    expect(kickLinkStartButton.execute).toHaveBeenCalledWith(interaction);
+    expect(joinQueueButton.execute).not.toHaveBeenCalled();
+    expect(leaveQueueButton.execute).not.toHaveBeenCalled();
+    expect(kickUnlinkConfirmButton.execute).not.toHaveBeenCalled();
     expect(kickUnlinkCancelButton.execute).not.toHaveBeenCalled();
   });
 

@@ -6,6 +6,7 @@ const eventHandler = require('./handlers/eventHandler');
 const config = require('./config');
 const database = require('./database/database');
 const queueMessageService = require('./services/queueMessageService');
+const kickLinkPanelService = require('./services/kickLinkPanelService');
 const schedulerService = require('./services/schedulerService');
 const { startKickHttpServer } = require('./services/kickHttpServer');
 
@@ -19,16 +20,33 @@ client.once('ready', async () => {
   try {
     await commandHandler.registerCommands(client, config);
     console.log('Slash commands registrados no Discord.');
+  } catch (error) {
+    console.error('Erro ao registrar Slash Commands:', error);
+  }
 
+  try {
     await queueMessageService.initPanel(client);
     console.log('Painel de fila inicializado.');
+  } catch (error) {
+    console.error('Erro ao inicializar painel de fila:', error);
+  }
 
+  try {
+    const result = await kickLinkPanelService.initPanel(client);
+    if (result && result.enabled) {
+      console.log('Painel de vínculo Kick inicializado.');
+    }
+  } catch (error) {
+    console.error('Erro ao inicializar painel de vínculo Kick:', error);
+  }
+
+  try {
     if (!schedulerStarted) {
       schedulerStarted = true;
       schedulerService.startScheduler(client);
     }
   } catch (error) {
-    console.error('Erro ao registrar os Slash Commands ou inicializar painel:', error);
+    console.error('Erro ao iniciar scheduler:', error);
   }
 });
 

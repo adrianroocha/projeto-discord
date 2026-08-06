@@ -1,65 +1,76 @@
+jest.mock('../src/config', () => ({
+  guildId: 'guild-1',
+}));
+
 jest.mock('../src/services/kickLinkStartService', () => ({
   createStartPayload: jest.fn(),
   mapKickLinkError: jest.fn(() => 'erro-controlado'),
 }));
 
 const kickLinkStartService = require('../src/services/kickLinkStartService');
-const command = require('../src/commands/kickLink');
+const button = require('../src/buttons/kickLinkStart');
 
-describe('/kick-link command', () => {
+describe('kick-link-start button', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  test('reutiliza serviço compartilhado e responde ephemeral', async () => {
+  test('usuário sem vínculo recebe botão de autorização em resposta ephemeral', async () => {
     kickLinkStartService.createStartPayload.mockReturnValue({
-      content: 'ok',
-      components: [],
+      content: 'Clique para autorizar',
+      components: [{ toJSON: () => ({ components: [] }) }],
     });
 
     const interaction = {
       inGuild: () => true,
+      guildId: 'guild-1',
       user: { id: 'discord-1' },
       reply: jest.fn().mockResolvedValue(undefined),
     };
 
-    await command.execute(interaction);
+    await button.execute(interaction);
 
     expect(kickLinkStartService.createStartPayload).toHaveBeenCalledWith('discord-1');
-    expect(interaction.reply).toHaveBeenCalledTimes(1);
-    const payload = interaction.reply.mock.calls[0][0];
-    expect(payload.ephemeral).toBe(true);
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ephemeral: true,
+        content: 'Clique para autorizar',
+      }),
+    );
   });
 
-  test('retorna payload de já vinculado sem duplicar lógica no comando', async () => {
+  test('usuário já vinculado recebe orientação para /kick-status', async () => {
     kickLinkStartService.createStartPayload.mockReturnValue({
-      content: 'Sua conta já está vinculada: kick-username (Kick ID 999). Use /kick-status para consultar o estado atual.',
+      content: 'Sua conta já está vinculada: nick (Kick ID 1). Use /kick-status para consultar o estado atual.',
       components: [],
     });
 
     const interaction = {
       inGuild: () => true,
+      guildId: 'guild-1',
       user: { id: 'discord-2' },
       reply: jest.fn().mockResolvedValue(undefined),
     };
 
-    await command.execute(interaction);
+    await button.execute(interaction);
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
+        content: expect.stringContaining('/kick-status'),
         ephemeral: true,
       }),
     );
   });
 
-  test('bloqueia uso em DM e responde ephemeral', async () => {
+  test('guild incorreto é bloqueado', async () => {
     const interaction = {
-      inGuild: () => false,
-      user: { id: 'discord-dm' },
+      inGuild: () => true,
+      guildId: 'guild-2',
+      user: { id: 'discord-3' },
       reply: jest.fn().mockResolvedValue(undefined),
     };
 
-    await command.execute(interaction);
+    await button.execute(interaction);
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -69,20 +80,19 @@ describe('/kick-link command', () => {
     expect(kickLinkStartService.createStartPayload).not.toHaveBeenCalled();
   });
 
-  test('erro do serviço compartilhado é mapeado para resposta segura', async () => {
+  test('erros são mapeados em resposta segura', async () => {
     kickLinkStartService.createStartPayload.mockImplementation(() => {
-      const error = new Error('falhou');
-      error.code = 'KICK_OAUTH_DISABLED';
-      throw error;
+      throw new Error('falha');
     });
 
     const interaction = {
       inGuild: () => true,
-      user: { id: 'discord-3' },
+      guildId: 'guild-1',
+      user: { id: 'discord-4' },
       reply: jest.fn().mockResolvedValue(undefined),
     };
 
-    await command.execute(interaction);
+    await button.execute(interaction);
 
     expect(kickLinkStartService.mapKickLinkError).toHaveBeenCalledTimes(1);
     expect(interaction.reply).toHaveBeenCalledWith(

@@ -29,7 +29,6 @@ async function createTestContext(options = {}) {
   process.env.CLIENT_ID = options.clientId || '';
   process.env.SUBSCRIBER_ROLE_ID = options.subscriberRoleId || '';
   process.env.QUEUE_CHANNEL_ID = options.queueChannelId || '';
-  process.env.LOBBY_CHANNEL_ID = options.lobbyChannelId || '';
   process.env.QUEUE_PANEL_CHANNEL_ID = options.queuePanelChannelId || '';
   process.env.QUEUE_OPEN_TIME = options.queueOpenTime || '18:58';
   process.env.QUEUE_CLOSE_TIME = options.queueCloseTime || '06:00';
@@ -59,7 +58,6 @@ async function createTestContext(options = {}) {
     delete process.env.CLIENT_ID;
     delete process.env.SUBSCRIBER_ROLE_ID;
     delete process.env.QUEUE_CHANNEL_ID;
-    delete process.env.LOBBY_CHANNEL_ID;
     delete process.env.QUEUE_OPEN_TIME;
     delete process.env.QUEUE_CLOSE_TIME;
     delete process.env.QUEUE_TIMEZONE;

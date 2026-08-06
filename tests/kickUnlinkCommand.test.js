@@ -1,6 +1,6 @@
 jest.mock('../src/database/kickAccountsRepository', () => ({
   findByDiscordId: jest.fn(),
-  deleteByDiscordId: jest.fn(),
+  unlinkWithAudit: jest.fn(),
 }));
 
 jest.mock('../src/services/kickUnlinkConfirmationService', () => ({
@@ -13,6 +13,7 @@ jest.mock('../src/services/kickUnlinkConfirmationService', () => ({
 
 const kickAccountsRepository = require('../src/database/kickAccountsRepository');
 const confirmationService = require('../src/services/kickUnlinkConfirmationService');
+const { PermissionFlagsBits } = require('discord.js');
 
 const unlinkCommand = require('../src/commands/kickUnlink');
 const confirmButton = require('../src/buttons/kickUnlinkConfirm');
@@ -27,12 +28,21 @@ describe('/kick-unlink command', () => {
     });
   });
 
-  test('usuário sem vínculo recebe aviso', async () => {
-    kickAccountsRepository.findByDiscordId.mockReturnValue(null);
+  function makePermissions(isAdmin) {
+    return {
+      has: (flag) => isAdmin && flag === PermissionFlagsBits.Administrator,
+    };
+  }
 
+  test('somente Administrator pode usar', async () => {
     const interaction = {
       inGuild: () => true,
-      user: { id: 'discord-1' },
+      memberPermissions: makePermissions(false),
+      user: { id: 'admin-1' },
+      options: {
+        getUser: jest.fn(),
+        getString: jest.fn(),
+      },
       reply: jest.fn().mockResolvedValue(undefined),
     };
 
@@ -40,14 +50,72 @@ describe('/kick-unlink command', () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: 'Não há conta Kick vinculada ao seu usuário no momento.',
+        ephemeral: true,
+      }),
+    );
+    expect(kickAccountsRepository.findByDiscordId).not.toHaveBeenCalled();
+  });
+
+  test('schema exige opções obrigatórias usuario e motivo', () => {
+    const json = unlinkCommand.data.toJSON();
+    const userOption = json.options.find((opt) => opt.name === 'usuario');
+    const reasonOption = json.options.find((opt) => opt.name === 'motivo');
+
+    expect(userOption).toBeDefined();
+    expect(reasonOption).toBeDefined();
+    expect(userOption.required).toBe(true);
+    expect(reasonOption.required).toBe(true);
+  });
+
+  test('usuário alvo sem vínculo recebe aviso', async () => {
+    kickAccountsRepository.findByDiscordId.mockReturnValue(null);
+
+    const interaction = {
+      inGuild: () => true,
+      memberPermissions: makePermissions(true),
+      user: { id: 'admin-1' },
+      options: {
+        getUser: jest.fn().mockReturnValue({ id: 'discord-1', bot: false }),
+        getString: jest.fn().mockReturnValue('Solicitação do usuário'),
+      },
+      reply: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await unlinkCommand.execute(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'Não há conta Kick vinculada para <@discord-1> no momento.',
         ephemeral: true,
       }),
     );
     expect(confirmationService.create).not.toHaveBeenCalled();
   });
 
-  test('cria confirmação e mostra botões confirmar/cancelar em resposta ephemeral', async () => {
+  test('motivo vazio é rejeitado', async () => {
+    const interaction = {
+      inGuild: () => true,
+      memberPermissions: makePermissions(true),
+      user: { id: 'admin-blank-reason' },
+      options: {
+        getUser: jest.fn().mockReturnValue({ id: 'discord-any', bot: false }),
+        getString: jest.fn().mockReturnValue('   '),
+      },
+      reply: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await unlinkCommand.execute(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'O motivo da desvinculação é obrigatório.',
+        ephemeral: true,
+      }),
+    );
+    expect(kickAccountsRepository.findByDiscordId).not.toHaveBeenCalled();
+  });
+
+  test('cria confirmação administrativa com usuário alvo e motivo', async () => {
     kickAccountsRepository.findByDiscordId.mockReturnValue({
       kick_username: 'adrianroocha',
       kick_user_id: '75942843',
@@ -55,21 +123,30 @@ describe('/kick-unlink command', () => {
 
     const interaction = {
       inGuild: () => true,
-      user: { id: 'discord-2' },
+      memberPermissions: makePermissions(true),
+      user: { id: 'admin-2' },
+      options: {
+        getUser: jest.fn().mockReturnValue({ id: 'discord-2', bot: false }),
+        getString: jest.fn().mockReturnValue('Solicitação por segurança'),
+      },
       reply: jest.fn().mockResolvedValue(undefined),
     };
 
     await unlinkCommand.execute(interaction);
 
     expect(confirmationService.cleanupExpired).toHaveBeenCalledTimes(1);
-    expect(confirmationService.create).toHaveBeenCalledWith('discord-2', {
+    expect(confirmationService.create).toHaveBeenCalledWith('admin-2', {
+      targetDiscordId: 'discord-2',
       kickUsername: 'adrianroocha',
       kickUserId: '75942843',
+      reason: 'Solicitação por segurança',
     });
 
     const payload = interaction.reply.mock.calls[0][0];
     expect(payload.ephemeral).toBe(true);
     expect(payload.content).toContain('adrianroocha');
+    expect(payload.content).toContain('<@discord-2>');
+    expect(payload.content).toContain('Motivo: Solicitação por segurança');
     expect(payload.components).toHaveLength(1);
 
     const [confirm, cancel] = payload.components[0].toJSON().components;
@@ -80,7 +157,7 @@ describe('/kick-unlink command', () => {
   test('recusa em DM', async () => {
     const interaction = {
       inGuild: () => false,
-      user: { id: 'discord-dm' },
+      user: { id: 'admin-dm' },
       reply: jest.fn().mockResolvedValue(undefined),
     };
 
@@ -96,31 +173,44 @@ describe('kick unlink buttons', () => {
     jest.clearAllMocks();
   });
 
-  test('confirmação válida remove vínculo e desabilita botões', async () => {
+  test('confirmação válida remove vínculo do usuário alvo e audita transação', async () => {
     confirmationService.validate.mockReturnValue({ ok: true, token: 'token-ok' });
-    confirmationService.consume.mockReturnValue({ ok: true, token: 'token-ok' });
+    confirmationService.consume.mockReturnValue({
+      ok: true,
+      token: 'token-ok',
+      metadata: {
+        targetDiscordId: 'discord-target',
+        reason: 'Compliance',
+      },
+    });
     kickAccountsRepository.findByDiscordId.mockReturnValue({
       kick_username: 'linked-user',
       kick_user_id: '100',
     });
-    kickAccountsRepository.deleteByDiscordId.mockReturnValue(true);
+    kickAccountsRepository.unlinkWithAudit.mockReturnValue({ unlinked: true });
 
     const interaction = {
       customId: 'kick-unlink-confirm:token-ok',
-      user: { id: 'discord-10' },
+      user: { id: 'admin-10' },
       reply: jest.fn().mockResolvedValue(undefined),
       update: jest.fn().mockResolvedValue(undefined),
     };
 
     await confirmButton.execute(interaction);
 
-    expect(confirmationService.validate).toHaveBeenCalledWith('token-ok', 'discord-10');
-    expect(confirmationService.consume).toHaveBeenCalledWith('token-ok', 'discord-10');
-    expect(kickAccountsRepository.findByDiscordId).toHaveBeenCalledWith('discord-10');
-    expect(kickAccountsRepository.deleteByDiscordId).toHaveBeenCalledWith('discord-10');
+    expect(confirmationService.validate).toHaveBeenCalledWith('token-ok', 'admin-10');
+    expect(confirmationService.consume).toHaveBeenCalledWith('token-ok', 'admin-10');
+    expect(kickAccountsRepository.findByDiscordId).toHaveBeenCalledWith('discord-target');
+    expect(kickAccountsRepository.unlinkWithAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        discordId: 'discord-target',
+        unlinkedByDiscordId: 'admin-10',
+        reason: 'Compliance',
+      }),
+    );
 
     const payload = interaction.update.mock.calls[0][0];
-    expect(payload.content).toContain('Desvinculação concluída com sucesso');
+    expect(payload.content).toContain('Desvinculação concluída para <@discord-target>');
     const [confirm, cancel] = payload.components[0].toJSON().components;
     expect(confirm.disabled).toBe(true);
     expect(cancel.disabled).toBe(true);
@@ -139,7 +229,7 @@ describe('kick unlink buttons', () => {
     await cancelButton.execute(interaction);
 
     expect(confirmationService.invalidate).toHaveBeenCalledWith('token-cancel');
-    expect(kickAccountsRepository.deleteByDiscordId).not.toHaveBeenCalled();
+    expect(kickAccountsRepository.unlinkWithAudit).not.toHaveBeenCalled();
     const payload = interaction.update.mock.calls[0][0];
     expect(payload.content).toContain('Desvinculação cancelada');
   });
@@ -201,9 +291,16 @@ describe('kick unlink buttons', () => {
     expect(confirmationService.consume).not.toHaveBeenCalled();
   });
 
-  test('idempotência quando vínculo já foi removido antes da confirmação', async () => {
+  test('idempotência quando vínculo do alvo já foi removido antes da confirmação', async () => {
     confirmationService.validate.mockReturnValue({ ok: true, token: 'token-idempotent' });
-    confirmationService.consume.mockReturnValue({ ok: true, token: 'token-idempotent' });
+    confirmationService.consume.mockReturnValue({
+      ok: true,
+      token: 'token-idempotent',
+      metadata: {
+        targetDiscordId: 'discord-14',
+        reason: 'Pedido do usuário',
+      },
+    });
     kickAccountsRepository.findByDiscordId.mockReturnValue(null);
 
     const interaction = {
@@ -215,11 +312,28 @@ describe('kick unlink buttons', () => {
 
     await confirmButton.execute(interaction);
 
-    expect(kickAccountsRepository.deleteByDiscordId).not.toHaveBeenCalled();
+    expect(kickAccountsRepository.unlinkWithAudit).not.toHaveBeenCalled();
     expect(interaction.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: 'Nenhum vínculo ativo foi encontrado. A conta já estava desvinculada.',
+        content: 'Nenhum vínculo ativo foi encontrado para <@discord-14>. A conta já estava desvinculada.',
       }),
     );
+  });
+
+  test('confirmação inválida por metadados ausentes', async () => {
+    confirmationService.validate.mockReturnValue({ ok: true, token: 'token-bad' });
+    confirmationService.consume.mockReturnValue({ ok: true, token: 'token-bad', metadata: {} });
+
+    const interaction = {
+      customId: 'kick-unlink-confirm:token-bad',
+      user: { id: 'admin-20' },
+      reply: jest.fn().mockResolvedValue(undefined),
+      update: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await confirmButton.execute(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(kickAccountsRepository.unlinkWithAudit).not.toHaveBeenCalled();
   });
 });

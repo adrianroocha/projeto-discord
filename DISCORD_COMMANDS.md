@@ -43,7 +43,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 
 ## /kick-link
 - Nome: /kick-link
-- Finalidade: iniciar vínculo OAuth Kick do usuário Discord.
+- Finalidade: alternativa de vínculo OAuth Kick do usuário Discord (o fluxo principal também está no painel permanente).
 - Quem pode usar: qualquer usuário.
 - Onde usar: servidor Discord.
 - Parâmetros: nenhum.
@@ -69,16 +69,16 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 
 ## /kick-unlink
 - Nome: /kick-unlink
-- Finalidade: iniciar desvinculação segura da conta Kick com confirmação por botão.
-- Quem pode usar: qualquer usuário com vínculo Kick.
+- Finalidade: iniciar desvinculação administrativa da conta Kick de um membro.
+- Quem pode usar: Administrator.
 - Onde usar: servidor Discord.
-- Parâmetros: nenhum.
+- Parâmetros: usuario (user, obrigatório), motivo (string, obrigatório).
 - Resposta: ephemeral com botões de confirmar/cancelar.
-- Exemplo: /kick-unlink
-- Efeitos no banco: nenhum direto no comando; remoção ocorre ao confirmar no botão.
+- Exemplo: /kick-unlink usuario:@Membro motivo:Solicitação do usuário
+- Efeitos no banco: nenhum direto no comando; remoção + auditoria ocorrem ao confirmar no botão.
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: nenhum.
-- Limitações: confirmação expira e é de uso único.
+- Limitações: confirmação expira em 5 minutos, é de uso único e só pode ser confirmada pelo administrador que iniciou.
 
 ## /kick-webhook-status
 - Nome: /kick-webhook-status
@@ -301,23 +301,50 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos na fila: saída sujeita a cooldown.
 - Limitações: respeita cooldown de saída.
 
+## Painel permanente Vincular conta Kick
+- Nome: Painel permanente Vincular conta Kick.
+- Finalidade: disponibilizar um ponto fixo para usuários iniciarem o vínculo OAuth Kick no servidor.
+- Quem pode usar: qualquer usuário que visualize o canal.
+- Onde usar: canal configurado em KICK_LINK_CHANNEL_ID (mesmo servidor de GUILD_ID).
+- Parâmetros: nenhum.
+- Resposta: mensagem fixa do bot com um único botão.
+- Exemplo: mensagem iniciando com "Vincule sua conta Kick".
+- Efeitos no banco: nenhum direto no painel.
+- Efeitos em cargo: nenhum.
+- Efeitos na fila: nenhum.
+- Limitações: se KICK_LINK_CHANNEL_ID estiver ausente, o painel é desativado e /kick-link continua funcionando.
+- Operação recomendada do canal: negar "Enviar mensagens" para @everyone para manter o canal apenas de painel.
+
+## Botão kick-link-start
+- Nome: kick-link-start
+- Finalidade: iniciar vínculo Kick de forma segura a partir do painel.
+- Quem pode usar: qualquer usuário no servidor correto.
+- Onde usar: painel permanente Vincular conta Kick.
+- Parâmetros: nenhum.
+- Resposta: ephemeral; se não vinculado, retorna botão/link "Autorizar na Kick" com URL temporária.
+- Exemplo: clique em "Vincular conta Kick".
+- Efeitos no banco: nenhum direto no clique; persistência ocorre no callback OAuth.
+- Efeitos em cargo: nenhum.
+- Efeitos na fila: nenhum.
+- Limitações: bloqueado em guild diferente do configurado; reutiliza o mesmo fluxo de /kick-link.
+
 ## Botão kick-unlink-confirm:{token}
 - Nome: kick-unlink-confirm:{token}
-- Finalidade: confirmar desvinculação Kick iniciada em /kick-unlink.
-- Quem pode usar: somente o usuário dono da confirmação.
+- Finalidade: confirmar desvinculação administrativa iniciada em /kick-unlink.
+- Quem pode usar: somente o administrador que iniciou a confirmação.
 - Onde usar: mensagem ephemeral de confirmação.
 - Parâmetros: token embutido no customId.
 - Resposta: update da mensagem com botões desabilitados.
 - Exemplo: clique em "Confirmar desvinculação".
-- Efeitos no banco: remove vínculo em kick_accounts por discord_id.
+- Efeitos no banco: remove vínculo em kick_accounts e cria auditoria em kick_unlink_audit na mesma transação.
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: nenhum.
 - Limitações: token expira, é de uso único e não pode ser usado por outro usuário.
 
 ## Botão kick-unlink-cancel:{token}
 - Nome: kick-unlink-cancel:{token}
-- Finalidade: cancelar desvinculação Kick pendente.
-- Quem pode usar: somente o usuário dono da confirmação.
+- Finalidade: cancelar desvinculação administrativa pendente.
+- Quem pode usar: somente o administrador que iniciou a confirmação.
 - Onde usar: mensagem ephemeral de confirmação.
 - Parâmetros: token embutido no customId.
 - Resposta: update da mensagem com botões desabilitados.

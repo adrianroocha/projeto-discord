@@ -1,5 +1,6 @@
 const {
   SlashCommandBuilder,
+  PermissionFlagsBits,
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
@@ -23,7 +24,20 @@ function buildRow(token) {
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('kick-unlink')
-    .setDescription('Inicia o processo seguro de desvinculação da conta Kick.'),
+    .setDescription('Inicia a desvinculação administrativa de uma conta Kick vinculada.')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addUserOption((option) =>
+      option
+        .setName('usuario')
+        .setDescription('Usuário do Discord cuja conta Kick será desvinculada.')
+        .setRequired(true),
+    )
+    .addStringOption((option) =>
+      option
+        .setName('motivo')
+        .setDescription('Motivo da desvinculação administrativa.')
+        .setRequired(true),
+    ),
 
   async execute(interaction) {
     if (!interaction.inGuild()) {
@@ -34,10 +48,28 @@ module.exports = {
       return;
     }
 
-    const link = kickAccountsRepository.findByDiscordId(interaction.user.id);
+    if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+      await interaction.reply({
+        content: 'Você precisa da permissão de Administrator para usar este comando.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const targetUser = interaction.options.getUser('usuario', true);
+    const reason = interaction.options.getString('motivo', true).trim();
+    if (!reason) {
+      await interaction.reply({
+        content: 'O motivo da desvinculação é obrigatório.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const link = kickAccountsRepository.findByDiscordId(targetUser.id);
     if (!link) {
       await interaction.reply({
-        content: 'Não há conta Kick vinculada ao seu usuário no momento.',
+        content: `Não há conta Kick vinculada para <@${targetUser.id}> no momento.`,
         ephemeral: true,
       });
       return;
@@ -45,16 +77,19 @@ module.exports = {
 
     confirmationService.cleanupExpired();
     const confirmation = confirmationService.create(interaction.user.id, {
+      targetDiscordId: targetUser.id,
       kickUsername: link.kick_username,
       kickUserId: link.kick_user_id,
+      reason,
     });
 
     await interaction.reply({
       content: [
-        `Você está prestes a desvincular a conta Kick ${link.kick_username}.`,
-        'Ao confirmar, os dados de vínculo Discord ↔ Kick serão removidos.',
-        'Você poderá vincular novamente depois usando /kick-link.',
-        'A integração de cargo/subscriber ainda não está ativa nesta etapa.',
+        `Você está prestes a desvincular a conta Kick ${link.kick_username} de <@${targetUser.id}>.`,
+        `Motivo: ${reason}`,
+        'Ao confirmar, apenas o vínculo em kick_accounts será removido e auditado.',
+        'Concessões manuais e histórico de subscriptions Kick serão preservados.',
+        'O usuário poderá vincular novamente pelo painel ou por /kick-link.',
         `Esta confirmação expira em <t:${Math.floor(confirmation.expiresAtMs / 1000)}:R>.`,
       ].join('\n'),
       components: [buildRow(confirmation.token)],

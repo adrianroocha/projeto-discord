@@ -52,19 +52,34 @@ module.exports = {
       return;
     }
 
-    const existingLink = kickAccountsRepository.findByDiscordId(interaction.user.id);
+    const targetDiscordId = consumed.metadata?.targetDiscordId;
+    const reason = consumed.metadata?.reason;
+    if (!targetDiscordId || !reason) {
+      await interaction.reply({
+        content: 'Esta confirmação está inválida para desvinculação administrativa.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const existingLink = kickAccountsRepository.findByDiscordId(targetDiscordId);
     if (!existingLink) {
       await interaction.update({
-        content: 'Nenhum vínculo ativo foi encontrado. A conta já estava desvinculada.',
+        content: `Nenhum vínculo ativo foi encontrado para <@${targetDiscordId}>. A conta já estava desvinculada.`,
         components: [buildDisabledRow(token)],
       });
       return;
     }
 
-    kickAccountsRepository.deleteByDiscordId(interaction.user.id);
+    kickAccountsRepository.unlinkWithAudit({
+      discordId: targetDiscordId,
+      unlinkedByDiscordId: interaction.user.id,
+      reason,
+      unlinkedAtMs: Date.now(),
+    });
 
     await interaction.update({
-      content: 'Desvinculação concluída com sucesso. Você pode vincular novamente usando /kick-link.',
+      content: `Desvinculação concluída para <@${targetDiscordId}>. O usuário pode vincular novamente pelo painel ou por /kick-link.`,
       components: [buildDisabledRow(token)],
     });
   },

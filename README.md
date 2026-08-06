@@ -72,7 +72,7 @@ GUILD_ID=
 # Channels
 QUEUE_PANEL_CHANNEL_ID=
 QUEUE_CHANNEL_ID=
-LOBBY_CHANNEL_ID=
+KICK_LINK_CHANNEL_ID=
 
 # Roles
 SUBSCRIBER_ROLE_ID=
@@ -200,10 +200,14 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 
 ## Kick (etapa atual)
 
+- Painel permanente de vínculo: mensagem única com botão `Vincular conta Kick` no canal configurado por `KICK_LINK_CHANNEL_ID`.
+- O comando `/kick-link` permanece disponível como alternativa ao painel.
 - `/kick-status` mostra o estado do vínculo Kick do usuário, o estado observado da assinatura via webhook e a elegibilidade consolidada.
-- `/kick-unlink` inicia a desvinculação com confirmação explícita por botões.
+- `/kick-unlink` é administrativo e desvincula um usuário alvo com confirmação explícita por botões.
 - A confirmação de desvinculação usa identificador temporário, de uso único e com expiração de 5 minutos.
 - Se o bot reiniciar, confirmações de desvinculação pendentes são invalidadas.
+- A desvinculação remove apenas `kick_accounts` e grava auditoria em `kick_unlink_audit`.
+- Concessões manuais, histórico de subscriptions, cargo e fila não são alterados nesta etapa.
 - A sincronização automática de cargo/prioridade no Discord ainda não está implementada nesta etapa.
 
 ## Concessão manual de benefício SUB (etapa atual)

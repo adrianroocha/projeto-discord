@@ -1,11 +1,13 @@
 const joinQueueButton = require('../buttons/joinQueue');
 const leaveQueueButton = require('../buttons/leaveQueue');
+const kickLinkStartButton = require('../buttons/kickLinkStart');
 const kickUnlinkConfirmButton = require('../buttons/kickUnlinkConfirm');
 const kickUnlinkCancelButton = require('../buttons/kickUnlinkCancel');
 
 const buttonHandlers = {
   [joinQueueButton.customId]: joinQueueButton,
   [leaveQueueButton.customId]: leaveQueueButton,
+  [kickLinkStartButton.customId]: kickLinkStartButton,
 };
 
 const prefixButtonHandlers = [kickUnlinkConfirmButton, kickUnlinkCancelButton];

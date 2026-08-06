@@ -40,4 +40,9 @@ describe('documentação de comandos Discord', () => {
     const readme = fs.readFileSync(readmePath, 'utf8');
     expect(readme).toContain('DISCORD_COMMANDS.md');
   });
+
+  test('documentação inclui botão kick-link-start', () => {
+    const doc = fs.readFileSync(discordCommandsDocPath, 'utf8');
+    expect(doc).toContain('kick-link-start');
+  });
 });

@@ -1,4 +1,9 @@
 const { getDatabase } = require('./sqliteClient');
+const kickUnlinkAuditRepository = require('./kickUnlinkAuditRepository');
+
+function getDb(txDb) {
+  return txDb || getDatabase();
+}
 
 function toTimestampMs(value, fieldName) {
   const parsed = Number(value);
@@ -21,8 +26,8 @@ function buildConflictError(message) {
   return error;
 }
 
-function findByDiscordId(discordId) {
-  const db = getDatabase();
+function findByDiscordId(discordId, txDb) {
+  const db = getDb(txDb);
   const id = toNonEmptyString(discordId, 'discordId');
   const row = db
     .prepare(
@@ -111,11 +116,63 @@ function upsert(account) {
   });
 }
 
-function deleteByDiscordId(discordId) {
-  const db = getDatabase();
+function deleteByDiscordId(discordId, txDb) {
+  const db = getDb(txDb);
   const id = toNonEmptyString(discordId, 'discordId');
   const result = db.prepare(`DELETE FROM kick_accounts WHERE discord_id = ?`).run(id);
   return result.changes > 0;
+}
+
+function unlinkWithAudit(input) {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Parâmetro inválido: input é obrigatório.');
+  }
+
+  const db = getDatabase();
+  const discordId = toNonEmptyString(input.discordId, 'discordId');
+  const unlinkedByDiscordId = toNonEmptyString(input.unlinkedByDiscordId, 'unlinkedByDiscordId');
+  const reason = toNonEmptyString(input.reason, 'reason');
+  const unlinkedAtMs = toTimestampMs(input.unlinkedAtMs ?? Date.now(), 'unlinkedAtMs');
+
+  const transaction = db.transaction((payload) => {
+    const existing = findByDiscordId(payload.discordId, db);
+    if (!existing) {
+      return {
+        unlinked: false,
+        reason: 'not_found',
+      };
+    }
+
+    const removed = deleteByDiscordId(payload.discordId, db);
+    if (!removed) {
+      throw new Error('Não foi possível remover vínculo Kick para auditoria.');
+    }
+
+    const audit = kickUnlinkAuditRepository.register(
+      {
+        discordId: payload.discordId,
+        kickUserId: existing.kick_user_id,
+        kickUsername: existing.kick_username,
+        unlinkedByDiscordId: payload.unlinkedByDiscordId,
+        unlinkedAtMs: payload.unlinkedAtMs,
+        reason: payload.reason,
+      },
+      db,
+    );
+
+    return {
+      unlinked: true,
+      account: existing,
+      audit,
+    };
+  });
+
+  return transaction({
+    discordId,
+    unlinkedByDiscordId,
+    reason,
+    unlinkedAtMs,
+  });
 }
 
 module.exports = {
@@ -123,4 +180,5 @@ module.exports = {
   findByKickUserId,
   upsert,
   deleteByDiscordId,
+  unlinkWithAudit,
 };

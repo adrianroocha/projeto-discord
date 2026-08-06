@@ -1,15 +1,21 @@
-const { SlashCommandBuilder } = require('discord.js');
+const config = require('../config');
 const kickLinkStartService = require('../services/kickLinkStartService');
 
 module.exports = {
-  data: new SlashCommandBuilder()
-    .setName('kick-link')
-    .setDescription('Vincula sua conta da Kick ao seu usuário do Discord.'),
+  customId: 'kick-link-start',
 
   async execute(interaction) {
     if (!interaction.inGuild()) {
       await interaction.reply({
-        content: 'Este comando só pode ser usado dentro de um servidor.',
+        content: 'Este botão só pode ser usado dentro de um servidor.',
+        ephemeral: true,
+      });
+      return;
+    }
+
+    if (config.guildId && interaction.guildId !== config.guildId) {
+      await interaction.reply({
+        content: 'Este botão só está disponível no servidor configurado para esta integração.',
         ephemeral: true,
       });
       return;

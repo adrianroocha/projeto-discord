@@ -110,6 +110,18 @@ async function initDatabase() {
     )
   `;
 
+  const createKickUnlinkAuditTableSql = `
+    CREATE TABLE IF NOT EXISTS kick_unlink_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      discord_id TEXT NOT NULL,
+      kick_user_id TEXT NOT NULL,
+      kick_username TEXT NOT NULL,
+      unlinked_by_discord_id TEXT NOT NULL,
+      unlinked_at_ms INTEGER NOT NULL,
+      reason TEXT NOT NULL
+    )
+  `;
+
   db.exec(createUsersTableSql);
   db.exec(createQueueEntriesTableSql);
   db.exec(createLobbiesTableSql);
@@ -119,6 +131,7 @@ async function initDatabase() {
   db.exec(createKickSubscriptionsTableSql);
   db.exec(createKickWebhookEventsTableSql);
   db.exec(createKickFollowEventsTableSql);
+  db.exec(createKickUnlinkAuditTableSql);
 
   const lobbyInfo = db.prepare("PRAGMA table_info(lobbies)").all();
   const hasLobbyStatus = lobbyInfo.some((column) => column.name === 'status');
