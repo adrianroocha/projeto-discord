@@ -201,3 +201,11 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - A confirmação de desvinculação usa identificador temporário, de uso único e com expiração de 5 minutos.
 - Se o bot reiniciar, confirmações de desvinculação pendentes são invalidadas.
 - A sincronização de subscriber e o controle de cargo no Discord ainda não estão implementados nesta etapa.
+
+## Concessão manual de benefício SUB (etapa atual)
+
+- Comandos administrativos: `/sub-grant`, `/sub-revoke` e `/sub-status`.
+- A concessão manual é registrada separadamente para auditoria e não representa assinatura Kick.
+- Os registros de concessão e revogação são preservados no histórico.
+- Nesta etapa, não há sincronização de cargo e não há alteração da fila por esses comandos.
+- A elegibilidade final futura considerará assinatura Kick e concessão manual ativa, sem misturar os conceitos.

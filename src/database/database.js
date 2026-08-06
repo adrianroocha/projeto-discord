@@ -59,11 +59,26 @@ async function initDatabase() {
     )
   `;
 
+  const createManualSubGrantsTableSql = `
+    CREATE TABLE IF NOT EXISTS manual_sub_grants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      discord_id TEXT NOT NULL,
+      granted_by_discord_id TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      granted_at_ms INTEGER NOT NULL,
+      expires_at_ms INTEGER NULL,
+      revoked_at_ms INTEGER NULL,
+      revoked_by_discord_id TEXT NULL,
+      revoke_reason TEXT NULL
+    )
+  `;
+
   db.exec(createUsersTableSql);
   db.exec(createQueueEntriesTableSql);
   db.exec(createLobbiesTableSql);
   db.exec(createLobbyPlayersTableSql);
   db.exec(createKickAccountsTableSql);
+  db.exec(createManualSubGrantsTableSql);
 
   const lobbyInfo = db.prepare("PRAGMA table_info(lobbies)").all();
   const hasLobbyStatus = lobbyInfo.some((column) => column.name === 'status');
@@ -133,6 +148,22 @@ async function initDatabase() {
     } catch (err) {
       console.error('Erro ao criar índice de lobby_number:', err && err.message);
     }
+  }
+
+  const manualSubIndexByDiscord = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='idx_manual_sub_grants_discord_id'")
+    .get();
+  if (manualSubIndexByDiscord && manualSubIndexByDiscord.c === 0) {
+    db.exec('CREATE INDEX idx_manual_sub_grants_discord_id ON manual_sub_grants(discord_id)');
+  }
+
+  const manualSubIndexByActive = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='idx_manual_sub_grants_active_lookup'")
+    .get();
+  if (manualSubIndexByActive && manualSubIndexByActive.c === 0) {
+    db.exec(
+      'CREATE INDEX idx_manual_sub_grants_active_lookup ON manual_sub_grants(discord_id, revoked_at_ms, expires_at_ms, granted_at_ms)',
+    );
   }
 }
 
