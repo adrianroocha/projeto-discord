@@ -108,6 +108,7 @@ QUEUE_TEST_INTERVAL_MINUTES=5
 - `/scheduler-status` - mostra o estado atual do scheduler.
 - `/lobby-start` - inicia uma lobby pelo número.
 - `/lobby-form-force` - força a criação de uma lobby com jogadores suficientes.
+- `/kick-events-sync` - sincroniza os event subscriptions oficiais da Kick para o webhook da aplicação.
 
 ### Comandos de suporte e diagnóstico
 
@@ -219,5 +220,37 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - Assinaturas são persistidas em `kick_subscriptions` com controle por `expires_at_ms` (sem booleano fixo de subscriber).
 - Renovação e eventos fora de ordem não reduzem `expires_at_ms`.
 - O endpoint permanece local (loopback), ainda não acessível externamente pela Kick nesta etapa.
-- Cadastro de subscriptions e URL pública serão feitos em etapa posterior.
+- O cadastro de event subscriptions usa o comando administrativo `/kick-events-sync`.
+- A URL pública do webhook continua configurada manualmente no painel da Kick.
 - Cargo Discord e fila ainda não são sincronizados por webhook nesta etapa.
+
+## Kick Event Subscriptions (etapa atual)
+
+- Comando administrativo: `/kick-events-sync`.
+- Finalidade: sincronizar na API oficial da Kick os eventos obrigatórios para webhooks da aplicação, sem duplicar subscriptions.
+- Eventos registrados:
+	- `channel.subscription.new` v1
+	- `channel.subscription.renewal` v1
+	- `channel.subscription.gifts` v1
+- A sincronização é idempotente: cria apenas eventos ausentes e preserva subscriptions extras existentes.
+- O comando exige execução em servidor e permissão `Administrator`.
+- O comando responde `ephemeral` e usa defer por envolver chamadas externas.
+
+### URL pública do webhook
+
+- A URL pública de `POST /kick/webhooks` deve ser configurada manualmente no painel da aplicação Kick.
+- Não versione URL temporária de desenvolvimento no código ou em `.env.example`.
+- Quick Tunnel (ex.: `trycloudflare`) é apenas apoio de desenvolvimento local.
+
+### Segurança de token
+
+- O App Access Token (Client Credentials) é mantido somente em memória.
+- O token possui cache com renovação antes da expiração.
+- O token nunca é salvo no SQLite.
+- Credenciais e tokens não são registrados em log.
+
+### Escopo desta etapa
+
+- Ainda não há integração com cargos do Discord.
+- Ainda não há integração com a fila.
+- Ainda não há expiração automática de cargos.

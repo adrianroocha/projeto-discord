@@ -136,4 +136,226 @@ describe('kickApiService', () => {
 
     expect(user).toEqual({ kickUserId: '12345', kickUsername: 'kick_user_name' });
   });
+
+  test('troca client credentials por app token', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      makeResponse(200, {
+        access_token: 'app-token-xyz',
+        token_type: 'Bearer',
+        expires_in: 7200,
+      }),
+    );
+
+    const service = createKickApiService({ fetchImpl: fetchMock, timeoutMs: 1000 });
+    const result = await service.exchangeClientCredentialsToken({
+      clientId: 'kick-client-id',
+      clientSecret: 'kick-client-secret',
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        accessToken: 'app-token-xyz',
+        expiresIn: 7200,
+      }),
+    );
+
+    const [, options] = fetchMock.mock.calls[0];
+    const sentBody = new URLSearchParams(options.body);
+    expect(sentBody.get('grant_type')).toBe('client_credentials');
+    expect(sentBody.get('client_id')).toBe('kick-client-id');
+    expect(sentBody.get('client_secret')).toBe('kick-client-secret');
+  });
+
+  test('GET subscriptions com wrapper data e campo event string', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      makeResponse(200, {
+        message: 'OK',
+        data: [
+          {
+            id: 'sub-get-1',
+            broadcaster_user_id: 75942843,
+            method: 'webhook',
+            event: 'channel.subscription.new',
+            version: 1,
+          },
+        ],
+      }),
+    );
+
+    const service = createKickApiService({ fetchImpl: fetchMock, timeoutMs: 1000 });
+    const result = await service.listEventSubscriptions({
+      accessToken: 'app-token-abc',
+      broadcasterUserId: 75942843,
+    });
+
+    expect(result.subscriptions).toEqual([
+      {
+        name: 'channel.subscription.new',
+        version: 1,
+        broadcasterUserId: '75942843',
+        subscriptionId: 'sub-get-1',
+        method: 'webhook',
+      },
+    ]);
+    expect(result.status).toBe(200);
+    expect(result.message).toBe('OK');
+    expect(result.diagnostics).toEqual([
+      {
+        name: 'channel.subscription.new',
+        version: 1,
+        subscriptionIdPresent: true,
+        error: null,
+      },
+    ]);
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toContain('/events/subscriptions?broadcaster_user_id=75942843');
+    expect(options.headers.Authorization).toBe('Bearer app-token-abc');
+  });
+
+  test('POST subscriptions com wrapper data e subscription_id válido', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      makeResponse(200, {
+        message: 'OK',
+        data: [
+          {
+            name: 'channel.subscription.gifts',
+            version: 1,
+            subscription_id: 'sub-post-1',
+          },
+        ],
+      }),
+    );
+
+    const service = createKickApiService({ fetchImpl: fetchMock, timeoutMs: 1000 });
+    const result = await service.createEventSubscriptions({
+      accessToken: 'app-token-created',
+      broadcasterUserId: 75942843,
+      events: [{ name: 'channel.subscription.gifts', version: 1 }],
+    });
+
+    expect(result.results).toEqual([
+      {
+        name: 'channel.subscription.gifts',
+        version: 1,
+        subscriptionId: 'sub-post-1',
+        error: null,
+        confirmed: true,
+      },
+    ]);
+    expect(result.status).toBe(200);
+    expect(result.message).toBe('OK');
+    expect(result.diagnostics).toEqual([
+      {
+        name: 'channel.subscription.gifts',
+        version: 1,
+        subscriptionIdPresent: true,
+        error: null,
+      },
+    ]);
+
+    const [, options] = fetchMock.mock.calls[0];
+    const sentBody = JSON.parse(options.body);
+    expect(sentBody).toEqual({
+      broadcaster_user_id: 75942843,
+      method: 'webhook',
+      events: [{ name: 'channel.subscription.gifts', version: 1 }],
+    });
+  });
+
+  test('POST preserva erro individual retornado pela Kick', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      makeResponse(200, {
+        message: 'OK',
+        data: [
+          {
+            name: 'channel.subscription.new',
+            version: '1',
+            error: 'SUBSCRIPTION_LIMIT_REACHED',
+          },
+        ],
+      }),
+    );
+
+    const service = createKickApiService({ fetchImpl: fetchMock, timeoutMs: 1000 });
+    const result = await service.createEventSubscriptions({
+      accessToken: 'app-token-created',
+      broadcasterUserId: 111111,
+      events: [{ name: 'channel.subscription.new', version: 1 }],
+    });
+
+    expect(result.results).toEqual([
+      {
+        name: 'channel.subscription.new',
+        version: 1,
+        subscriptionId: null,
+        error: 'SUBSCRIPTION_LIMIT_REACHED',
+        confirmed: false,
+      },
+    ]);
+  });
+
+  test('POST com error vazio mantém item como confirmado quando subscription_id existe', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      makeResponse(200, {
+        data: [
+          {
+            name: 'channel.subscription.renewal',
+            version: '1',
+            subscription_id: 'sub-post-renewal',
+            error: '   ',
+          },
+        ],
+      }),
+    );
+
+    const service = createKickApiService({ fetchImpl: fetchMock, timeoutMs: 1000 });
+    const result = await service.createEventSubscriptions({
+      accessToken: 'app-token-created',
+      broadcasterUserId: 222222,
+      events: [{ name: 'channel.subscription.renewal', version: 1 }],
+    });
+
+    expect(result.results[0]).toEqual({
+      name: 'channel.subscription.renewal',
+      version: 1,
+      subscriptionId: 'sub-post-renewal',
+      error: null,
+      confirmed: true,
+    });
+  });
+
+  test('resposta inesperada em subscriptions retorna erro controlado', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(makeResponse(200, { message: 'OK', data: {} }));
+    const service = createKickApiService({ fetchImpl: fetchMock, timeoutMs: 1000 });
+
+    await expect(
+      service.createEventSubscriptions({
+        accessToken: 'app-token-created',
+        broadcasterUserId: 333333,
+        events: [{ name: 'channel.subscription.gifts', version: 1 }],
+      }),
+    ).rejects.toMatchObject({
+      code: 'INVALID_SUBSCRIPTIONS_RESPONSE',
+      httpStatus: 502,
+    });
+  });
+
+  test('propaga message do erro de nível superior para diagnóstico seguro', async () => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(makeResponse(400, { message: 'Invalid broadcaster_user_id' }));
+    const service = createKickApiService({ fetchImpl: fetchMock, timeoutMs: 1000 });
+
+    await expect(
+      service.createEventSubscriptions({
+        accessToken: 'app-token-created',
+        broadcasterUserId: 0,
+        events: [{ name: 'channel.subscription.gifts', version: 1 }],
+      }),
+    ).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      upstreamMessage: 'Invalid broadcaster_user_id',
+    });
+  });
 });
