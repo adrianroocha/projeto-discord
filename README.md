@@ -217,6 +217,10 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - Os registros de concessão e revogação são preservados no histórico.
 - Nesta etapa, não há sincronização de cargo e não há alteração da fila por esses comandos.
 - A elegibilidade final atual considera assinatura Kick ativa OU concessão manual ativa, sem misturar os conceitos.
+- A sincronização de cargo SUB no Discord é manual nesta etapa, via comando administrativo `/sub-sync`.
+- O cargo é identificado exclusivamente por `SUBSCRIBER_ROLE_ID` (nunca por nome).
+- O bot precisa da permissão `ManageRoles` e seu cargo deve estar acima do cargo SUB na hierarquia.
+- Automações de sincronização por webhook/link/unlink/grant/scheduler ficam para etapa posterior.
 
 ## Kick Webhooks (etapa atual)
 

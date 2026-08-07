@@ -275,6 +275,19 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos na fila: nenhum nesta etapa.
 - Limitações: não sincroniza cargo; elegibilidade Kick depende de dados recebidos por webhook.
 
+## /sub-sync
+- Nome: /sub-sync
+- Finalidade: sincronizar manualmente o cargo SUB de um usuário com base na elegibilidade atual (Kick OU concessão manual).
+- Quem pode usar: Administrator.
+- Onde usar: apenas no servidor configurado por GUILD_ID.
+- Parâmetros: usuario (user, obrigatório), motivo (string, obrigatório).
+- Resposta: ephemeral com defer/edit.
+- Exemplo: /sub-sync usuario:@Usuario motivo:Sincronização manual
+- Efeitos no banco: registra auditoria em subscriber_role_sync_audit.
+- Efeitos em cargo: adiciona/remove apenas o cargo configurado por SUBSCRIBER_ROLE_ID quando aplicável.
+- Efeitos na fila: nenhum.
+- Limitações: nesta etapa a sincronização é somente manual via comando; sem automação por webhook/grant/link/scheduler.
+
 ## Botão join_queue
 - Nome: join_queue
 - Finalidade: adicionar o usuário na fila.

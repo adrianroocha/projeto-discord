@@ -122,6 +122,22 @@ async function initDatabase() {
     )
   `;
 
+  const createSubscriberRoleSyncAuditTableSql = `
+    CREATE TABLE IF NOT EXISTS subscriber_role_sync_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      discord_id TEXT NOT NULL,
+      eligible INTEGER NOT NULL,
+      kick_active INTEGER NOT NULL,
+      manual_active INTEGER NOT NULL,
+      action TEXT NOT NULL,
+      result TEXT NOT NULL,
+      triggered_by_discord_id TEXT NOT NULL,
+      trigger_type TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      created_at_ms INTEGER NOT NULL
+    )
+  `;
+
   db.exec(createUsersTableSql);
   db.exec(createQueueEntriesTableSql);
   db.exec(createLobbiesTableSql);
@@ -132,6 +148,7 @@ async function initDatabase() {
   db.exec(createKickWebhookEventsTableSql);
   db.exec(createKickFollowEventsTableSql);
   db.exec(createKickUnlinkAuditTableSql);
+  db.exec(createSubscriberRoleSyncAuditTableSql);
 
   const lobbyInfo = db.prepare("PRAGMA table_info(lobbies)").all();
   const hasLobbyStatus = lobbyInfo.some((column) => column.name === 'status');
