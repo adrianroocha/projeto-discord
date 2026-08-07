@@ -1,8 +1,48 @@
 const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
 const manualSubGrantService = require('../services/manualSubGrantService');
+const subscriberRoleAutoSyncService = require('../services/subscriberRoleAutoSyncService');
 
 function toDiscordTimestamp(ms) {
   return `<t:${Math.floor(ms / 1000)}:F>`;
+}
+
+function mapEligibilityLabel(value) {
+  if (value === true) {
+    return 'ativa';
+  }
+
+  if (value === false) {
+    return 'inativa';
+  }
+
+  return 'indisponível';
+}
+
+function mapRoleStateLabel(roleState) {
+  if (roleState === 'added') {
+    return 'adicionado';
+  }
+
+  if (roleState === 'removed') {
+    return 'removido';
+  }
+
+  if (roleState === 'kept') {
+    return 'mantido';
+  }
+
+  return 'sincronização pendente';
+}
+
+function formatSources(sources) {
+  const activeSources = [];
+  if (sources?.kick) {
+    activeSources.push('- Kick');
+  }
+  if (sources?.manual) {
+    activeSources.push('- Concessão manual');
+  }
+  return activeSources.length > 0 ? activeSources.join('\n') : '- nenhuma';
 }
 
 module.exports = {
@@ -78,17 +118,35 @@ module.exports = {
 
       const grant = result.grant;
       const expiresLabel = grant.expiresAtMs ? toDiscordTimestamp(grant.expiresAtMs) : 'sem vencimento';
+      const syncResult = await subscriberRoleAutoSyncService.syncAfterEligibilityChange({
+        discordId: grant.discordId,
+        triggerType: 'manual_grant',
+        reason: `Concessão manual: ${grant.reason}`,
+        triggeredByDiscordId: interaction.user.id,
+        client: interaction.client,
+      });
+
+      const lines = [
+        'Concessão manual registrada com sucesso.',
+        `Usuário: <@${grant.discordId}>`,
+        `Motivo: ${grant.reason}`,
+        `Administrador: <@${grant.grantedByDiscordId}>`,
+        `Concedida em: ${toDiscordTimestamp(grant.grantedAtMs)}`,
+        `Vencimento: ${expiresLabel}`,
+        `Elegibilidade final: ${mapEligibilityLabel(syncResult.eligibility)}`,
+        'Fontes ativas:',
+        formatSources(syncResult.sources),
+        `Estado do cargo SUB: ${mapRoleStateLabel(syncResult.roleState)}`,
+      ];
+
+      if (syncResult.status === 'warning') {
+        lines.push(
+          'A concessão foi salva, mas a sincronização automática do cargo ficou pendente. Use /sub-sync para reconciliar.',
+        );
+      }
 
       await interaction.reply({
-        content: [
-          'Concessão manual registrada com sucesso.',
-          `Usuário: <@${grant.discordId}>`,
-          `Motivo: ${grant.reason}`,
-          `Administrador: <@${grant.grantedByDiscordId}>`,
-          `Concedida em: ${toDiscordTimestamp(grant.grantedAtMs)}`,
-          `Vencimento: ${expiresLabel}`,
-          'Observação: cargo e prioridade serão sincronizados em etapa posterior.',
-        ].join('\n'),
+        content: lines.join('\n'),
         ephemeral: true,
       });
     } catch (error) {

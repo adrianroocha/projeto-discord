@@ -207,20 +207,23 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - A confirmação de desvinculação usa identificador temporário, de uso único e com expiração de 5 minutos.
 - Se o bot reiniciar, confirmações de desvinculação pendentes são invalidadas.
 - A desvinculação remove apenas `kick_accounts` e grava auditoria em `kick_unlink_audit`.
-- Concessões manuais, histórico de subscriptions, cargo e fila não são alterados nesta etapa.
-- A sincronização automática de cargo/prioridade no Discord ainda não está implementada nesta etapa.
+- Após callback OAuth do vínculo Kick, o bot recalcula elegibilidade e tenta sincronizar automaticamente o cargo SUB.
+- Após confirmação administrativa de `/kick-unlink`, o bot recalcula elegibilidade e tenta sincronizar automaticamente o cargo SUB do alvo.
+- Falhas de sincronização de cargo não desfazem vínculo/desvínculo persistido no banco.
 
 ## Concessão manual de benefício SUB (etapa atual)
 
 - Comandos administrativos: `/sub-grant`, `/sub-revoke` e `/sub-status`.
 - A concessão manual é registrada separadamente para auditoria e não representa assinatura Kick.
 - Os registros de concessão e revogação são preservados no histórico.
-- Nesta etapa, não há sincronização de cargo e não há alteração da fila por esses comandos.
+- `/sub-grant` e `/sub-revoke` recalculam elegibilidade e tentam sincronizar automaticamente o cargo SUB.
+- Em caso de falha de sincronização de cargo, a alteração de banco permanece e a reconciliação manual pode ser feita via `/sub-sync`.
+- Não há alteração da fila por esses comandos.
 - A elegibilidade final atual considera assinatura Kick ativa OU concessão manual ativa, sem misturar os conceitos.
-- A sincronização de cargo SUB no Discord é manual nesta etapa, via comando administrativo `/sub-sync`.
+- O comando `/sub-sync` permanece disponível para diagnóstico e correção manual.
 - O cargo é identificado exclusivamente por `SUBSCRIBER_ROLE_ID` (nunca por nome).
 - O bot precisa da permissão `ManageRoles` e seu cargo deve estar acima do cargo SUB na hierarquia.
-- Automações de sincronização por webhook/link/unlink/grant/scheduler ficam para etapa posterior.
+- Scheduler periódico ainda não está implementado para reconciliação em massa.
 
 ## Kick Webhooks (etapa atual)
 
@@ -232,10 +235,13 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - Renovação e eventos fora de ordem não reduzem `expires_at_ms`.
 - Eventos `channel.followed` são auditados em `kick_follow_events` apenas para diagnóstico da integração real.
 - `channel.followed` não concede benefício SUB e não altera cargo, fila ou elegibilidade.
+- Após persistência confiável de `channel.subscription.new`, `channel.subscription.renewal` e `channel.subscription.gifts`, o bot tenta sincronizar automaticamente o cargo SUB dos usuários vinculados.
+- Se o `kick_user_id` recebido não possuir vínculo local em `kick_accounts`, o evento permanece persistido sem erro e sem sincronização de cargo.
+- Falhas de sincronização de cargo após persistência não causam retry do webhook e não desfazem alterações de banco.
 - O endpoint permanece local (loopback), ainda não acessível externamente pela Kick nesta etapa.
 - O cadastro de event subscriptions usa o comando administrativo `/kick-events-sync`.
 - A URL pública do webhook continua configurada manualmente no painel da Kick.
-- Cargo Discord e fila ainda não são sincronizados por webhook nesta etapa.
+- Integração com fila continua fora de escopo nesta etapa.
 
 ## Kick Event Subscriptions (etapa atual)
 
@@ -265,6 +271,6 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 
 ### Escopo desta etapa
 
-- Ainda não há integração com cargos do Discord.
+- Banco SQLite é a fonte de verdade para elegibilidade observada e concessões manuais.
 - Ainda não há integração com a fila.
-- Ainda não há expiração automática de cargos.
+- Ainda não há scheduler periódico de reconciliação em massa.

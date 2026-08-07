@@ -8,6 +8,11 @@ describe('kickAuthService', () => {
   function createService(overrides = {}) {
     let nowMs = overrides.nowMs || 1_000_000;
 
+    const subscriberRoleAutoSyncService =
+      overrides.subscriberRoleAutoSyncService || {
+        syncAfterEligibilityChange: jest.fn().mockResolvedValue({ status: 'synced' }),
+      };
+
     const service = createKickAuthService({
       config: {
         kickEnabled: true,
@@ -33,10 +38,12 @@ describe('kickAuthService', () => {
       now: () => nowMs,
       ttlMs: 10 * 60 * 1000,
       randomBytes: overrides.randomBytes,
+      subscriberRoleAutoSyncService,
     });
 
     return {
       service,
+      subscriberRoleAutoSyncService,
       setNowMs(nextMs) {
         nowMs = nextMs;
       },
@@ -130,7 +137,15 @@ describe('kickAuthService', () => {
       getAuthorizedUser: jest.fn().mockResolvedValue({ kickUserId: '700', kickUsername: 'kick700' }),
     };
 
-    const { service } = createService({ kickAccountsRepository: repository, kickApiService });
+    const autoSyncService = {
+      syncAfterEligibilityChange: jest.fn().mockResolvedValue({ status: 'synced' }),
+    };
+
+    const { service } = createService({
+      kickAccountsRepository: repository,
+      kickApiService,
+      subscriberRoleAutoSyncService: autoSyncService,
+    });
     const attempt = service.createAuthorizationAttempt('discord-700');
 
     const result = await service.completeOAuthCallback({ code: 'auth-code-700', state: attempt.state });
@@ -151,6 +166,72 @@ describe('kickAuthService', () => {
     expect(upsertPayload.kickUsername).toBe('kick700');
     expect(upsertPayload.accessToken).toBeUndefined();
     expect(upsertPayload.refreshToken).toBeUndefined();
+    expect(autoSyncService.syncAfterEligibilityChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        discordId: 'discord-700',
+        triggerType: 'kick_link',
+      }),
+    );
+  });
+
+  test('falha de sync de cargo não desfaz vínculo OAuth', async () => {
+    const repository = {
+      upsert: jest.fn((account) => ({
+        discord_id: account.discordId,
+        kick_user_id: account.kickUserId,
+        kick_username: account.kickUsername,
+        linked_at_ms: account.updatedAtMs,
+        updated_at_ms: account.updatedAtMs,
+      })),
+    };
+    const autoSyncService = {
+      syncAfterEligibilityChange: jest.fn().mockResolvedValue({ status: 'warning' }),
+    };
+
+    const { service } = createService({
+      kickAccountsRepository: repository,
+      subscriberRoleAutoSyncService: autoSyncService,
+    });
+    const attempt = service.createAuthorizationAttempt('discord-ok');
+
+    const result = await service.completeOAuthCallback({ code: 'auth-code-ok', state: attempt.state });
+
+    expect(result).toEqual({
+      discordId: 'discord-ok',
+      kickUserId: '999',
+      kickUsername: 'kick-user',
+    });
+    expect(repository.upsert).toHaveBeenCalledTimes(1);
+  });
+
+  test('exceção inesperada no auto sync não quebra callback OAuth', async () => {
+    const repository = {
+      upsert: jest.fn((account) => ({
+        discord_id: account.discordId,
+        kick_user_id: account.kickUserId,
+        kick_username: account.kickUsername,
+        linked_at_ms: account.updatedAtMs,
+        updated_at_ms: account.updatedAtMs,
+      })),
+    };
+
+    const { service } = createService({
+      kickAccountsRepository: repository,
+      subscriberRoleAutoSyncService: {
+        syncAfterEligibilityChange: jest.fn().mockRejectedValue(new Error('sync unavailable')),
+      },
+      logger: { warn: jest.fn(), info: jest.fn() },
+    });
+    const attempt = service.createAuthorizationAttempt('discord-ok-2');
+
+    const result = await service.completeOAuthCallback({ code: 'auth-code-ok-2', state: attempt.state });
+
+    expect(result).toEqual({
+      discordId: 'discord-ok-2',
+      kickUserId: '999',
+      kickUsername: 'kick-user',
+    });
+    expect(repository.upsert).toHaveBeenCalledTimes(1);
   });
 
   test('propaga conflito de kick_user_id', async () => {

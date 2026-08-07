@@ -115,7 +115,7 @@ module.exports = {
       lines.push(`Elegibilidade: ${eligibility.eligible ? 'ativa' : 'inativa'}`);
       lines.push('Fontes ativas:');
       lines.push(activeSources.length > 0 ? activeSources.join('\n') : '- nenhuma');
-      lines.push('Cargo: ainda não sincronizado nesta etapa');
+      lines.push('Cargo: diagnóstico via /sub-sync e reconciliação por gatilhos automáticos');
 
       await interaction.reply({
         content: lines.join('\n'),

@@ -73,7 +73,7 @@ async function start() {
     console.log('Banco de dados inicializado em', config.databasePath);
 
     try {
-      const kickServer = await startKickHttpServer();
+      const kickServer = await startKickHttpServer({ discordClient: client });
       if (kickServer.started) {
         console.log(`Servidor local da Kick ativo na porta ${kickServer.port}.`);
       }

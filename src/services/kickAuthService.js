@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const config = require('../config');
 const kickAccountsRepository = require('../database/kickAccountsRepository');
 const kickApiServiceModule = require('./kickApiService');
+const subscriberRoleAutoSyncService = require('./subscriberRoleAutoSyncService');
 
 class KickAuthError extends Error {
   constructor(code, message, options = {}) {
@@ -25,6 +26,7 @@ function createKickAuthService(options = {}) {
   const cfg = options.config || config;
   const repository = options.kickAccountsRepository || kickAccountsRepository;
   const kickApiService = options.kickApiService || kickApiServiceModule;
+  const autoSyncService = options.subscriberRoleAutoSyncService || subscriberRoleAutoSyncService;
   const logger = options.logger || console;
   const ttlMs = Number(options.ttlMs || 10 * 60 * 1000);
   const now = options.now || (() => Date.now());
@@ -214,6 +216,20 @@ function createKickAuthService(options = {}) {
       kickUsername: user.kickUsername,
       updatedAtMs: now(),
     });
+
+    try {
+      await autoSyncService.syncAfterEligibilityChange({
+        discordId: saved.discord_id,
+        triggerType: 'kick_link',
+        reason: 'Vínculo OAuth Kick concluído',
+        triggeredByDiscordId: saved.discord_id,
+        client: payload.discordClient,
+      });
+    } catch (_error) {
+      if (typeof logger?.warn === 'function') {
+        logger.warn(`Kick OAuth: sincronização de cargo pendente para discordId=${saved.discord_id}`);
+      }
+    }
 
     return {
       discordId: saved.discord_id,

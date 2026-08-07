@@ -9,6 +9,10 @@ jest.mock('../src/services/subscriberEligibilityService', () => ({
   getEligibility: jest.fn(),
 }));
 
+jest.mock('../src/services/subscriberRoleAutoSyncService', () => ({
+  syncAfterEligibilityChange: jest.fn(),
+}));
+
 jest.mock('../src/services/queueService', () => ({
   addToQueue: jest.fn(),
   removeFromQueue: jest.fn(),
@@ -18,6 +22,7 @@ jest.mock('../src/services/queueService', () => ({
 const { PermissionFlagsBits } = require('discord.js');
 const service = require('../src/services/manualSubGrantService');
 const eligibilityService = require('../src/services/subscriberEligibilityService');
+const autoSyncService = require('../src/services/subscriberRoleAutoSyncService');
 const queueService = require('../src/services/queueService');
 const subGrantCommand = require('../src/commands/subGrant');
 const subRevokeCommand = require('../src/commands/subRevoke');
@@ -53,6 +58,12 @@ function makeBaseInteraction(overrides = {}) {
 describe('sub admin commands', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    autoSyncService.syncAfterEligibilityChange.mockResolvedValue({
+      status: 'synced',
+      eligibility: true,
+      sources: { kick: false, manual: true },
+      roleState: 'added',
+    });
   });
 
   test('somente Administrator pode usar comandos', async () => {
@@ -146,6 +157,8 @@ describe('sub admin commands', () => {
 
     const payload = interaction.reply.mock.calls[0][0];
     expect(payload.content).toContain('Vencimento: sem vencimento');
+    expect(payload.content).toContain('Estado do cargo SUB: adicionado');
+    expect(payload.content).toContain('Elegibilidade final: ativa');
   });
 
   test('grant temporário', async () => {
@@ -172,6 +185,77 @@ describe('sub admin commands', () => {
 
     const payload = interaction.reply.mock.calls[0][0];
     expect(payload.content).toContain('Vencimento: <t:');
+    expect(autoSyncService.syncAfterEligibilityChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        discordId: 'user-3',
+        triggerType: 'manual_grant',
+      }),
+    );
+  });
+
+  test('grant permanece salvo quando sync falha', async () => {
+    service.createGrant.mockReturnValue({
+      created: true,
+      grant: {
+        discordId: 'user-3b',
+        reason: 'Pix',
+        grantedByDiscordId: 'admin-1',
+        grantedAtMs: 3_100,
+        expiresAtMs: null,
+      },
+    });
+    autoSyncService.syncAfterEligibilityChange.mockResolvedValue({
+      status: 'warning',
+      eligibility: null,
+      sources: { kick: false, manual: false },
+      roleState: 'pending',
+    });
+
+    const interaction = makeBaseInteraction({
+      options: {
+        getUser: jest.fn().mockReturnValue({ id: 'user-3b', bot: false }),
+        getString: jest.fn().mockReturnValue('Pix'),
+        getInteger: jest.fn().mockReturnValue(null),
+      },
+    });
+
+    await subGrantCommand.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0][0];
+    expect(payload.content).toContain('Concessão manual registrada com sucesso.');
+    expect(payload.content).toContain('sincronização automática do cargo ficou pendente');
+  });
+
+  test('grant com cargo já presente informa estado mantido', async () => {
+    service.createGrant.mockReturnValue({
+      created: true,
+      grant: {
+        discordId: 'user-3c',
+        reason: 'Pix',
+        grantedByDiscordId: 'admin-1',
+        grantedAtMs: 3_200,
+        expiresAtMs: null,
+      },
+    });
+    autoSyncService.syncAfterEligibilityChange.mockResolvedValue({
+      status: 'synced',
+      eligibility: true,
+      sources: { kick: false, manual: true },
+      roleState: 'kept',
+    });
+
+    const interaction = makeBaseInteraction({
+      options: {
+        getUser: jest.fn().mockReturnValue({ id: 'user-3c', bot: false }),
+        getString: jest.fn().mockReturnValue('Pix'),
+        getInteger: jest.fn().mockReturnValue(null),
+      },
+    });
+
+    await subGrantCommand.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0][0];
+    expect(payload.content).toContain('Estado do cargo SUB: mantido');
   });
 
   test('grant duplicado ativo', async () => {
@@ -218,6 +302,109 @@ describe('sub admin commands', () => {
     expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
     const payload = interaction.reply.mock.calls[0][0];
     expect(payload.content).toContain('Concessão manual revogada.');
+    expect(payload.content).toContain('Fontes ativas:');
+    expect(autoSyncService.syncAfterEligibilityChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        discordId: 'user-5',
+        triggerType: 'manual_revoke',
+      }),
+    );
+  });
+
+  test('revoke mantém cargo quando fonte Kick segue ativa', async () => {
+    service.revokeGrant.mockReturnValue({
+      revoked: true,
+      grant: {
+        discordId: 'user-5b',
+        revokedByDiscordId: 'admin-1',
+        revokedAtMs: 5_100,
+        revokeReason: 'Encerrado',
+      },
+    });
+    autoSyncService.syncAfterEligibilityChange.mockResolvedValue({
+      status: 'synced',
+      eligibility: true,
+      sources: { kick: true, manual: false },
+      roleState: 'kept',
+    });
+
+    const interaction = makeBaseInteraction({
+      options: {
+        getUser: jest.fn().mockReturnValue({ id: 'user-5b', bot: false }),
+        getString: jest.fn().mockReturnValue('Encerrado'),
+        getInteger: jest.fn(),
+      },
+    });
+
+    await subRevokeCommand.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0][0];
+    expect(payload.content).toContain('Fontes ativas:\n- Kick');
+    expect(payload.content).toContain('Estado do cargo SUB: mantido');
+  });
+
+  test('revoke permanece salvo quando sync falha', async () => {
+    service.revokeGrant.mockReturnValue({
+      revoked: true,
+      grant: {
+        discordId: 'user-5c',
+        revokedByDiscordId: 'admin-1',
+        revokedAtMs: 5_200,
+        revokeReason: 'Encerrado',
+      },
+    });
+    autoSyncService.syncAfterEligibilityChange.mockResolvedValue({
+      status: 'warning',
+      eligibility: null,
+      sources: { kick: false, manual: false },
+      roleState: 'pending',
+    });
+
+    const interaction = makeBaseInteraction({
+      options: {
+        getUser: jest.fn().mockReturnValue({ id: 'user-5c', bot: false }),
+        getString: jest.fn().mockReturnValue('Encerrado'),
+        getInteger: jest.fn(),
+      },
+    });
+
+    await subRevokeCommand.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0][0];
+    expect(payload.content).toContain('Concessão manual revogada.');
+    expect(payload.content).toContain('sincronização automática do cargo ficou pendente');
+  });
+
+  test('revoke remove cargo quando não há fontes ativas', async () => {
+    service.revokeGrant.mockReturnValue({
+      revoked: true,
+      grant: {
+        discordId: 'user-5d',
+        revokedByDiscordId: 'admin-1',
+        revokedAtMs: 5_300,
+        revokeReason: 'Encerrado',
+      },
+    });
+    autoSyncService.syncAfterEligibilityChange.mockResolvedValue({
+      status: 'synced',
+      eligibility: false,
+      sources: { kick: false, manual: false },
+      roleState: 'removed',
+    });
+
+    const interaction = makeBaseInteraction({
+      options: {
+        getUser: jest.fn().mockReturnValue({ id: 'user-5d', bot: false }),
+        getString: jest.fn().mockReturnValue('Encerrado'),
+        getInteger: jest.fn(),
+      },
+    });
+
+    await subRevokeCommand.execute(interaction);
+
+    const payload = interaction.reply.mock.calls[0][0];
+    expect(payload.content).toContain('Fontes ativas:\n- nenhuma');
+    expect(payload.content).toContain('Estado do cargo SUB: removido');
   });
 
   test('revoke inexistente', async () => {
@@ -280,7 +467,7 @@ describe('sub admin commands', () => {
     expect(payload.content).toContain('Tipo Kick: direta');
     expect(payload.content).toContain('Elegibilidade: ativa');
     expect(payload.content).toContain('Fontes ativas:\n- Kick\n- Concessão manual');
-    expect(payload.content).toContain('Cargo: ainda não sincronizado nesta etapa');
+    expect(payload.content).toContain('Cargo: diagnóstico via /sub-sync');
   });
 
   test('status manual-only não afirma subscriber Kick', async () => {

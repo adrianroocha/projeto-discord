@@ -11,8 +11,13 @@ jest.mock('../src/services/kickUnlinkConfirmationService', () => ({
   invalidate: jest.fn(),
 }));
 
+jest.mock('../src/services/subscriberRoleAutoSyncService', () => ({
+  syncAfterEligibilityChange: jest.fn(),
+}));
+
 const kickAccountsRepository = require('../src/database/kickAccountsRepository');
 const confirmationService = require('../src/services/kickUnlinkConfirmationService');
+const autoSyncService = require('../src/services/subscriberRoleAutoSyncService');
 const { PermissionFlagsBits } = require('discord.js');
 
 const unlinkCommand = require('../src/commands/kickUnlink');
@@ -25,6 +30,12 @@ describe('/kick-unlink command', () => {
     confirmationService.create.mockReturnValue({
       token: 'token-abc',
       expiresAtMs: 1_700_000_300_000,
+    });
+    autoSyncService.syncAfterEligibilityChange.mockResolvedValue({
+      status: 'synced',
+      eligibility: false,
+      sources: { kick: false, manual: false },
+      roleState: 'removed',
     });
   });
 
@@ -192,6 +203,7 @@ describe('kick unlink buttons', () => {
     const interaction = {
       customId: 'kick-unlink-confirm:token-ok',
       user: { id: 'admin-10' },
+      client: {},
       reply: jest.fn().mockResolvedValue(undefined),
       update: jest.fn().mockResolvedValue(undefined),
     };
@@ -208,12 +220,57 @@ describe('kick unlink buttons', () => {
         reason: 'Compliance',
       }),
     );
+    expect(autoSyncService.syncAfterEligibilityChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        discordId: 'discord-target',
+        triggerType: 'kick_unlink',
+        triggeredByDiscordId: 'admin-10',
+      }),
+    );
 
     const payload = interaction.update.mock.calls[0][0];
     expect(payload.content).toContain('Desvinculação concluída para <@discord-target>');
+    expect(payload.content).toContain('Estado do cargo SUB: removido');
     const [confirm, cancel] = payload.components[0].toJSON().components;
     expect(confirm.disabled).toBe(true);
     expect(cancel.disabled).toBe(true);
+  });
+
+  test('desvinculação permanece concluída quando sync falha', async () => {
+    confirmationService.validate.mockReturnValue({ ok: true, token: 'token-pending' });
+    confirmationService.consume.mockReturnValue({
+      ok: true,
+      token: 'token-pending',
+      metadata: {
+        targetDiscordId: 'discord-pending',
+        reason: 'Compliance',
+      },
+    });
+    kickAccountsRepository.findByDiscordId.mockReturnValue({
+      kick_username: 'linked-user',
+      kick_user_id: '100',
+    });
+    kickAccountsRepository.unlinkWithAudit.mockReturnValue({ unlinked: true });
+    autoSyncService.syncAfterEligibilityChange.mockResolvedValue({
+      status: 'warning',
+      eligibility: null,
+      sources: { kick: false, manual: false },
+      roleState: 'pending',
+    });
+
+    const interaction = {
+      customId: 'kick-unlink-confirm:token-pending',
+      user: { id: 'admin-10' },
+      client: {},
+      reply: jest.fn().mockResolvedValue(undefined),
+      update: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await confirmButton.execute(interaction);
+
+    const payload = interaction.update.mock.calls[0][0];
+    expect(payload.content).toContain('Desvinculação concluída para <@discord-pending>');
+    expect(payload.content).toContain('sincronização automática do cargo ficou pendente');
   });
 
   test('cancelamento válido invalida confirmação sem remover vínculo', async () => {
@@ -306,6 +363,7 @@ describe('kick unlink buttons', () => {
     const interaction = {
       customId: 'kick-unlink-confirm:token-idempotent',
       user: { id: 'discord-14' },
+      client: {},
       reply: jest.fn().mockResolvedValue(undefined),
       update: jest.fn().mockResolvedValue(undefined),
     };

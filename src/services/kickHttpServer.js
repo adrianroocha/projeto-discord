@@ -3,6 +3,8 @@ const config = require('../config');
 const kickAuthService = require('./kickAuthService');
 const kickWebhookSignatureService = require('./kickWebhookSignatureService');
 const kickSubscriptionEventService = require('./kickSubscriptionEventService');
+const kickAccountsRepository = require('../database/kickAccountsRepository');
+const subscriberRoleAutoSyncService = require('./subscriberRoleAutoSyncService');
 
 let server = null;
 const LOOPBACK_IPV4 = '127.0.0.1';
@@ -105,12 +107,50 @@ function mapCallbackError(error) {
   return { statusCode: 500, title: 'Erro interno', message: 'Não foi possível concluir o vínculo com a Kick.' };
 }
 
+function mapWebhookEventTypeToTriggerType(eventType) {
+  const map = {
+    'channel.subscription.new': 'kick_subscription_new',
+    'channel.subscription.renewal': 'kick_subscription_renewal',
+    'channel.subscription.gifts': 'kick_subscription_gift',
+  };
+
+  return map[eventType] || null;
+}
+
+function collectKickUserIdsForSync(eventType, eventPayload) {
+  if (!eventPayload || typeof eventPayload !== 'object') {
+    return [];
+  }
+
+  if (eventType === 'channel.subscription.gifts') {
+    if (!Array.isArray(eventPayload.giftees)) {
+      return [];
+    }
+
+    return eventPayload.giftees
+      .map((giftee) => (typeof giftee?.user_id === 'string' ? giftee.user_id.trim() : ''))
+      .filter(Boolean);
+  }
+
+  if (eventType === 'channel.subscription.new' || eventType === 'channel.subscription.renewal') {
+    const kickUserId =
+      typeof eventPayload?.subscriber?.user_id === 'string' ? eventPayload.subscriber.user_id.trim() : '';
+    return kickUserId ? [kickUserId] : [];
+  }
+
+  return [];
+}
+
 function createRequestHandler(dependencies = {}) {
   const authService = dependencies.kickAuthService || kickAuthService;
   const webhookSignatureService =
     dependencies.kickWebhookSignatureService || kickWebhookSignatureService;
   const subscriptionEventService =
     dependencies.kickSubscriptionEventService || kickSubscriptionEventService;
+  const accountsRepository = dependencies.kickAccountsRepository || kickAccountsRepository;
+  const autoSyncService =
+    dependencies.subscriberRoleAutoSyncService || subscriberRoleAutoSyncService;
+  const discordClient = dependencies.discordClient;
   const cfg = dependencies.config || config;
   const logger = dependencies.logger || console;
 
@@ -195,6 +235,52 @@ function createRequestHandler(dependencies = {}) {
           eventPayload,
         });
 
+        if (result.status === 'processed') {
+          const eventType = signatureValidation.headers?.eventType;
+          const triggerType = mapWebhookEventTypeToTriggerType(eventType);
+
+          if (triggerType) {
+            const kickUserIds = collectKickUserIdsForSync(eventType, eventPayload);
+            const targetDiscordIds = new Set();
+
+            for (const kickUserId of kickUserIds) {
+              const link = accountsRepository.findByKickUserId(kickUserId);
+              if (!link?.discord_id) {
+                if (typeof logger?.info === 'function') {
+                  logger.info(`Webhook ${eventType}: kick_user_id sem vínculo Discord local.`);
+                }
+                continue;
+              }
+
+              targetDiscordIds.add(link.discord_id);
+            }
+
+            for (const discordId of targetDiscordIds) {
+              try {
+                const syncResult = await autoSyncService.syncAfterEligibilityChange({
+                  discordId,
+                  triggerType,
+                  reason: `Webhook Kick ${eventType}`,
+                  triggeredByDiscordId: 'system',
+                  client: discordClient,
+                });
+
+                if (syncResult.status === 'warning' && typeof logger?.warn === 'function') {
+                  logger.warn(
+                    `Webhook ${eventType}: sincronização pendente para discordId=${discordId}; usar /sub-sync para reconciliação.`,
+                  );
+                }
+              } catch (_error) {
+                if (typeof logger?.warn === 'function') {
+                  logger.warn(
+                    `Webhook ${eventType}: falha inesperada na sincronização para discordId=${discordId}; usar /sub-sync para reconciliação.`,
+                  );
+                }
+              }
+            }
+          }
+        }
+
         logWebhookCategory(result?.status);
 
         if (
@@ -245,7 +331,7 @@ function createRequestHandler(dependencies = {}) {
       const state = requestUrl.searchParams.get('state');
 
       try {
-        const result = await authService.completeOAuthCallback({ code, state });
+        const result = await authService.completeOAuthCallback({ code, state, discordClient });
         writeHtml(
           res,
           200,

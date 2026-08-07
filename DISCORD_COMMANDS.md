@@ -50,7 +50,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Resposta: ephemeral com botão de link OAuth.
 - Exemplo: /kick-link
 - Efeitos no banco: nenhum imediato; vínculo é persistido no callback OAuth.
-- Efeitos em cargo: nenhum.
+- Efeitos em cargo: após o callback OAuth, recalcula elegibilidade e sincroniza automaticamente o cargo SUB (com tolerância a falhas, sem desfazer vínculo).
 - Efeitos na fila: nenhum.
 - Limitações: integração Kick precisa estar habilitada; não cria novo vínculo se já existir vínculo ativo.
 
@@ -76,7 +76,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Resposta: ephemeral com botões de confirmar/cancelar.
 - Exemplo: /kick-unlink usuario:@Membro motivo:Solicitação do usuário
 - Efeitos no banco: nenhum direto no comando; remoção + auditoria ocorrem ao confirmar no botão.
-- Efeitos em cargo: nenhum.
+- Efeitos em cargo: ao confirmar, recalcula elegibilidade e sincroniza automaticamente o cargo SUB do alvo.
 - Efeitos na fila: nenhum.
 - Limitações: confirmação expira em 5 minutos, é de uso único e só pode ser confirmada pelo administrador que iniciou.
 
@@ -245,7 +245,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Resposta: ephemeral.
 - Exemplo: /sub-grant usuario:@Usuario motivo:Pix dias:30
 - Efeitos no banco: cria registro em manual_sub_grants.
-- Efeitos em cargo: nenhum nesta etapa.
+- Efeitos em cargo: recalcula elegibilidade e sincroniza automaticamente o cargo SUB do usuário.
 - Efeitos na fila: nenhum nesta etapa.
 - Limitações: não permite bots; bloqueia concessão duplicada ativa.
 
@@ -258,7 +258,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Resposta: ephemeral.
 - Exemplo: /sub-revoke usuario:@Usuario motivo:Encerrado
 - Efeitos no banco: marca concessão ativa como revogada.
-- Efeitos em cargo: nenhum nesta etapa.
+- Efeitos em cargo: recalcula elegibilidade (Kick OU manual) e sincroniza automaticamente o cargo SUB.
 - Efeitos na fila: nenhum nesta etapa.
 - Limitações: falha quando não existe concessão ativa.
 
@@ -271,9 +271,9 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Resposta: ephemeral.
 - Exemplo: /sub-status usuario:@Usuario
 - Efeitos no banco: apenas leitura.
-- Efeitos em cargo: nenhum nesta etapa.
+- Efeitos em cargo: nenhum direto (diagnóstico).
 - Efeitos na fila: nenhum nesta etapa.
-- Limitações: não sincroniza cargo; elegibilidade Kick depende de dados recebidos por webhook.
+- Limitações: não sincroniza cargo diretamente; elegibilidade Kick depende de dados recebidos por webhook.
 
 ## /sub-sync
 - Nome: /sub-sync
@@ -286,7 +286,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos no banco: registra auditoria em subscriber_role_sync_audit.
 - Efeitos em cargo: adiciona/remove apenas o cargo configurado por SUBSCRIBER_ROLE_ID quando aplicável.
 - Efeitos na fila: nenhum.
-- Limitações: nesta etapa a sincronização é somente manual via comando; sem automação por webhook/grant/link/scheduler.
+- Limitações: permanece como ferramenta manual de diagnóstico/reconciliação mesmo com gatilhos automáticos.
 
 ## Botão join_queue
 - Nome: join_queue
@@ -323,7 +323,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Resposta: mensagem fixa do bot com um único botão.
 - Exemplo: mensagem iniciando com "Vincule sua conta Kick".
 - Efeitos no banco: nenhum direto no painel.
-- Efeitos em cargo: nenhum.
+- Efeitos em cargo: o callback OAuth iniciado pelo painel pode sincronizar automaticamente o cargo SUB se houver fonte ativa.
 - Efeitos na fila: nenhum.
 - Limitações: se KICK_LINK_CHANNEL_ID estiver ausente, o painel é desativado e /kick-link continua funcionando.
 - Operação recomendada do canal: negar "Enviar mensagens" para @everyone para manter o canal apenas de painel.
@@ -337,7 +337,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Resposta: ephemeral; se não vinculado, retorna botão/link "Autorizar na Kick" com URL temporária.
 - Exemplo: clique em "Vincular conta Kick".
 - Efeitos no banco: nenhum direto no clique; persistência ocorre no callback OAuth.
-- Efeitos em cargo: nenhum.
+- Efeitos em cargo: após persistência do vínculo no callback, pode adicionar/manter/remover cargo SUB conforme elegibilidade final.
 - Efeitos na fila: nenhum.
 - Limitações: bloqueado em guild diferente do configurado; reutiliza o mesmo fluxo de /kick-link.
 
@@ -350,7 +350,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Resposta: update da mensagem com botões desabilitados.
 - Exemplo: clique em "Confirmar desvinculação".
 - Efeitos no banco: remove vínculo em kick_accounts e cria auditoria em kick_unlink_audit na mesma transação.
-- Efeitos em cargo: nenhum.
+- Efeitos em cargo: após a transação de unlink+auditoria, recalcula elegibilidade e sincroniza o cargo SUB.
 - Efeitos na fila: nenhum.
 - Limitações: token expira, é de uso único e não pode ser usado por outro usuário.
 
