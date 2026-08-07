@@ -74,6 +74,26 @@ describe('kickAccountsRepository', () => {
     expect(found.discord_id).toBe('discord-3');
   });
 
+  test('lista discord_id distintos para reconciliação', () => {
+    kickAccountsRepository.upsert({
+      discordId: 'discord-a',
+      kickUserId: 'kick-a',
+      kickUsername: 'kick-a',
+      linkedAtMs: 100,
+      updatedAtMs: 100,
+    });
+    kickAccountsRepository.upsert({
+      discordId: 'discord-b',
+      kickUserId: 'kick-b',
+      kickUsername: 'kick-b',
+      linkedAtMs: 200,
+      updatedAtMs: 200,
+    });
+
+    const ids = kickAccountsRepository.listDistinctDiscordIds();
+    expect(ids).toEqual(['discord-a', 'discord-b']);
+  });
+
   test('retorna null quando não encontra registro', () => {
     expect(kickAccountsRepository.findByDiscordId('missing-discord')).toBeNull();
     expect(kickAccountsRepository.findByKickUserId('missing-kick')).toBeNull();

@@ -138,6 +138,25 @@ async function initDatabase() {
     )
   `;
 
+  const createSubscriberRoleReconciliationRunsTableSql = `
+    CREATE TABLE IF NOT EXISTS subscriber_role_reconciliation_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trigger_type TEXT NOT NULL,
+      triggered_by_discord_id TEXT NULL,
+      reason TEXT NOT NULL,
+      started_at_ms INTEGER NOT NULL,
+      finished_at_ms INTEGER NULL,
+      total_candidates INTEGER NOT NULL DEFAULT 0,
+      processed INTEGER NOT NULL DEFAULT 0,
+      role_added INTEGER NOT NULL DEFAULT 0,
+      role_removed INTEGER NOT NULL DEFAULT 0,
+      already_correct INTEGER NOT NULL DEFAULT 0,
+      skipped INTEGER NOT NULL DEFAULT 0,
+      failed INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL
+    )
+  `;
+
   db.exec(createUsersTableSql);
   db.exec(createQueueEntriesTableSql);
   db.exec(createLobbiesTableSql);
@@ -149,6 +168,7 @@ async function initDatabase() {
   db.exec(createKickFollowEventsTableSql);
   db.exec(createKickUnlinkAuditTableSql);
   db.exec(createSubscriberRoleSyncAuditTableSql);
+  db.exec(createSubscriberRoleReconciliationRunsTableSql);
 
   const lobbyInfo = db.prepare("PRAGMA table_info(lobbies)").all();
   const hasLobbyStatus = lobbyInfo.some((column) => column.name === 'status');
@@ -256,6 +276,24 @@ async function initDatabase() {
   if (kickSubByBroadcaster && kickSubByBroadcaster.c === 0) {
     db.exec(
       'CREATE INDEX idx_kick_subscriptions_broadcaster_user_id ON kick_subscriptions(broadcaster_user_id)',
+    );
+  }
+
+  const reconciliationRunsByStartedAt = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='idx_sub_role_reconciliation_runs_started_at_ms'")
+    .get();
+  if (reconciliationRunsByStartedAt && reconciliationRunsByStartedAt.c === 0) {
+    db.exec(
+      'CREATE INDEX idx_sub_role_reconciliation_runs_started_at_ms ON subscriber_role_reconciliation_runs(started_at_ms)',
+    );
+  }
+
+  const reconciliationRunsByStatus = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='idx_sub_role_reconciliation_runs_status'")
+    .get();
+  if (reconciliationRunsByStatus && reconciliationRunsByStatus.c === 0) {
+    db.exec(
+      'CREATE INDEX idx_sub_role_reconciliation_runs_status ON subscriber_role_reconciliation_runs(status)',
     );
   }
 }

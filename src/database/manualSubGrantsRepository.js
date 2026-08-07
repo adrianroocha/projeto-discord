@@ -55,6 +55,20 @@ function findHistoryByDiscordId(discordId) {
     .all(id);
 }
 
+function listDistinctDiscordIds() {
+  const db = getDatabase();
+
+  return db
+    .prepare(
+      `SELECT DISTINCT discord_id
+       FROM manual_sub_grants
+       WHERE discord_id IS NOT NULL AND TRIM(discord_id) <> ''
+       ORDER BY discord_id ASC`,
+    )
+    .all()
+    .map((row) => row.discord_id);
+}
+
 function createGrant(data) {
   if (!data || typeof data !== 'object') {
     throw new Error('Parâmetro inválido: data é obrigatório.');
@@ -195,6 +209,7 @@ module.exports = {
   createGrant,
   findActiveByDiscordId,
   findHistoryByDiscordId,
+  listDistinctDiscordIds,
   revokeActiveByDiscordId,
   hasActiveGrant,
 };

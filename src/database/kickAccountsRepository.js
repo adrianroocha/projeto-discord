@@ -50,6 +50,19 @@ function findByKickUserId(kickUserId) {
   return row || null;
 }
 
+function listDistinctDiscordIds() {
+  const db = getDatabase();
+  return db
+    .prepare(
+      `SELECT DISTINCT discord_id
+       FROM kick_accounts
+       WHERE discord_id IS NOT NULL AND TRIM(discord_id) <> ''
+       ORDER BY discord_id ASC`,
+    )
+    .all()
+    .map((row) => row.discord_id);
+}
+
 function upsert(account) {
   if (!account || typeof account !== 'object') {
     throw new Error('Parâmetro inválido: account é obrigatório.');
@@ -178,6 +191,7 @@ function unlinkWithAudit(input) {
 module.exports = {
   findByDiscordId,
   findByKickUserId,
+  listDistinctDiscordIds,
   upsert,
   deleteByDiscordId,
   unlinkWithAudit,

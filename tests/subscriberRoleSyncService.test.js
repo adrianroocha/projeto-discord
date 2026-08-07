@@ -125,6 +125,34 @@ describe('subscriberRoleSyncService', () => {
     expect(roleService.ensureRoleState).not.toHaveBeenCalled();
   });
 
+  test('bloqueia remoção quando allowRoleRemoval é false', async () => {
+    const roleService = { ensureRoleState: jest.fn() };
+    const auditRepository = { register: jest.fn() };
+
+    const { service } = createService({
+      subscriberEligibilityService: {
+        getEligibility: jest.fn(() => ({
+          eligible: false,
+          sources: { kick: { active: false }, manual: { active: false } },
+        })),
+      },
+      subscriberRoleService: roleService,
+      subscriberRoleSyncAuditRepository: auditRepository,
+    });
+
+    const result = await service.syncUser('user-no-remove', {
+      client: {},
+      allowRoleRemoval: false,
+      triggerType: 'scheduler_sub_reconcile',
+      reason: 'descoberta incompleta',
+    });
+
+    expect(result.result).toBe('removal_blocked_discovery_incomplete');
+    expect(result.action).toBe('not_altered');
+    expect(roleService.ensureRoleState).not.toHaveBeenCalled();
+    expect(auditRepository.register).toHaveBeenCalled();
+  });
+
   test('resultado already_absent vira já estava correto', async () => {
     const { service } = createService({
       subscriberEligibilityService: {

@@ -166,4 +166,24 @@ describe('manualSubGrantsRepository', () => {
     expect(repository.hasActiveGrant('discord-9', 2000)).toBe(true);
     expect(repository.hasActiveGrant('discord-9', 3000)).toBe(false);
   });
+
+  test('lista discord_id distintos com histórico para reconciliação', () => {
+    repository.createGrant({
+      discordId: 'discord-a',
+      grantedByDiscordId: 'admin-a',
+      reason: 'A',
+      grantedAtMs: 1000,
+      expiresAtMs: null,
+    });
+    repository.createGrant({
+      discordId: 'discord-b',
+      grantedByDiscordId: 'admin-b',
+      reason: 'B',
+      grantedAtMs: 2000,
+      expiresAtMs: null,
+    });
+
+    const ids = repository.listDistinctDiscordIds();
+    expect(ids).toEqual(['discord-a', 'discord-b']);
+  });
 });

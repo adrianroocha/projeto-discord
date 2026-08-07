@@ -85,6 +85,22 @@ function createSubscriberRoleService(options = {}) {
 
     const { role } = roleResult;
 
+    const memberResult = await getMember(guild, discordId);
+    if (!memberResult.ok) {
+      return { result: memberResult.result, roleName: role.name };
+    }
+
+    const { member } = memberResult;
+    const hasRole = member.roles?.cache?.has(role.id) || false;
+
+    if (shouldHaveRole && hasRole) {
+      return { result: 'already_present', roleName: role.name };
+    }
+
+    if (!shouldHaveRole && !hasRole) {
+      return { result: 'already_absent', roleName: role.name };
+    }
+
     if (!hasManageRoles(guild)) {
       return { result: 'missing_manage_roles', roleName: role.name };
     }
@@ -97,34 +113,17 @@ function createSubscriberRoleService(options = {}) {
       return { result: 'hierarchy_error', roleName: role.name };
     }
 
-    const memberResult = await getMember(guild, discordId);
-    if (!memberResult.ok) {
-      return { result: memberResult.result, roleName: role.name };
-    }
-
-    const { member } = memberResult;
-
     if (!member.manageable) {
       return { result: 'member_not_manageable', roleName: role.name };
     }
 
-    const hasRole = member.roles?.cache?.has(role.id) || false;
-
     if (shouldHaveRole) {
-      if (hasRole) {
-        return { result: 'already_present', roleName: role.name };
-      }
-
       try {
         await member.roles.add(role.id);
         return { result: 'role_added', roleName: role.name };
       } catch (_error) {
         return { result: 'discord_api_error', roleName: role.name };
       }
-    }
-
-    if (!hasRole) {
-      return { result: 'already_absent', roleName: role.name };
     }
 
     try {

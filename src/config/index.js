@@ -27,6 +27,23 @@ function parsePositiveInteger(value, fallback) {
   return fallback;
 }
 
+function parseBoolean(value, fallback) {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (normalized === 'true' || normalized === '1' || normalized === 'yes' || normalized === 'on') {
+    return true;
+  }
+
+  if (normalized === 'false' || normalized === '0' || normalized === 'no' || normalized === 'off') {
+    return false;
+  }
+
+  return fallback;
+}
+
 const kickClientId = process.env.KICK_CLIENT_ID || null;
 const kickClientSecret = process.env.KICK_CLIENT_SECRET || null;
 
@@ -51,5 +68,22 @@ module.exports = {
   kickPort: parsePositiveInteger(process.env.KICK_PORT || '3000', 3000),
   kickBroadcasterUserId: process.env.KICK_BROADCASTER_USER_ID || null,
   kickEnabled: Boolean(kickClientId && kickClientSecret),
+  subRoleReconciliationEnabled: parseBoolean(process.env.SUB_ROLE_RECONCILIATION_ENABLED, true),
+  subRoleReconciliationIntervalMinutes: parsePositiveInteger(
+    process.env.SUB_ROLE_RECONCILIATION_INTERVAL_MINUTES || '15',
+    15,
+  ),
+  subRoleReconciliationStartupDelaySeconds: parsePositiveInteger(
+    process.env.SUB_ROLE_RECONCILIATION_STARTUP_DELAY_SECONDS || '30',
+    30,
+  ),
+  subRoleReconciliationDiscoveryTimeoutMs: parsePositiveInteger(
+    process.env.SUB_ROLE_RECONCILIATION_DISCOVERY_TIMEOUT_MS || '20000',
+    20000,
+  ),
+  subRoleReconciliationUserSyncTimeoutMs: parsePositiveInteger(
+    process.env.SUB_ROLE_RECONCILIATION_USER_SYNC_TIMEOUT_MS || '12000',
+    12000,
+  ),
   nodeEnv: process.env.NODE_ENV || 'development',
 };

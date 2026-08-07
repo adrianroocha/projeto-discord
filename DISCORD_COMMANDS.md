@@ -288,6 +288,22 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos na fila: nenhum.
 - Limitações: permanece como ferramenta manual de diagnóstico/reconciliação mesmo com gatilhos automáticos.
 
+## /sub-reconcile
+- Nome: /sub-reconcile
+- Finalidade: executar reconciliação em massa do cargo SUB para candidatos relevantes (vínculos Kick, histórico manual e membros com SUB).
+- Quem pode usar: Administrator.
+- Onde usar: apenas no servidor configurado por GUILD_ID.
+- Parâmetros: motivo (string, obrigatório).
+- Resposta: ephemeral com defer/edit.
+- Exemplo: /sub-reconcile motivo:Reconciliação pós-instabilidade
+- Efeitos no banco: preserva auditoria individual em subscriber_role_sync_audit e registra execução em subscriber_role_reconciliation_runs.
+- Efeitos em cargo: adiciona/remove apenas o cargo configurado por SUBSCRIBER_ROLE_ID conforme elegibilidade central.
+- Efeitos na fila: nenhum.
+- Limitações: se uma execução já estiver em andamento, uma nova chamada é recusada com aviso de execução ativa.
+- Limitações: quando a descoberta de membros com SUB estiver incompleta (falha/timeout do Discord), remoções são bloqueadas por segurança nessa execução; adições para elegíveis conhecidos continuam permitidas.
+- Requisito operacional: para descoberta completa de membros do servidor, o bot usa GuildMembers intent e o Server Members Intent deve estar ativado no Discord Developer Portal.
+- Resumo da resposta: inclui contagem total e por código seguro para ignorados/falhas; `member_not_found` entra como ignorado.
+
 ## Botão join_queue
 - Nome: join_queue
 - Finalidade: adicionar o usuário na fila.

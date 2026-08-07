@@ -189,6 +189,58 @@ describe('subscriberRoleService', () => {
     expect(result.result).toBe('member_not_manageable');
   });
 
+  test('membro não gerenciável inelegível e já sem SUB retorna already_absent', async () => {
+    const service = makeService();
+    const { client, member } = createClient({
+      memberManageable: false,
+      hasRoleInitially: false,
+    });
+
+    const result = await service.ensureRoleState(client, 'discord-11a', false);
+
+    expect(result.result).toBe('already_absent');
+    expect(member.roles.add).not.toHaveBeenCalled();
+    expect(member.roles.remove).not.toHaveBeenCalled();
+  });
+
+  test('membro não gerenciável elegível e já com SUB retorna already_present', async () => {
+    const service = makeService();
+    const { client, member } = createClient({
+      memberManageable: false,
+      hasRoleInitially: true,
+    });
+
+    const result = await service.ensureRoleState(client, 'discord-11b', true);
+
+    expect(result.result).toBe('already_present');
+    expect(member.roles.add).not.toHaveBeenCalled();
+    expect(member.roles.remove).not.toHaveBeenCalled();
+  });
+
+  test('membro não gerenciável elegível sem SUB retorna member_not_manageable', async () => {
+    const service = makeService();
+    const { client } = createClient({
+      memberManageable: false,
+      hasRoleInitially: false,
+    });
+
+    const result = await service.ensureRoleState(client, 'discord-11c', true);
+
+    expect(result.result).toBe('member_not_manageable');
+  });
+
+  test('membro não gerenciável inelegível com SUB retorna member_not_manageable', async () => {
+    const service = makeService();
+    const { client } = createClient({
+      memberManageable: false,
+      hasRoleInitially: true,
+    });
+
+    const result = await service.ensureRoleState(client, 'discord-11d', false);
+
+    expect(result.result).toBe('member_not_manageable');
+  });
+
   test('erro da API Discord no add', async () => {
     const service = makeService();
     const { client } = createClient({ addThrows: true, hasRoleInitially: false });

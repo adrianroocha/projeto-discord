@@ -74,24 +74,30 @@ function createSubscriberRoleSyncService(options = {}) {
     };
 
     const shouldHaveRole = eligibility.eligible;
+    const allowRoleRemoval = context.allowRoleRemoval !== false;
 
-    const roleResult = await roleService.ensureRoleState(
-      context.client,
-      targetDiscordId,
-      shouldHaveRole,
-    );
-
-    response.result = roleResult?.result || 'discord_api_error';
-    response.roleName = roleResult?.roleName || null;
-
-    if (response.result === 'role_added') {
-      response.action = 'role_added';
-    } else if (response.result === 'role_removed') {
-      response.action = 'role_removed';
-    } else if (response.result === 'already_present' || response.result === 'already_absent') {
-      response.action = 'already_correct';
-    } else {
+    if (!shouldHaveRole && !allowRoleRemoval) {
+      response.result = 'removal_blocked_discovery_incomplete';
       response.action = 'not_altered';
+    } else {
+      const roleResult = await roleService.ensureRoleState(
+        context.client,
+        targetDiscordId,
+        shouldHaveRole,
+      );
+
+      response.result = roleResult?.result || 'discord_api_error';
+      response.roleName = roleResult?.roleName || null;
+
+      if (response.result === 'role_added') {
+        response.action = 'role_added';
+      } else if (response.result === 'role_removed') {
+        response.action = 'role_removed';
+      } else if (response.result === 'already_present' || response.result === 'already_absent') {
+        response.action = 'already_correct';
+      } else {
+        response.action = 'not_altered';
+      }
     }
 
     try {

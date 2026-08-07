@@ -34,6 +34,22 @@ async function createTestContext(options = {}) {
   process.env.QUEUE_CLOSE_TIME = options.queueCloseTime || '06:00';
   process.env.QUEUE_TIMEZONE = options.queueTimezone || 'America/Sao_Paulo';
   process.env.QUEUE_TEST_INTERVAL_MINUTES = String(options.queueTestIntervalMinutes || 5);
+  process.env.SUB_ROLE_RECONCILIATION_ENABLED =
+    options.subRoleReconciliationEnabled === undefined
+      ? 'true'
+      : String(options.subRoleReconciliationEnabled);
+  process.env.SUB_ROLE_RECONCILIATION_INTERVAL_MINUTES = String(
+    options.subRoleReconciliationIntervalMinutes || 15,
+  );
+  process.env.SUB_ROLE_RECONCILIATION_STARTUP_DELAY_SECONDS = String(
+    options.subRoleReconciliationStartupDelaySeconds || 30,
+  );
+  process.env.SUB_ROLE_RECONCILIATION_DISCOVERY_TIMEOUT_MS = String(
+    options.subRoleReconciliationDiscoveryTimeoutMs || 20000,
+  );
+  process.env.SUB_ROLE_RECONCILIATION_USER_SYNC_TIMEOUT_MS = String(
+    options.subRoleReconciliationUserSyncTimeoutMs || 12000,
+  );
   process.env.KICK_BROADCASTER_USER_ID = options.kickBroadcasterUserId || '';
 
   const database = require(databaseModulePath);
@@ -62,6 +78,11 @@ async function createTestContext(options = {}) {
     delete process.env.QUEUE_CLOSE_TIME;
     delete process.env.QUEUE_TIMEZONE;
     delete process.env.QUEUE_TEST_INTERVAL_MINUTES;
+    delete process.env.SUB_ROLE_RECONCILIATION_ENABLED;
+    delete process.env.SUB_ROLE_RECONCILIATION_INTERVAL_MINUTES;
+    delete process.env.SUB_ROLE_RECONCILIATION_STARTUP_DELAY_SECONDS;
+    delete process.env.SUB_ROLE_RECONCILIATION_DISCOVERY_TIMEOUT_MS;
+    delete process.env.SUB_ROLE_RECONCILIATION_USER_SYNC_TIMEOUT_MS;
     delete process.env.KICK_BROADCASTER_USER_ID;
 
     jest.resetModules();

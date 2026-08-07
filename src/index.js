@@ -8,10 +8,14 @@ const database = require('./database/database');
 const queueMessageService = require('./services/queueMessageService');
 const kickLinkPanelService = require('./services/kickLinkPanelService');
 const schedulerService = require('./services/schedulerService');
+const subscriberRoleReconciliationScheduler = require('./services/subscriberRoleReconciliationScheduler');
 const { startKickHttpServer } = require('./services/kickHttpServer');
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
+});
 let schedulerStarted = false;
+let subscriberRoleReconciliationSchedulerStarted = false;
 
 commandHandler.loadCommands(client);
 eventHandler.loadEvents(client);
@@ -48,6 +52,15 @@ client.once('ready', async () => {
   } catch (error) {
     console.error('Erro ao iniciar scheduler:', error);
   }
+
+  try {
+    if (!subscriberRoleReconciliationSchedulerStarted) {
+      subscriberRoleReconciliationSchedulerStarted = true;
+      subscriberRoleReconciliationScheduler.start(client);
+    }
+  } catch (error) {
+    console.error('Erro ao iniciar scheduler de reconciliação SUB:', error);
+  }
 });
 
 client.on('error', (error) => {
@@ -65,6 +78,24 @@ process.on('unhandledRejection', (reason) => {
 process.on('uncaughtException', (error) => {
   console.error('Erro não capturado:', error);
   process.exit(1);
+});
+
+function stopAuxSchedulers() {
+  try {
+    subscriberRoleReconciliationScheduler.stop();
+  } catch (_error) {
+    // cleanup best-effort
+  }
+}
+
+process.on('SIGINT', () => {
+  stopAuxSchedulers();
+  process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+  stopAuxSchedulers();
+  process.exit(0);
 });
 
 async function start() {

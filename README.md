@@ -218,6 +218,7 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - Os registros de concessão e revogação são preservados no histórico.
 - `/sub-grant` e `/sub-revoke` recalculam elegibilidade e tentam sincronizar automaticamente o cargo SUB.
 - Em caso de falha de sincronização de cargo, a alteração de banco permanece e a reconciliação manual pode ser feita via `/sub-sync`.
+- A reconciliação em massa também pode ser executada manualmente via `/sub-reconcile` e periodicamente por scheduler dedicado.
 - Não há alteração da fila por esses comandos.
 - A elegibilidade final atual considera assinatura Kick ativa OU concessão manual ativa, sem misturar os conceitos.
 - O comando `/sub-sync` permanece disponível para diagnóstico e correção manual.
@@ -273,4 +274,44 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 
 - Banco SQLite é a fonte de verdade para elegibilidade observada e concessões manuais.
 - Ainda não há integração com a fila.
-- Ainda não há scheduler periódico de reconciliação em massa.
+- Não há polling da API Kick para decidir elegibilidade.
+
+## Reconciliação periódica de cargo SUB
+
+- Serviço dedicado: reconcilia candidatos em massa reutilizando a elegibilidade central e a sincronização individual com auditoria.
+- Descoberta de candidatos:
+	- `discord_id` em `kick_accounts`;
+	- `discord_id` com histórico em `manual_sub_grants`;
+	- membros do servidor que atualmente possuem `SUBSCRIBER_ROLE_ID`.
+- A listagem de membros com SUB não assume cache completo: tenta fetch explícito de membros e aplica timeout controlado.
+- Em falha ou timeout da listagem de membros com SUB, a execução continua com candidatos de banco (`kick_accounts` + `manual_sub_grants`) e marca descoberta incompleta.
+- Com descoberta incompleta, remoções de cargo são bloqueadas por segurança naquela execução; adições para elegíveis conhecidos continuam permitidas.
+- Regra aplicada por usuário: Kick ativa OU manual ativa mantém/adiciona SUB; sem fontes ativas remove SUB; elegibilidade desconhecida nunca força remoção.
+- Falha em um usuário não interrompe os demais.
+- Execuções simultâneas são bloqueadas por trava em memória.
+- Operações de Discord potencialmente demoradas (descoberta e sincronização por usuário) usam timeout controlado para evitar execução pendurada.
+- Execuções em massa são auditadas em `subscriber_role_reconciliation_runs`.
+
+### Requisito de intents
+
+- O client do bot inclui `GatewayIntentBits.GuildMembers` para permitir descoberta completa de membros com SUB.
+- Também é necessário ativar o **Server Members Intent** no Discord Developer Portal da aplicação; sem isso, a descoberta pode ficar parcial e as remoções serão bloqueadas por segurança.
+
+### Variáveis de ambiente
+
+- `SUB_ROLE_RECONCILIATION_ENABLED` (padrão `true`)
+- `SUB_ROLE_RECONCILIATION_INTERVAL_MINUTES` (padrão `15`)
+- `SUB_ROLE_RECONCILIATION_STARTUP_DELAY_SECONDS` (padrão `30`)
+- `SUB_ROLE_RECONCILIATION_DISCOVERY_TIMEOUT_MS` (padrão `20000`)
+- `SUB_ROLE_RECONCILIATION_USER_SYNC_TIMEOUT_MS` (padrão `12000`)
+
+### Resultado e classificação
+
+- `member_not_found` (usuário histórico fora do servidor) é contabilizado como ignorado, não como falha.
+- Falhas reais de sincronização (ex.: `role_not_found`, `guild_not_found`, `missing_manage_roles`, `hierarchy_error`, `discord_sync_timeout`, `discord_api_error`, `member_not_manageable`) permanecem em falhas.
+- Avisos de auditoria individual (`auditWarning`) são contabilizados separadamente de falhas de cargo.
+
+### Limitações conhecidas
+
+- A reconciliação de cargo não altera fila, painel, scheduler da fila ou lobbies.
+- A reconciliação não consulta a API da Kick diretamente; usa somente estado persistido no banco.
