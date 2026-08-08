@@ -14,6 +14,7 @@ describe('sqliteOperationalLockService', () => {
   afterEach(() => {
     delete process.env.RAILWAY_DEPLOYMENT_ID;
     delete process.env.RAILWAY_REPLICA_ID;
+    delete process.env.RAILWAY_VOLUME_MOUNT_PATH;
     jest.resetModules();
   });
 
@@ -134,6 +135,7 @@ describe('sqliteOperationalLockService', () => {
     const { root, dbPath } = createTempDbPath();
     process.env.RAILWAY_DEPLOYMENT_ID = 'new-deployment';
     process.env.RAILWAY_REPLICA_ID = 'replica-a';
+    process.env.RAILWAY_VOLUME_MOUNT_PATH = root;
 
     const lockService = require('../src/services/sqliteOperationalLockService');
     const lockPath = lockService.lockPathFromDatabasePath(dbPath);
@@ -158,7 +160,43 @@ describe('sqliteOperationalLockService', () => {
     try {
       const result = lockService.acquireLock(dbPath, { staleThresholdMs: 60_000 });
       expect(result.acquired).toBe(true);
-      expect(result.recoveredByRailwayDeployment).toBe(true);
+      expect(result.recoveredByRailwayVolume).toBe(true);
+    } finally {
+      lockService.releaseLock(dbPath);
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('restart Railway com mesmo deploymentId e replicaId recupera lock imediatamente', () => {
+    const { root, dbPath } = createTempDbPath();
+    process.env.RAILWAY_DEPLOYMENT_ID = 'same-deployment';
+    process.env.RAILWAY_REPLICA_ID = 'same-replica';
+    process.env.RAILWAY_VOLUME_MOUNT_PATH = root;
+
+    const lockService = require('../src/services/sqliteOperationalLockService');
+    const lockPath = lockService.lockPathFromDatabasePath(dbPath);
+
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    fs.writeFileSync(
+      lockPath,
+      JSON.stringify({
+        version: 2,
+        pid: process.pid,
+        instanceToken: 'other-instance-token',
+        createdAtMs: Date.now(),
+        updatedAtMs: Date.now(),
+        ownerTag: 'previous-container',
+        databasePath: path.resolve(dbPath),
+        railwayDeploymentId: 'same-deployment',
+        railwayReplicaId: 'same-replica',
+      }),
+      'utf8',
+    );
+
+    try {
+      const result = lockService.acquireLock(dbPath, { staleThresholdMs: 60_000 });
+      expect(result.acquired).toBe(true);
+      expect(result.recoveredByRailwayVolume).toBe(true);
     } finally {
       lockService.releaseLock(dbPath);
       fs.rmSync(root, { recursive: true, force: true });
@@ -169,6 +207,7 @@ describe('sqliteOperationalLockService', () => {
     const { root, dbPath } = createTempDbPath();
     process.env.RAILWAY_DEPLOYMENT_ID = 'same-deployment';
     process.env.RAILWAY_REPLICA_ID = 'replica-1';
+    process.env.RAILWAY_VOLUME_MOUNT_PATH = path.join(root, 'other-volume');
 
     const lockService = require('../src/services/sqliteOperationalLockService');
     const lockPath = lockService.lockPathFromDatabasePath(dbPath);
@@ -195,6 +234,82 @@ describe('sqliteOperationalLockService', () => {
       expect(result.acquired).toBe(false);
       expect(result.active).toBe(true);
     } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('ausência de RAILWAY_VOLUME_MOUNT_PATH mantém regra local', () => {
+    const { root, dbPath } = createTempDbPath();
+    process.env.RAILWAY_DEPLOYMENT_ID = 'deployment-x';
+    process.env.RAILWAY_REPLICA_ID = 'replica-x';
+
+    const lockService = require('../src/services/sqliteOperationalLockService');
+    const lockPath = lockService.lockPathFromDatabasePath(dbPath);
+
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    fs.writeFileSync(
+      lockPath,
+      JSON.stringify({
+        version: 2,
+        pid: process.pid,
+        instanceToken: 'other-instance-token',
+        createdAtMs: Date.now(),
+        updatedAtMs: Date.now(),
+        ownerTag: 'other',
+        databasePath: path.resolve(dbPath),
+      }),
+      'utf8',
+    );
+
+    try {
+      const result = lockService.acquireLock(dbPath, { staleThresholdMs: 60_000 });
+      expect(result.acquired).toBe(false);
+      expect(result.active).toBe(true);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('database.sqlite não é removido nem alterado ao recuperar lock no Railway', () => {
+    const { root, dbPath } = createTempDbPath();
+    process.env.RAILWAY_DEPLOYMENT_ID = 'dep-safe';
+    process.env.RAILWAY_REPLICA_ID = 'rep-safe';
+    process.env.RAILWAY_VOLUME_MOUNT_PATH = root;
+
+    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+    fs.writeFileSync(dbPath, 'db-content-preserved', 'utf8');
+    const beforeContent = fs.readFileSync(dbPath, 'utf8');
+    const beforeSize = fs.statSync(dbPath).size;
+
+    const lockService = require('../src/services/sqliteOperationalLockService');
+    const lockPath = lockService.lockPathFromDatabasePath(dbPath);
+    fs.writeFileSync(
+      lockPath,
+      JSON.stringify({
+        version: 2,
+        pid: process.pid,
+        instanceToken: 'old-token',
+        createdAtMs: Date.now(),
+        updatedAtMs: Date.now(),
+        ownerTag: 'old',
+        databasePath: path.resolve(dbPath),
+        railwayDeploymentId: 'dep-safe',
+        railwayReplicaId: 'rep-safe',
+      }),
+      'utf8',
+    );
+
+    try {
+      const result = lockService.acquireLock(dbPath, { staleThresholdMs: 60_000 });
+      expect(result.acquired).toBe(true);
+      expect(result.recoveredByRailwayVolume).toBe(true);
+
+      const afterContent = fs.readFileSync(dbPath, 'utf8');
+      const afterSize = fs.statSync(dbPath).size;
+      expect(afterContent).toBe(beforeContent);
+      expect(afterSize).toBe(beforeSize);
+    } finally {
+      lockService.releaseLock(dbPath);
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

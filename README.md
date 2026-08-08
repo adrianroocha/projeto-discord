@@ -184,6 +184,7 @@ KICK_PORT=3000
 - `KICK_REDIRECT_URI=https://DOMINIO/kick/callback`
 - webhook Kick em `https://DOMINIO/kick/webhooks`
 - O volume persistente deve ser montado exatamente em `/data`.
+- Em restart do Railway no mesmo deployment, o lock operacional no volume é recuperado com segurança para evitar loop de reinicialização.
 - A configuração de réplica única deve ser conferida manualmente no painel do Railway (Scaling).
 - O próprio uso de volume persistente impede operação segura com múltiplas réplicas para este serviço SQLite.
 - Deployments com volume persistente podem causar pequena indisponibilidade durante troca de versão.

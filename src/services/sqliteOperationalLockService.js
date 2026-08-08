@@ -92,25 +92,36 @@ function getRailwayRuntimeMetadata() {
   return {
     deploymentId: readOptionalEnvString('RAILWAY_DEPLOYMENT_ID'),
     replicaId: readOptionalEnvString('RAILWAY_REPLICA_ID'),
+    volumeMountPath: readOptionalEnvString('RAILWAY_VOLUME_MOUNT_PATH'),
   };
 }
 
-function canRecoverImmediatelyByRailwayDeployment(existingPayload) {
-  const runtimeMetadata = getRailwayRuntimeMetadata();
-  const currentDeploymentId = runtimeMetadata.deploymentId;
-  const existingDeploymentId =
-    typeof existingPayload?.railwayDeploymentId === 'string'
-      ? existingPayload.railwayDeploymentId.trim() || null
-      : null;
-
-  if (!currentDeploymentId || !existingDeploymentId) {
+function isPathInsideDirectory(filePath, directoryPath) {
+  if (!filePath || !directoryPath) {
     return false;
   }
 
-  // Railway volume-backed deploys do not keep two different deployment IDs active
-  // on the same persistent mount simultaneously. A differing deployment ID means
-  // the previous holder is from an older deployment and can be safely replaced.
-  return currentDeploymentId !== existingDeploymentId;
+  const absoluteFilePath = path.resolve(filePath);
+  const absoluteDirectoryPath = path.resolve(directoryPath);
+  const relative = path.relative(absoluteDirectoryPath, absoluteFilePath);
+
+  if (!relative) {
+    return true;
+  }
+
+  return !relative.startsWith('..') && !path.isAbsolute(relative);
+}
+
+function canRecoverImmediatelyInRailwayVolume(databasePath) {
+  const runtimeMetadata = getRailwayRuntimeMetadata();
+  const currentDeploymentId = runtimeMetadata.deploymentId;
+  const volumeMountPath = runtimeMetadata.volumeMountPath;
+
+  if (!currentDeploymentId || !volumeMountPath) {
+    return false;
+  }
+
+  return isPathInsideDirectory(databasePath, volumeMountPath);
 }
 
 function getObservedTimestamp(payload) {
@@ -238,7 +249,7 @@ function acquireLock(databasePath, options = {}) {
     };
   }
 
-  if (canRecoverImmediatelyByRailwayDeployment(existing)) {
+  if (canRecoverImmediatelyInRailwayVolume(databasePath)) {
     try {
       fs.unlinkSync(lockFilePath);
       writeLockFile(lockFilePath, payload);
@@ -246,12 +257,12 @@ function acquireLock(databasePath, options = {}) {
         acquired: true,
         lockFilePath,
         staleRemoved: true,
-        recoveredByRailwayDeployment: true,
+        recoveredByRailwayVolume: true,
         previousOwner: existing,
       };
     } catch (error) {
-      const failure = new Error('Falha ao recuperar lock operacional de deployment Railway anterior.');
-      failure.code = error && error.code ? error.code : 'LOCK_RAILWAY_DEPLOYMENT_RECOVERY_FAILED';
+      const failure = new Error('Falha ao recuperar lock operacional em volume Railway.');
+      failure.code = error && error.code ? error.code : 'LOCK_RAILWAY_VOLUME_RECOVERY_FAILED';
       throw failure;
     }
   }

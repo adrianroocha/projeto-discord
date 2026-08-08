@@ -34,22 +34,25 @@ describe('Railway bootstrap lock recovery', () => {
     delete process.env.DATABASE_PATH;
     delete process.env.RAILWAY_DEPLOYMENT_ID;
     delete process.env.RAILWAY_REPLICA_ID;
+    delete process.env.RAILWAY_VOLUME_MOUNT_PATH;
     jest.resetModules();
   });
 
-  test('SIGKILL simulado seguido de novo deployment recupera lock e chega a ready', async () => {
+  test('Restart Railway no mesmo deployment/replica recupera lock e chega a ready', async () => {
     const { root, dbPath } = createTempDbPath();
 
     process.env.DISCORD_TOKEN = 'test-token';
     process.env.GUILD_ID = 'test-guild';
     process.env.DATABASE_PATH = dbPath;
-    process.env.RAILWAY_DEPLOYMENT_ID = 'deployment-new';
-    process.env.RAILWAY_REPLICA_ID = 'replica-new';
+    process.env.RAILWAY_DEPLOYMENT_ID = 'deployment-same';
+    process.env.RAILWAY_REPLICA_ID = 'replica-same';
+    process.env.RAILWAY_VOLUME_MOUNT_PATH = root;
 
     const lockPath = `${path.resolve(dbPath)}.lock`;
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
 
-    // Simula lock deixado por container antigo que morreu sem cleanup (SIGKILL).
+    // Simula lock deixado por container antigo que morreu sem cleanup (SIGKILL)
+    // no mesmo deployment.
     fs.writeFileSync(
       lockPath,
       JSON.stringify({
@@ -60,8 +63,8 @@ describe('Railway bootstrap lock recovery', () => {
         updatedAtMs: Date.now(),
         ownerTag: 'old-container',
         databasePath: path.resolve(dbPath),
-        railwayDeploymentId: 'deployment-old',
-        railwayReplicaId: 'replica-old',
+        railwayDeploymentId: 'deployment-same',
+        railwayReplicaId: 'replica-same',
       }),
       'utf8',
     );
@@ -97,11 +100,12 @@ describe('Railway bootstrap lock recovery', () => {
       expect(result.started).toBe(true);
       expect(lifecycleService.markReady).toHaveBeenCalledTimes(1);
       expect(lifecycleService.markFailed).not.toHaveBeenCalled();
+      expect(shutdown).not.toHaveBeenCalled();
       expect(sqliteClient.isConnectionOpen()).toBe(true);
 
       const lockData = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-      expect(lockData.railwayDeploymentId).toBe('deployment-new');
-      expect(lockData.railwayReplicaId).toBe('replica-new');
+      expect(lockData.railwayDeploymentId).toBe('deployment-same');
+      expect(lockData.railwayReplicaId).toBe('replica-same');
     } finally {
       await sqliteClient.closeConnection();
       fs.rmSync(root, { recursive: true, force: true });

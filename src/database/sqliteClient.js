@@ -27,6 +27,10 @@ function openConnection() {
         ownerTag: 'discord-bot-main',
       });
 
+      if (lockResult.recoveredByRailwayVolume) {
+        console.info('SQLite lock recovery code=LOCK_RAILWAY_VOLUME_RECOVERED');
+      }
+
       if (!lockResult.acquired) {
         const lockError = new Error('Banco SQLite em uso por outra instância.');
         lockError.code = 'SQLITE_DB_LOCK_ACTIVE';
