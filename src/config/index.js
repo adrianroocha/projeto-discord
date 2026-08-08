@@ -36,6 +36,32 @@ function parsePositiveIntegerWithMax(value, fallback, maxValue) {
   return Math.min(parsed, maxValue);
 }
 
+function parseBoundedPositiveInteger(value, options) {
+  const fallback = options.fallback;
+  const min = options.min;
+  const max = options.max;
+
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  const normalized = String(value).trim();
+  if (!/^\d+$/.test(normalized)) {
+    return fallback;
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  if (parsed < min || parsed > max) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
 function parseBoolean(value, fallback) {
   if (value === undefined || value === null || value === '') {
     return fallback;
@@ -99,5 +125,20 @@ module.exports = {
     10000,
     120000,
   ),
+  kickHttpMaxBodyBytes: parseBoundedPositiveInteger(process.env.KICK_HTTP_MAX_BODY_BYTES, {
+    fallback: 1048576,
+    min: 1024,
+    max: 10485760,
+  }),
+  kickHttpBodyTimeoutMs: parseBoundedPositiveInteger(process.env.KICK_HTTP_BODY_TIMEOUT_MS, {
+    fallback: 10000,
+    min: 1000,
+    max: 120000,
+  }),
+  kickHttpMaxUrlLength: parseBoundedPositiveInteger(process.env.KICK_HTTP_MAX_URL_LENGTH, {
+    fallback: 8192,
+    min: 256,
+    max: 65536,
+  }),
   nodeEnv: process.env.NODE_ENV || 'development',
 };

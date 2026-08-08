@@ -117,6 +117,53 @@ describe('kickHttpServer', () => {
     expect(res.body).toContain('Conta Kick já vinculada');
   });
 
+  test('callback com URL acima do limite retorna 414 e não executa OAuth', async () => {
+    const completeOAuthCallback = jest.fn();
+    const logger = { warn: jest.fn() };
+
+    const handler = createRequestHandler({
+      config: {
+        kickPort: 3000,
+        kickHttpMaxUrlLength: 30,
+      },
+      kickAuthService: { completeOAuthCallback },
+      logger,
+    });
+
+    const req = {
+      method: 'GET',
+      url: '/kick/callback?code=codigo-super-secreto&state=estado-super-secreto',
+    };
+    const res = createMockResponse();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(414);
+    expect(res.body).toBe('URI Too Long');
+    expect(completeOAuthCallback).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledTimes(1);
+    expect(logger.warn.mock.calls[0][0]).toContain('status=414');
+    expect(logger.warn.mock.calls[0][0]).not.toContain('codigo-super-secreto');
+    expect(logger.warn.mock.calls[0][0]).not.toContain('estado-super-secreto');
+  });
+
+  test('/health com URL acima do limite retorna 414', async () => {
+    const handler = createRequestHandler({
+      config: {
+        kickPort: 3000,
+        kickHttpMaxUrlLength: 10,
+      },
+    });
+
+    const req = { method: 'GET', url: '/health?x=1234567890' };
+    const res = createMockResponse();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(414);
+    expect(res.body).toBe('URI Too Long');
+  });
+
   test('servidor inicia apenas uma vez', async () => {
     const info = await startKickHttpServer({
       config: { kickPort: 0, kickEnabled: false },

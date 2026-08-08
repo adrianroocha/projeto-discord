@@ -1,4 +1,4 @@
-const { Readable } = require('stream');
+const { PassThrough, Readable } = require('stream');
 process.env.DISCORD_TOKEN = process.env.DISCORD_TOKEN || 'test-token';
 process.env.GUILD_ID = process.env.GUILD_ID || 'test-guild';
 const { createRequestHandler } = require('../src/services/kickHttpServer');
@@ -34,13 +34,19 @@ function createWebhookDependencies(overrides = {}) {
     };
 
   return {
-    config: { kickPort: 3000 },
+    config: {
+      kickPort: 3000,
+      kickHttpMaxBodyBytes: 1048576,
+      kickHttpBodyTimeoutMs: 10000,
+      kickHttpMaxUrlLength: 8192,
+      ...(overrides.config || {}),
+    },
     kickWebhookSignatureService,
     kickSubscriptionEventService,
     kickAccountsRepository,
     subscriberRoleAutoSyncService,
-    discordClient: {},
-    logger: { info: jest.fn(), warn: jest.fn() },
+    discordClient: overrides.discordClient || {},
+    logger: overrides.logger || { info: jest.fn(), warn: jest.fn() },
   };
 }
 
@@ -49,10 +55,14 @@ function createMockResponse() {
     statusCode: 0,
     headers: {},
     body: '',
+    writableEnded: false,
+    endCalls: 0,
     setHeader(name, value) {
       this.headers[name] = value;
     },
     end(chunk = '') {
+      this.endCalls += 1;
+      this.writableEnded = true;
       this.body += chunk;
     },
   };
@@ -66,6 +76,14 @@ function createPostRequest(url, headers, body) {
     },
   });
 
+  req.method = 'POST';
+  req.url = url;
+  req.headers = headers;
+  return req;
+}
+
+function createStreamingPostRequest(url, headers = {}) {
+  const req = new PassThrough();
   req.method = 'POST';
   req.url = url;
   req.headers = headers;
@@ -96,6 +114,374 @@ describe('kickHttpServer webhook route', () => {
 
     expect(res.statusCode).toBe(204);
     expect(dependencies.subscriberRoleAutoSyncService.syncAfterEligibilityChange).toHaveBeenCalledTimes(0);
+  });
+
+  test('corpo exatamente no limite é aceito', async () => {
+    const payload = '{"ok":true}';
+    const dependencies = createWebhookDependencies({
+      config: {
+        kickPort: 3000,
+        kickHttpMaxBodyBytes: Buffer.byteLength(payload, 'utf8'),
+        kickHttpBodyTimeoutMs: 10000,
+        kickHttpMaxUrlLength: 8192,
+      },
+      kickWebhookSignatureService: {
+        validateRequest: jest.fn().mockResolvedValue({
+          ok: true,
+          headers: {
+            eventMessageId: 'evt-limit-ok',
+            eventSubscriptionId: 'sub-limit-ok',
+            eventType: 'channel.subscription.new',
+            eventVersion: '1',
+            eventTimestamp: '2026-08-06T00:00:00.000Z',
+          },
+        }),
+      },
+    });
+    const handler = createRequestHandler(dependencies);
+
+    const req = createPostRequest('/kick/webhooks', {}, payload);
+    const res = createMockResponse();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(204);
+    expect(dependencies.kickWebhookSignatureService.validateRequest).toHaveBeenCalledTimes(1);
+  });
+
+  test('limite + 1 byte retorna 413 e não processa assinatura', async () => {
+    const processEvent = jest.fn();
+    const validateRequest = jest.fn();
+    const jsonParseSpy = jest.spyOn(JSON, 'parse');
+
+    try {
+      const dependencies = createWebhookDependencies({
+        config: {
+          kickPort: 3000,
+          kickHttpMaxBodyBytes: 5,
+          kickHttpBodyTimeoutMs: 10000,
+          kickHttpMaxUrlLength: 8192,
+        },
+        kickWebhookSignatureService: { validateRequest },
+        kickSubscriptionEventService: { processEvent },
+      });
+      const handler = createRequestHandler(dependencies);
+
+      const req = createPostRequest('/kick/webhooks', {}, '123456');
+      const res = createMockResponse();
+      await handler(req, res);
+
+      expect(res.statusCode).toBe(413);
+      expect(res.body).toBe('Payload Too Large');
+      expect(validateRequest).not.toHaveBeenCalled();
+      expect(processEvent).not.toHaveBeenCalled();
+      expect(dependencies.subscriberRoleAutoSyncService.syncAfterEligibilityChange).not.toHaveBeenCalled();
+      expect(jsonParseSpy).not.toHaveBeenCalled();
+    } finally {
+      jsonParseSpy.mockRestore();
+    }
+  });
+
+  test('Content-Length acima do limite retorna 413 antes da leitura', async () => {
+    const validateRequest = jest.fn();
+    const handler = createRequestHandler(
+      createWebhookDependencies({
+        config: {
+          kickPort: 3000,
+          kickHttpMaxBodyBytes: 5,
+          kickHttpBodyTimeoutMs: 10000,
+          kickHttpMaxUrlLength: 8192,
+        },
+        kickWebhookSignatureService: { validateRequest },
+      }),
+    );
+
+    const req = createStreamingPostRequest('/kick/webhooks', { 'content-length': '6' });
+    const res = createMockResponse();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(413);
+    expect(validateRequest).not.toHaveBeenCalled();
+  });
+
+  test('sem Content-Length, chunks acima do limite retornam 413', async () => {
+    const validateRequest = jest.fn();
+    const processEvent = jest.fn();
+    const dependencies = createWebhookDependencies({
+      config: {
+        kickPort: 3000,
+        kickHttpMaxBodyBytes: 5,
+        kickHttpBodyTimeoutMs: 10000,
+        kickHttpMaxUrlLength: 8192,
+      },
+      kickWebhookSignatureService: { validateRequest },
+      kickSubscriptionEventService: { processEvent },
+    });
+    const handler = createRequestHandler(dependencies);
+
+    const req = createStreamingPostRequest('/kick/webhooks');
+    req.write(Buffer.from('12', 'utf8'));
+    req.write(Buffer.from('34', 'utf8'));
+    req.write(Buffer.from('56', 'utf8'));
+    req.end();
+
+    const res = createMockResponse();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(413);
+    expect(validateRequest).not.toHaveBeenCalled();
+    expect(processEvent).not.toHaveBeenCalled();
+    expect(dependencies.kickAccountsRepository.findByKickUserId).not.toHaveBeenCalled();
+    expect(dependencies.subscriberRoleAutoSyncService.syncAfterEligibilityChange).not.toHaveBeenCalled();
+  });
+
+  test('Content-Length menor que corpo real ainda retorna 413 pelos bytes reais', async () => {
+    const validateRequest = jest.fn();
+    const handler = createRequestHandler(
+      createWebhookDependencies({
+        config: {
+          kickPort: 3000,
+          kickHttpMaxBodyBytes: 5,
+          kickHttpBodyTimeoutMs: 10000,
+          kickHttpMaxUrlLength: 8192,
+        },
+        kickWebhookSignatureService: { validateRequest },
+      }),
+    );
+
+    const req = createStreamingPostRequest('/kick/webhooks', { 'content-length': '4' });
+    req.write(Buffer.from('123', 'utf8'));
+    req.write(Buffer.from('456', 'utf8'));
+    req.end();
+
+    const res = createMockResponse();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(413);
+    expect(validateRequest).not.toHaveBeenCalled();
+  });
+
+  test('body fragmentado em vários chunks dentro do limite é aceito', async () => {
+    const validateRequest = jest.fn().mockResolvedValue({
+      ok: true,
+      headers: {
+        eventMessageId: 'evt-frag-ok',
+        eventSubscriptionId: 'sub-frag-ok',
+        eventType: 'channel.subscription.new',
+        eventVersion: '1',
+        eventTimestamp: '2026-08-06T00:00:00.000Z',
+      },
+    });
+
+    const dependencies = createWebhookDependencies({
+      config: {
+        kickPort: 3000,
+        kickHttpMaxBodyBytes: 128,
+        kickHttpBodyTimeoutMs: 10000,
+        kickHttpMaxUrlLength: 8192,
+      },
+      kickWebhookSignatureService: { validateRequest },
+    });
+
+    const handler = createRequestHandler(dependencies);
+    const req = createStreamingPostRequest('/kick/webhooks', { 'content-length': '11' });
+    req.write(Buffer.from('{"ok":', 'utf8'));
+    req.write(Buffer.from('true', 'utf8'));
+    req.write(Buffer.from('}', 'utf8'));
+    req.end();
+
+    const res = createMockResponse();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(204);
+    expect(validateRequest).toHaveBeenCalledTimes(1);
+  });
+
+  test('requisição rejeitada por 413 não indisponibiliza /health na sequência', async () => {
+    const handler = createRequestHandler(
+      createWebhookDependencies({
+        config: {
+          kickPort: 3000,
+          kickHttpMaxBodyBytes: 5,
+          kickHttpBodyTimeoutMs: 10000,
+          kickHttpMaxUrlLength: 8192,
+        },
+      }),
+    );
+
+    const oversizedReq = createPostRequest('/kick/webhooks', {}, '123456');
+    const oversizedRes = createMockResponse();
+    await handler(oversizedReq, oversizedRes);
+
+    const healthRes = createMockResponse();
+    await handler({ method: 'GET', url: '/health' }, healthRes);
+
+    expect(oversizedRes.statusCode).toBe(413);
+    expect(healthRes.statusCode).toBe(200);
+  });
+
+  test('Content-Length inválido retorna 400', async () => {
+    const validateRequest = jest.fn();
+    const handler = createRequestHandler(
+      createWebhookDependencies({
+        kickWebhookSignatureService: { validateRequest },
+      }),
+    );
+
+    const req = createStreamingPostRequest('/kick/webhooks', { 'content-length': 'abc' });
+    const res = createMockResponse();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(validateRequest).not.toHaveBeenCalled();
+  });
+
+  test('body que termina antes do timeout continua processando', async () => {
+    const validateRequest = jest.fn().mockResolvedValue({
+      ok: true,
+      headers: {
+        eventMessageId: 'evt-timeout-ok',
+        eventSubscriptionId: 'sub-timeout-ok',
+        eventType: 'channel.subscription.new',
+        eventVersion: '1',
+        eventTimestamp: '2026-08-06T00:00:00.000Z',
+      },
+    });
+
+    const handler = createRequestHandler(
+      createWebhookDependencies({
+        config: {
+          kickPort: 3000,
+          kickHttpMaxBodyBytes: 128,
+          kickHttpBodyTimeoutMs: 50,
+          kickHttpMaxUrlLength: 8192,
+        },
+        kickWebhookSignatureService: { validateRequest },
+      }),
+    );
+
+    const req = createStreamingPostRequest('/kick/webhooks');
+    const res = createMockResponse();
+
+    const handlerPromise = handler(req, res);
+    req.write(Buffer.from('{"ok":true}', 'utf8'));
+    req.end();
+
+    await handlerPromise;
+
+    expect(res.statusCode).toBe(204);
+    expect(validateRequest).toHaveBeenCalledTimes(1);
+  });
+
+  test('body que não termina dentro do limite retorna 408', async () => {
+    jest.useFakeTimers();
+
+    try {
+      const validateRequest = jest.fn();
+      const processEvent = jest.fn();
+
+      const handler = createRequestHandler(
+        createWebhookDependencies({
+          config: {
+            kickPort: 3000,
+            kickHttpMaxBodyBytes: 128,
+            kickHttpBodyTimeoutMs: 20,
+            kickHttpMaxUrlLength: 8192,
+          },
+          kickWebhookSignatureService: { validateRequest },
+          kickSubscriptionEventService: { processEvent },
+        }),
+      );
+
+      const req = createStreamingPostRequest('/kick/webhooks');
+      const res = createMockResponse();
+
+      const pending = handler(req, res);
+      req.write(Buffer.from('{"partial":', 'utf8'));
+
+      await jest.advanceTimersByTimeAsync(25);
+      await pending;
+
+      expect(res.statusCode).toBe(408);
+      expect(validateRequest).not.toHaveBeenCalled();
+      expect(processEvent).not.toHaveBeenCalled();
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('body parcialmente enviado e interrompido retorna erro controlado e limpa timer', async () => {
+    jest.useFakeTimers();
+
+    try {
+      const validateRequest = jest.fn();
+      const handler = createRequestHandler(
+        createWebhookDependencies({
+          config: {
+            kickPort: 3000,
+            kickHttpMaxBodyBytes: 128,
+            kickHttpBodyTimeoutMs: 1000,
+            kickHttpMaxUrlLength: 8192,
+          },
+          kickWebhookSignatureService: { validateRequest },
+        }),
+      );
+
+      const req = createStreamingPostRequest('/kick/webhooks');
+      const res = createMockResponse();
+
+      const pending = handler(req, res);
+      req.write(Buffer.from('{"partial":', 'utf8'));
+      req.destroy(new Error('stream interrupted'));
+      await pending;
+
+      expect(res.statusCode).toBe(400);
+      expect(validateRequest).not.toHaveBeenCalled();
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  test('timer de leitura é cancelado após sucesso', async () => {
+    jest.useFakeTimers();
+
+    try {
+      const validateRequest = jest.fn().mockResolvedValue({
+        ok: true,
+        headers: {
+          eventMessageId: 'evt-timeout-cleanup',
+          eventSubscriptionId: 'sub-timeout-cleanup',
+          eventType: 'channel.subscription.new',
+          eventVersion: '1',
+          eventTimestamp: '2026-08-06T00:00:00.000Z',
+        },
+      });
+
+      const handler = createRequestHandler(
+        createWebhookDependencies({
+          config: {
+            kickPort: 3000,
+            kickHttpMaxBodyBytes: 128,
+            kickHttpBodyTimeoutMs: 1000,
+            kickHttpMaxUrlLength: 8192,
+          },
+          kickWebhookSignatureService: { validateRequest },
+        }),
+      );
+
+      const req = createStreamingPostRequest('/kick/webhooks');
+      const res = createMockResponse();
+
+      const pending = handler(req, res);
+      req.end(Buffer.from('{"ok":true}', 'utf8'));
+      await pending;
+
+      expect(res.statusCode).toBe(204);
+      expect(jest.getTimerCount()).toBe(0);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   test('new sincroniza usuário vinculado', async () => {

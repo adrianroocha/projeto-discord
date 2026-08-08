@@ -12,23 +12,188 @@ let closePromise = null;
 let isClosing = false;
 const activeSockets = new Set();
 const LOOPBACK_IPV4 = '127.0.0.1';
+const DEFAULT_MAX_BODY_BYTES = 1048576;
+const DEFAULT_BODY_TIMEOUT_MS = 10000;
+const DEFAULT_MAX_URL_LENGTH = 8192;
 
-function readRawRequestBody(req) {
+function parseHeaderContentLength(rawHeaderValue) {
+  if (rawHeaderValue === undefined || rawHeaderValue === null || rawHeaderValue === '') {
+    return { ok: true, contentLength: null };
+  }
+
+  const normalized = Array.isArray(rawHeaderValue)
+    ? String(rawHeaderValue[0] || '').trim()
+    : String(rawHeaderValue).trim();
+
+  if (!/^\d+$/.test(normalized)) {
+    return { ok: false };
+  }
+
+  const contentLength = Number(normalized);
+  if (!Number.isSafeInteger(contentLength) || contentLength < 0) {
+    return { ok: false };
+  }
+
+  return { ok: true, contentLength };
+}
+
+function createHttpBodyError(code, statusCode, details = {}) {
+  const error = new Error(code);
+  error.code = code;
+  error.statusCode = statusCode;
+  Object.assign(error, details);
+  return error;
+}
+
+function readRawRequestBody(req, options = {}) {
+  const maxBodyBytes = Number(options.maxBodyBytes) || DEFAULT_MAX_BODY_BYTES;
+  const bodyTimeoutMs = Number(options.bodyTimeoutMs) || DEFAULT_BODY_TIMEOUT_MS;
+  const parsedContentLength = parseHeaderContentLength(req?.headers?.['content-length']);
+
+  if (!parsedContentLength.ok) {
+    throw createHttpBodyError('invalid_content_length', 400);
+  }
+
+  if (parsedContentLength.contentLength !== null && parsedContentLength.contentLength > maxBodyBytes) {
+    throw createHttpBodyError('payload_too_large', 413, {
+      observedBytes: parsedContentLength.contentLength,
+      limitBytes: maxBodyBytes,
+      source: 'content_length',
+    });
+  }
+
   return new Promise((resolve, reject) => {
     const chunks = [];
+    let totalBytes = 0;
+    let settled = false;
 
-    req.on('data', (chunk) => {
-      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-    });
+    function cleanup() {
+      req.removeListener('data', onData);
+      req.removeListener('end', onEnd);
+      req.removeListener('error', onError);
+      req.removeListener('aborted', onAborted);
+      clearTimeout(timeoutTimer);
+    }
 
-    req.on('end', () => {
-      resolve(Buffer.concat(chunks));
-    });
-
-    req.on('error', (error) => {
+    function settleWithError(error) {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
       reject(error);
-    });
+    }
+
+    function settleWithBody() {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanup();
+      resolve(Buffer.concat(chunks, totalBytes));
+    }
+
+    function onData(chunk) {
+      if (settled) {
+        return;
+      }
+
+      const chunkBuffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      const nextTotalBytes = totalBytes + chunkBuffer.length;
+
+      if (nextTotalBytes > maxBodyBytes) {
+        settleWithError(
+          createHttpBodyError('payload_too_large', 413, {
+            observedBytes: nextTotalBytes,
+            limitBytes: maxBodyBytes,
+            source: 'stream',
+          }),
+        );
+        return;
+      }
+
+      totalBytes = nextTotalBytes;
+      chunks.push(chunkBuffer);
+    }
+
+    function onEnd() {
+      settleWithBody();
+    }
+
+    function onError(_error) {
+      settleWithError(createHttpBodyError('stream_error', 400));
+    }
+
+    function onAborted() {
+      settleWithError(createHttpBodyError('stream_aborted', 400));
+    }
+
+    const timeoutTimer = setTimeout(() => {
+      settleWithError(
+        createHttpBodyError('request_timeout', 408, {
+          limitMs: bodyTimeoutMs,
+        }),
+      );
+    }, bodyTimeoutMs);
+
+    if (typeof timeoutTimer.unref === 'function') {
+      timeoutTimer.unref();
+    }
+
+    req.on('data', onData);
+    req.on('end', onEnd);
+    req.on('error', onError);
+    req.on('aborted', onAborted);
   });
+}
+
+function respondText(res, statusCode, body) {
+  if (res.writableEnded) {
+    return;
+  }
+
+  res.statusCode = statusCode;
+  res.end(body);
+}
+
+function finalizeRejectedRequest(req, res, statusCode, body) {
+  if (res.writableEnded) {
+    return;
+  }
+
+  res.statusCode = statusCode;
+  res.setHeader('Connection', 'close');
+  res.end(body);
+
+  // Consume and discard any remaining request bytes without buffering them.
+  if (req && !req.destroyed && typeof req.resume === 'function') {
+    req.resume();
+  }
+}
+
+function logHttpRejection(logger, details) {
+  if (typeof logger?.warn !== 'function') {
+    return;
+  }
+
+  const reason = details?.reason || 'unknown';
+  const route = details?.route || 'unknown';
+  const statusCode = Number(details?.statusCode) || 0;
+  const observedBytes = Number.isFinite(details?.observedBytes) ? ` observed_bytes=${details.observedBytes}` : '';
+  const limitBytes = Number.isFinite(details?.limitBytes) ? ` limit_bytes=${details.limitBytes}` : '';
+  const limitMs = Number.isFinite(details?.limitMs) ? ` limit_ms=${details.limitMs}` : '';
+
+  logger.warn(
+    `Kick HTTP rejeição: reason=${reason} route=${route} status=${statusCode}${observedBytes}${limitBytes}${limitMs}`,
+  );
+}
+
+function getSafePositiveInteger(value, fallback) {
+  if (Number.isInteger(value) && value > 0) {
+    return value;
+  }
+
+  return fallback;
 }
 
 function writeHtml(res, statusCode, title, message) {
@@ -158,6 +323,9 @@ function createRequestHandler(dependencies = {}) {
   const cfg = dependencies.config || config;
   const logger = dependencies.logger || console;
   const lifecycleService = dependencies.applicationLifecycleService || applicationLifecycleService;
+  const maxBodyBytes = getSafePositiveInteger(cfg.kickHttpMaxBodyBytes, DEFAULT_MAX_BODY_BYTES);
+  const bodyTimeoutMs = getSafePositiveInteger(cfg.kickHttpBodyTimeoutMs, DEFAULT_BODY_TIMEOUT_MS);
+  const maxUrlLength = getSafePositiveInteger(cfg.kickHttpMaxUrlLength, DEFAULT_MAX_URL_LENGTH);
 
   function logWebhookCategory(statusOrCode) {
     if (!statusOrCode) {
@@ -187,7 +355,22 @@ function createRequestHandler(dependencies = {}) {
       return;
     }
 
-    const requestUrl = new URL(req.url || '/', `http://127.0.0.1:${cfg.kickPort}`);
+    const rawUrl = typeof req.url === 'string' ? req.url : '/';
+    const observedUrlLength = Buffer.byteLength(rawUrl, 'utf8');
+    if (observedUrlLength > maxUrlLength) {
+      const routePath = rawUrl.split('?')[0] || '/';
+      logHttpRejection(logger, {
+        reason: 'uri_too_long',
+        route: routePath,
+        statusCode: 414,
+        observedBytes: observedUrlLength,
+        limitBytes: maxUrlLength,
+      });
+      finalizeRejectedRequest(req, res, 414, 'URI Too Long');
+      return;
+    }
+
+    const requestUrl = new URL(rawUrl, `http://127.0.0.1:${cfg.kickPort}`);
 
     if (requestUrl.pathname === '/kick/webhooks') {
       if (req.method !== 'POST') {
@@ -198,10 +381,45 @@ function createRequestHandler(dependencies = {}) {
 
       let rawBody;
       try {
-        rawBody = await readRawRequestBody(req);
-      } catch (_error) {
-        res.statusCode = 500;
-        res.end('Internal Server Error');
+        rawBody = await readRawRequestBody(req, {
+          maxBodyBytes,
+          bodyTimeoutMs,
+        });
+      } catch (error) {
+        if (error?.statusCode === 413) {
+          logHttpRejection(logger, {
+            reason: error.code || 'payload_too_large',
+            route: requestUrl.pathname,
+            statusCode: 413,
+            observedBytes: error.observedBytes,
+            limitBytes: error.limitBytes || maxBodyBytes,
+          });
+          finalizeRejectedRequest(req, res, 413, 'Payload Too Large');
+          return;
+        }
+
+        if (error?.statusCode === 408) {
+          logHttpRejection(logger, {
+            reason: error.code || 'request_timeout',
+            route: requestUrl.pathname,
+            statusCode: 408,
+            limitMs: error.limitMs || bodyTimeoutMs,
+          });
+          finalizeRejectedRequest(req, res, 408, 'Request Timeout');
+          return;
+        }
+
+        if (error?.statusCode === 400) {
+          logHttpRejection(logger, {
+            reason: error.code || 'bad_request',
+            route: requestUrl.pathname,
+            statusCode: 400,
+          });
+          finalizeRejectedRequest(req, res, 400, 'Bad Request');
+          return;
+        }
+
+        finalizeRejectedRequest(req, res, 500, 'Internal Server Error');
         return;
       }
 
@@ -222,13 +440,11 @@ function createRequestHandler(dependencies = {}) {
 
       if (!signatureValidation.ok) {
         if (signatureValidation.reason === 'missing_headers') {
-          res.statusCode = 400;
-          res.end('Bad Request');
+          respondText(res, 400, 'Bad Request');
           return;
         }
 
-        res.statusCode = 401;
-        res.end('Unauthorized');
+        respondText(res, 401, 'Unauthorized');
         return;
       }
 
@@ -236,8 +452,7 @@ function createRequestHandler(dependencies = {}) {
       try {
         eventPayload = JSON.parse(rawBody.toString('utf8'));
       } catch (_error) {
-        res.statusCode = 400;
-        res.end('Bad Request');
+        respondText(res, 400, 'Bad Request');
         return;
       }
 

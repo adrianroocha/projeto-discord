@@ -91,6 +91,11 @@ QUEUE_TIMEZONE=America/Sao_Paulo
 
 # Development Scheduler
 QUEUE_TEST_INTERVAL_MINUTES=5
+
+# Kick HTTP Hardening
+KICK_HTTP_MAX_BODY_BYTES=1048576
+KICK_HTTP_BODY_TIMEOUT_MS=10000
+KICK_HTTP_MAX_URL_LENGTH=8192
 ```
 
 ### Observações importantes
@@ -101,6 +106,7 @@ QUEUE_TEST_INTERVAL_MINUTES=5
 - `QUEUE_TEST_INTERVAL_MINUTES` controla o intervalo de ciclo em desenvolvimento.
 - `SHUTDOWN_TIMEOUT_MS` define o timeout de segurança do shutdown gracioso (padrão 10s).
 - Em produção, `QUEUE_OPEN_TIME` e `QUEUE_CLOSE_TIME` são interpretados no `QUEUE_TIMEZONE` IANA configurado (não no timezone local do host).
+- Limites HTTP da Kick (`KICK_HTTP_MAX_BODY_BYTES`, `KICK_HTTP_BODY_TIMEOUT_MS`, `KICK_HTTP_MAX_URL_LENGTH`) são opcionais e usam fallback seguro para os padrões quando ausentes, inválidos ou fora dos limites aceitos.
 
 ## Comandos disponíveis
 
@@ -289,6 +295,22 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - O cadastro de event subscriptions usa o comando administrativo `/kick-events-sync`.
 - A URL pública do webhook continua configurada manualmente no painel da Kick.
 - Webhooks continuam sem alterar snapshot de prioridade de quem já está aguardando na fila no ciclo atual.
+
+### Hardening HTTP da integração Kick
+
+- `POST /kick/webhooks` valida `Content-Length` quando presente e rejeita imediatamente payload acima do limite com `413 Payload Too Large`.
+- Mesmo sem `Content-Length`, o corpo é contado por bytes reais recebidos em `Buffer`; ao ultrapassar o limite, a requisição é encerrada com `413` antes de validação de assinatura, `JSON.parse` e persistência.
+- O corpo do webhook mantém formato bruto (`Buffer`) para validação RSA SHA-256 sem alteração de conteúdo.
+- A leitura do corpo do webhook possui timeout configurável; ao exceder o limite, a resposta é `408 Request Timeout` e o processamento é abortado de forma controlada.
+- URL acima do limite configurado retorna `414 URI Too Long` antes do parsing detalhado do callback OAuth.
+- `Content-Length` inválido retorna `400 Bad Request`.
+- Logs de rejeição HTTP registram apenas metadados seguros (status, rota e limites), sem corpo, assinatura, token, `code` ou `state`.
+
+### Variáveis de ambiente de hardening HTTP Kick
+
+- `KICK_HTTP_MAX_BODY_BYTES` (opcional, padrão `1048576` = `1 MiB`)
+- `KICK_HTTP_BODY_TIMEOUT_MS` (opcional, padrão `10000` = `10s`)
+- `KICK_HTTP_MAX_URL_LENGTH` (opcional, padrão `8192` = `8 KiB`)
 
 ## Kick Event Subscriptions (etapa atual)
 
