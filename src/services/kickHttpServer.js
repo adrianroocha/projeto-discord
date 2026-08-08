@@ -284,14 +284,43 @@ function mapCallbackError(error) {
   return { statusCode: 500, title: 'Erro interno', message: 'Não foi possível concluir o vínculo com a Kick.' };
 }
 
+function normalizeWebhookEventType(eventType) {
+  if (typeof eventType !== 'string') {
+    return '';
+  }
+
+  return eventType.trim().toLowerCase();
+}
+
+function buildSafeWebhookDiagnostic({ eventType, eventVersion, eventPayload, finalCode }) {
+  const normalizedType = normalizeWebhookEventType(eventType) || 'unknown';
+  const normalizedVersion = typeof eventVersion === 'string' && eventVersion.trim() ? eventVersion.trim() : 'unknown';
+  const payload = eventPayload && typeof eventPayload === 'object' ? eventPayload : null;
+  const hasBroadcaster = Boolean(payload?.broadcaster && typeof payload.broadcaster === 'object');
+  const hasSubscriber = Boolean(payload?.subscriber && typeof payload.subscriber === 'object');
+  const hasFollower = Boolean(payload?.follower && typeof payload.follower === 'object');
+  const hasGiftees = Array.isArray(payload?.giftees) && payload.giftees.length > 0;
+
+  return [
+    `event_type=${normalizedType}`,
+    `version=${normalizedVersion}`,
+    `broadcaster=${hasBroadcaster ? 'present' : 'absent'}`,
+    `subscriber=${hasSubscriber ? 'present' : 'absent'}`,
+    `follower=${hasFollower ? 'present' : 'absent'}`,
+    `giftees=${hasGiftees ? 'present' : 'absent'}`,
+    `code=${finalCode || 'unknown'}`,
+  ].join(' ');
+}
+
 function mapWebhookEventTypeToTriggerType(eventType) {
+  const normalized = normalizeWebhookEventType(eventType);
   const map = {
     'channel.subscription.new': 'kick_subscription_new',
     'channel.subscription.renewal': 'kick_subscription_renewal',
     'channel.subscription.gifts': 'kick_subscription_gift',
   };
 
-  return map[eventType] || null;
+  return map[normalized] || null;
 }
 
 function collectKickUserIdsForSync(eventType, eventPayload) {
@@ -460,6 +489,15 @@ function createRequestHandler(dependencies = {}) {
       try {
         eventPayload = JSON.parse(rawBody.toString('utf8'));
       } catch (_error) {
+        const diagnostic = buildSafeWebhookDiagnostic({
+          eventType: signatureValidation?.headers?.eventType,
+          eventVersion: signatureValidation?.headers?.eventVersion,
+          eventPayload: null,
+          finalCode: 'invalid_json',
+        });
+        if (typeof logger?.warn === 'function') {
+          logger.warn(`Kick webhook diagnostic: ${diagnostic}`);
+        }
         respondText(res, 400, 'Bad Request');
         return;
       }
@@ -524,6 +562,15 @@ function createRequestHandler(dependencies = {}) {
           result.status === 'ignored_other_broadcaster' ||
           result.status === 'ignored_unsupported'
         ) {
+          const diagnostic = buildSafeWebhookDiagnostic({
+            eventType: signatureValidation?.headers?.eventType,
+            eventVersion: signatureValidation?.headers?.eventVersion,
+            eventPayload,
+            finalCode: result?.status || 'processed',
+          });
+          if (typeof logger?.info === 'function') {
+            logger.info(`Kick webhook diagnostic: ${diagnostic}`);
+          }
           res.statusCode = 204;
           res.end('');
           return;
@@ -538,12 +585,23 @@ function createRequestHandler(dependencies = {}) {
         res.statusCode = 500;
         res.end('Internal Server Error');
       } catch (error) {
+        const diagnostic = buildSafeWebhookDiagnostic({
+          eventType: signatureValidation?.headers?.eventType,
+          eventVersion: signatureValidation?.headers?.eventVersion,
+          eventPayload,
+          finalCode: error?.code || 'processing_error',
+        });
         if (typeof logger?.warn === 'function') {
-          logger.warn(`Kick webhook processamento falhou: ${error?.code || 'processing_error'}`);
+          logger.warn(`Kick webhook diagnostic: ${diagnostic}`);
         }
         logWebhookCategory(error?.code || 'processing_error');
-        res.statusCode = 500;
-        res.end('Internal Server Error');
+        const isClientError =
+          error?.code === 'invalid_payload' ||
+          error?.code === 'invalid_follower' ||
+          error?.code === 'invalid_event_timestamp' ||
+          /Campo inválido:/.test(error?.message || '');
+        res.statusCode = isClientError ? 400 : 500;
+        res.end(isClientError ? 'Bad Request' : 'Internal Server Error');
       }
       return;
     }

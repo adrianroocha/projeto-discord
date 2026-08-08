@@ -17,6 +17,14 @@ function createProcessingError(code, message) {
   return error;
 }
 
+function normalizeEventType(eventType) {
+  if (typeof eventType !== 'string') {
+    return '';
+  }
+
+  return eventType.trim().toLowerCase();
+}
+
 function toNonEmptyString(value, fieldName) {
   if (typeof value !== 'string' || !value.trim()) {
     throw new Error(`Campo inválido: ${fieldName} é obrigatório.`);
@@ -24,10 +32,10 @@ function toNonEmptyString(value, fieldName) {
   return value.trim();
 }
 
-function toUserIdString(value, fieldName) {
+function toUserIdString(value, fieldName, errorCode) {
   if (typeof value === 'number') {
     if (!Number.isFinite(value) || value <= 0) {
-      throw createProcessingError('invalid_follower', `Campo inválido: ${fieldName} deve ser positivo.`);
+      throw createProcessingError(errorCode, `Campo inválido: ${fieldName} deve ser positivo.`);
     }
     return String(Math.trunc(value));
   }
@@ -36,7 +44,7 @@ function toUserIdString(value, fieldName) {
     return value.trim();
   }
 
-  throw createProcessingError('invalid_follower', `Campo inválido: ${fieldName} é obrigatório.`);
+  throw createProcessingError(errorCode, `Campo inválido: ${fieldName} é obrigatório.`);
 }
 
 function createKickSubscriptionEventService(options = {}) {
@@ -54,19 +62,23 @@ function createKickSubscriptionEventService(options = {}) {
 
   function parseSubscriptionPayload(payload, eventType) {
     if (!payload || typeof payload !== 'object') {
-      throw new Error('Payload de webhook inválido.');
+      throw createProcessingError('invalid_payload', 'Payload de webhook inválido.');
     }
 
-    const broadcasterUserId = toNonEmptyString(payload?.broadcaster?.user_id, 'broadcaster.user_id');
+    const broadcasterUserId = toUserIdString(
+      payload?.broadcaster?.user_id,
+      'broadcaster.user_id',
+      'invalid_payload',
+    );
 
     if (eventType === 'channel.subscription.gifts') {
-      if (!Array.isArray(payload.giftees)) {
-        throw new Error('Payload inválido: giftees é obrigatório para gifts.');
+      if (!Array.isArray(payload.giftees) || payload.giftees.length === 0) {
+        throw createProcessingError('invalid_payload', 'Payload inválido: giftees é obrigatório para gifts.');
       }
 
       const grants = payload.giftees.map((giftee, index) => ({
         broadcasterUserId,
-        kickUserId: toNonEmptyString(giftee?.user_id, `giftees[${index}].user_id`),
+        kickUserId: toUserIdString(giftee?.user_id, `giftees[${index}].user_id`, 'invalid_payload'),
         kickUsername: toNonEmptyString(giftee?.username, `giftees[${index}].username`),
         startedAtIso: toNonEmptyString(payload.created_at, 'created_at'),
         expiresAtIso: toNonEmptyString(payload.expires_at, 'expires_at'),
@@ -79,13 +91,18 @@ function createKickSubscriptionEventService(options = {}) {
       };
     }
 
+    const subscriber = payload?.subscriber;
+    if (!subscriber || typeof subscriber !== 'object') {
+      throw createProcessingError('invalid_payload', 'Payload inválido: subscriber é obrigatório para subscriptions.');
+    }
+
     return {
       broadcasterUserId,
       grants: [
         {
           broadcasterUserId,
-          kickUserId: toNonEmptyString(payload?.subscriber?.user_id, 'subscriber.user_id'),
-          kickUsername: toNonEmptyString(payload?.subscriber?.username, 'subscriber.username'),
+          kickUserId: toUserIdString(subscriber?.user_id, 'subscriber.user_id', 'invalid_payload'),
+          kickUsername: toNonEmptyString(subscriber?.username, 'subscriber.username'),
           startedAtIso: toNonEmptyString(payload.created_at, 'created_at'),
           expiresAtIso: toNonEmptyString(payload.expires_at, 'expires_at'),
           subscriptionType: 'direct',
@@ -99,8 +116,12 @@ function createKickSubscriptionEventService(options = {}) {
       throw createProcessingError('invalid_follower', 'Payload de webhook inválido.');
     }
 
-    const broadcasterUserId = toUserIdString(payload?.broadcaster?.user_id, 'broadcaster.user_id');
-    const followerUserId = toUserIdString(payload?.follower?.user_id, 'follower.user_id');
+    const broadcasterUserId = toUserIdString(
+      payload?.broadcaster?.user_id,
+      'broadcaster.user_id',
+      'invalid_follower',
+    );
+    const followerUserId = toUserIdString(payload?.follower?.user_id, 'follower.user_id', 'invalid_follower');
     const followerUsername = toNonEmptyString(payload?.follower?.username, 'follower.username');
 
     const followedAtMs = Date.parse(eventTimestamp);
@@ -135,7 +156,7 @@ function createKickSubscriptionEventService(options = {}) {
         payload?.eventHeaders?.eventSubscriptionId,
         'eventSubscriptionId',
       );
-      const eventType = toNonEmptyString(payload?.eventHeaders?.eventType, 'eventType');
+      const eventType = normalizeEventType(toNonEmptyString(payload?.eventHeaders?.eventType, 'eventType'));
       const eventVersion = toNonEmptyString(payload?.eventHeaders?.eventVersion, 'eventVersion');
       const eventTimestamp = toNonEmptyString(payload?.eventHeaders?.eventTimestamp, 'eventTimestamp');
 
@@ -262,7 +283,7 @@ function createKickSubscriptionEventService(options = {}) {
 
       return transaction();
     } catch (error) {
-      if (error?.code === 'invalid_event_timestamp' || error?.code === 'invalid_follower') {
+      if (error?.code === 'invalid_payload' || error?.code === 'invalid_event_timestamp' || error?.code === 'invalid_follower') {
         throw error;
       }
 

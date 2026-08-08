@@ -705,6 +705,46 @@ describe('kickHttpServer webhook route', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  test('payload inválido de subscription.new retorna 400 com diagnóstico seguro', async () => {
+    const logger = { warn: jest.fn(), info: jest.fn() };
+    const handler = createRequestHandler({
+      config: { kickPort: 3000 },
+      kickWebhookSignatureService: {
+        validateRequest: jest.fn().mockResolvedValue({
+          ok: true,
+          headers: {
+            eventMessageId: 'evt-invalid-payload',
+            eventSubscriptionId: 'sub-invalid-payload',
+            eventType: 'channel.subscription.new',
+            eventVersion: '1',
+            eventTimestamp: '2026-08-06T00:00:00.000Z',
+          },
+        }),
+      },
+      kickSubscriptionEventService: {
+        processEvent: jest.fn(() => {
+          const error = new Error('subscriber invalid');
+          error.code = 'invalid_payload';
+          throw error;
+        }),
+      },
+      logger,
+    });
+
+    const req = createPostRequest('/kick/webhooks', {}, JSON.stringify({ broadcaster: { user_id: 'b1' } }));
+    const res = createMockResponse();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(logger.warn).toHaveBeenCalled();
+    const message = logger.warn.mock.calls[0][0];
+    expect(message).toContain('Kick webhook');
+    expect(message).toContain('channel.subscription.new');
+    expect(message).toContain('code=invalid_payload');
+    expect(message).not.toContain('user_id');
+    expect(message).not.toContain('username');
+  });
+
   test('evento duplicado retorna 204', async () => {
     const dependencies = createWebhookDependencies({
       kickWebhookSignatureService: {

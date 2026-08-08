@@ -67,6 +67,28 @@ describe('kickSubscriptionEventService', () => {
     expect(subscriptionsRepository.isActive('b1', 'u1', Date.parse('2026-08-10T00:00:00.000Z'))).toBe(true);
   });
 
+  test('subscription.new com subscriber ausente rejeita como invalid_payload', () => {
+    const service = createKickSubscriptionEventService({
+      config: { kickBroadcasterUserId: 'b1' },
+      now: () => 1112,
+    });
+
+    expectProcessingError(() => {
+      service.processEvent({
+        eventHeaders: makeHeaders({ eventMessageId: 'evt-sub-invalid-1', eventType: 'channel.subscription.new' }),
+        eventPayload: {
+          broadcaster: { user_id: 'b1' },
+          subscriber: { username: 'user1' },
+          created_at: '2026-08-01T00:00:00.000Z',
+          expires_at: '2026-09-01T00:00:00.000Z',
+        },
+      });
+    }, 'invalid_payload');
+
+    expect(eventsRepository.hasProcessed('evt-sub-invalid-1')).toBe(false);
+    expect(subscriptionsRepository.findByBroadcasterAndKickUser('b1', 'u-invalid')).toBeNull();
+  });
+
   test('processa channel.subscription.renewal e atualiza expiração', () => {
     const service = createKickSubscriptionEventService({
       config: { kickBroadcasterUserId: 'b1' },
