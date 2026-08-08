@@ -215,7 +215,7 @@ Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COM
 - `/scheduler-status` - mostra o estado atual do scheduler.
 - `/lobby-start` - inicia uma lobby pelo número.
 - `/lobby-form-force` - força a criação de uma lobby com jogadores suficientes.
-- `/kick-events-sync` - sincroniza os event subscriptions oficiais da Kick para o webhook da aplicação.
+- `/kick-events-sync` - sincroniza os event subscriptions oficiais da Kick para o webhook da aplicação e aceita `force:true` para uma ressincronização manual.
 - `/kick-webhook-status` - mostra auditoria resumida do último webhook válido recebido pela integração Kick.
 
 ### Comandos de suporte e diagnóstico
@@ -423,6 +423,8 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - Falhas de sincronização de cargo após persistência não causam retry do webhook e não desfazem alterações de banco.
 - O endpoint permanece local (loopback), ainda não acessível externamente pela Kick nesta etapa.
 - O cadastro de event subscriptions usa o comando administrativo `/kick-events-sync`.
+- O comando `/kick-events-sync` também aceita `force:true` para tentar uma ressincronização manual dos quatro eventos desejados quando a API parecer inconsistente.
+- O relatório do comando inclui diagnóstico seguro por subscription, com broadcaster, status, método e motivo da validação, sem expor credenciais ou URL de callback.
 - A URL pública do webhook continua configurada manualmente no painel da Kick.
 - Webhooks continuam sem alterar snapshot de prioridade de quem já está aguardando na fila no ciclo atual.
 
@@ -451,7 +453,8 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 	- `channel.subscription.renewal` v1
 	- `channel.subscription.gifts` v1
 	- `channel.followed` v1 (temporário para diagnóstico da integração real)
-- A sincronização é idempotente: cria apenas eventos ausentes e preserva subscriptions extras existentes.
+- A sincronização padrão é idempotente: cria apenas eventos ausentes e preserva subscriptions extras existentes.
+- O modo `force:true` tenta recriar os eventos desejados sem assumir como válidas subscriptions com broadcaster errado, status inativo ou transporte diferente de webhook.
 - O comando exige execução em servidor e permissão `Administrator`.
 - O comando responde `ephemeral` e usa defer por envolver chamadas externas.
 

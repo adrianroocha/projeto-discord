@@ -18,6 +18,9 @@ function createInteraction(overrides = {}) {
     inGuild: () => true,
     memberPermissions: makeAdminPermissions(true),
     user: { id: 'admin-1' },
+    options: {
+      getBoolean: jest.fn().mockReturnValue(false),
+    },
     deferReply: jest.fn().mockResolvedValue(undefined),
     editReply: jest.fn().mockResolvedValue(undefined),
     reply: jest.fn().mockResolvedValue(undefined),
@@ -77,11 +80,34 @@ describe('/kick-events-sync command', () => {
     expect(interaction.editReply).toHaveBeenCalledTimes(1);
   });
 
+  test('propaga o modo force para o serviço', async () => {
+    kickEventSubscriptionService.syncDesiredEvents.mockResolvedValue({
+      created: [],
+      alreadyActive: [],
+      failed: [],
+      diagnostics: [],
+      force: true,
+    });
+
+    const interaction = createInteraction({
+      options: {
+        getBoolean: jest.fn().mockReturnValue(true),
+      },
+    });
+
+    await command.execute(interaction);
+
+    expect(kickEventSubscriptionService.syncDesiredEvents).toHaveBeenCalledWith({ force: true });
+    expect(interaction.editReply.mock.calls[0][0]).toContain('Forçar ressincronização: sim');
+  });
+
   test('monta mensagem de resumo com criados, já ativos e falhas', async () => {
     kickEventSubscriptionService.syncDesiredEvents.mockResolvedValue({
       created: ['channel.subscription.new v1', 'channel.subscription.renewal v1'],
       alreadyActive: ['channel.subscription.gifts v1'],
       failed: [{ event: 'channel.subscription.renewal v1', reason: 'RATE_LIMITED' }],
+      diagnostics: ['channel.subscription.new v1 broadcaster:75942843 subscription_id:sim status:active method:webhook valid:sim reason:ok'],
+      force: false,
     });
 
     const interaction = createInteraction();
@@ -95,6 +121,8 @@ describe('/kick-events-sync command', () => {
     expect(content).toContain('- channel.subscription.gifts v1');
     expect(content).toContain('Falhas:');
     expect(content).toContain('- channel.subscription.renewal v1 (RATE_LIMITED)');
+    expect(content).toContain('Diagnóstico:');
+    expect(content).toContain('valid:sim');
   });
 
   test('erro de configuração incompleta não expõe valor e mostra nome da variável', async () => {

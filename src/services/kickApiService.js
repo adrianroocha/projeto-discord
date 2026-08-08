@@ -88,12 +88,44 @@ function normalizeGetSubscription(entry) {
   const eventVersionRaw = entry?.event?.version ?? entry?.version ?? entry?.event_version;
   const eventVersion = toPositiveInteger(eventVersionRaw);
 
+  const status =
+    typeof entry?.status === 'string' && entry.status.trim()
+      ? entry.status.trim().toLowerCase()
+      : typeof entry?.state === 'string' && entry.state.trim()
+        ? entry.state.trim().toLowerCase()
+        : null;
+
+  const method =
+    typeof entry?.method === 'string' && entry.method.trim()
+      ? entry.method.trim().toLowerCase()
+      : typeof entry?.transport?.method === 'string' && entry.transport.method.trim()
+        ? entry.transport.method.trim().toLowerCase()
+        : typeof entry?.transport?.type === 'string' && entry.transport.type.trim()
+          ? entry.transport.type.trim().toLowerCase()
+          : null;
+
   const broadcasterUserIdRaw =
-    entry?.broadcaster_user_id ?? entry?.broadcaster?.user_id ?? entry?.broadcasterId;
+    entry?.broadcaster_user_id ??
+    entry?.condition?.broadcaster_user_id ??
+    entry?.condition?.broadcasterUserId ??
+    entry?.condition?.user_id ??
+    entry?.broadcaster?.user_id ??
+    entry?.broadcasterId;
   const broadcasterUserId =
     broadcasterUserIdRaw === null || broadcasterUserIdRaw === undefined
       ? null
       : String(broadcasterUserIdRaw).trim();
+
+  const subscriptionId = toSafeString(entry?.id ?? entry?.subscription_id ?? entry?.subscriptionId);
+  const callbackUrl =
+    toSafeString(
+      entry?.callback_url ??
+        entry?.callbackUrl ??
+        entry?.url ??
+        entry?.transport?.callback_url ??
+        entry?.transport?.callbackUrl ??
+        entry?.transport?.url,
+    ) || null;
 
   if (!eventName || !eventVersion || !broadcasterUserId) {
     return null;
@@ -103,8 +135,10 @@ function normalizeGetSubscription(entry) {
     name: eventName,
     version: eventVersion,
     broadcasterUserId,
-    subscriptionId: toSafeString(entry?.id ?? entry?.subscription_id),
-    method: typeof entry.method === 'string' ? entry.method : null,
+    subscriptionId,
+    status,
+    method,
+    callbackPresent: Boolean(callbackUrl),
   };
 }
 

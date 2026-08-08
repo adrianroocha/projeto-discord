@@ -38,13 +38,14 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Finalidade: sincronizar subscriptions oficiais de eventos Kick para webhook.
 - Quem pode usar: Administrator.
 - Onde usar: servidor Discord.
-- Parâmetros: nenhum.
+- Parâmetros: force (boolean, opcional).
 - Resposta: ephemeral com defer/edit.
-- Exemplo: /kick-events-sync
+- Exemplo: /kick-events-sync force:true
 - Efeitos no banco: nenhum direto; sincronização ocorre na API da Kick.
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: nenhum.
 - Limitações: depende de configuração Kick válida e disponibilidade da API externa.
+- Comportamento: o modo padrão cria apenas eventos ausentes; `force:true` tenta ressincronizar os quatro eventos desejados usando diagnóstico seguro da subscription existente.
 
 ## /kick-link
 - Nome: /kick-link

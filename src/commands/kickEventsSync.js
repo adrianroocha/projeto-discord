@@ -25,6 +25,14 @@ function renderFailures(failed) {
   return failed.map((item) => `- ${item.event} (${item.reason})`).join('\n');
 }
 
+function renderDiagnostics(diagnostics) {
+  if (!Array.isArray(diagnostics) || diagnostics.length === 0) {
+    return '- nenhum';
+  }
+
+  return diagnostics.map((item) => `- ${item}`).join('\n');
+}
+
 function mapErrorToUserMessage(error) {
   if (typeof error?.upstreamMessage === 'string' && error.upstreamMessage.trim()) {
     return `Kick API retornou: ${error.upstreamMessage.trim()}`;
@@ -65,6 +73,11 @@ module.exports = {
   data: new SlashCommandBuilder()
     .setName('kick-events-sync')
     .setDescription('Sincroniza os event subscriptions oficiais da Kick para a aplicação.')
+    .addBooleanOption((option) =>
+      option
+        .setName('force')
+        .setDescription('Ignora o estado atual e tenta ressincronizar todos os eventos desejados.'),
+    )
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   async execute(interaction) {
@@ -87,10 +100,12 @@ module.exports = {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
-      const result = await kickEventSubscriptionService.syncDesiredEvents();
+      const force = interaction.options?.getBoolean('force') ?? false;
+      const result = await kickEventSubscriptionService.syncDesiredEvents({ force });
 
       const message = [
         'Sincronização dos eventos Kick concluída.',
+        `Forçar ressincronização: ${result.force ? 'sim' : 'nao'}`,
         '',
         'Criados:',
         result.created.length > 0 ? renderCreated(result.created) : '- nenhuma',
@@ -100,6 +115,9 @@ module.exports = {
         '',
         'Falhas:',
         renderFailures(result.failed),
+        '',
+        'Diagnóstico:',
+        renderDiagnostics(result.diagnostics),
       ].join('\n');
 
       await interaction.editReply(message);

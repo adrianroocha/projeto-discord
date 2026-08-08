@@ -52,6 +52,58 @@ function normalizeBroadcasterId(value) {
   return parsed;
 }
 
+function normalizeStatus(value) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const parsed = value.trim().toLowerCase();
+  return parsed || null;
+}
+
+function isExplicitlyActiveStatus(status) {
+  return status === null || status === 'active' || status === 'enabled';
+}
+
+function isWebhookMethod(method) {
+  return method === null || method === 'webhook';
+}
+
+function buildSubscriptionDiagnostic(subscription, broadcasterUserId) {
+  const normalizedStatus = normalizeStatus(subscription?.status);
+  const normalizedMethod = normalizeStatus(subscription?.method);
+  const subscriptionBroadcasterUserId = normalizeBroadcasterId(subscription?.broadcasterUserId);
+  const subscriptionIdPresent = Boolean(subscription?.subscriptionId);
+  const broadcasterMatches = subscriptionBroadcasterUserId === broadcasterUserId;
+  const statusAllowed = isExplicitlyActiveStatus(normalizedStatus);
+  const methodAllowed = isWebhookMethod(normalizedMethod);
+
+  let reason = 'ok';
+  let valid = Boolean(broadcasterMatches && statusAllowed && methodAllowed);
+
+  if (!broadcasterMatches) {
+    reason = 'wrong_broadcaster';
+    valid = false;
+  } else if (!statusAllowed) {
+    reason = `status_${normalizedStatus || 'unknown'}`;
+    valid = false;
+  } else if (!methodAllowed) {
+    reason = `method_${normalizedMethod || 'unknown'}`;
+    valid = false;
+  }
+
+  return {
+    name: typeof subscription?.name === 'string' ? subscription.name : null,
+    version: Number.isInteger(subscription?.version) ? subscription.version : null,
+    broadcasterUserId: subscriptionBroadcasterUserId,
+    subscriptionIdPresent,
+    status: normalizedStatus,
+    method: normalizedMethod,
+    valid,
+    reason,
+  };
+}
+
 function mapEventsByKey(events) {
   const map = new Map();
   for (const event of events) {
@@ -63,8 +115,13 @@ function mapEventsByKey(events) {
 function formatDiagnosticItem(item) {
   const versionLabel = Number.isInteger(item?.version) ? item.version : 'null';
   const subscriptionIdPresent = item?.subscriptionIdPresent ? 'sim' : 'nao';
-  const errorValue = item?.error ? String(item.error) : 'none';
-  return `${item?.name || 'null'} v${versionLabel} subscription_id:${subscriptionIdPresent} error:${errorValue}`;
+  const statusValue = item?.status || 'unknown';
+  const methodValue = item?.method || 'unknown';
+  const validValue = item?.valid ? 'sim' : 'nao';
+  const reasonValue = item?.reason || 'none';
+  const broadcasterValue = Number.isInteger(item?.broadcasterUserId) ? item.broadcasterUserId : 'null';
+
+  return `${item?.name || 'null'} v${versionLabel} broadcaster:${broadcasterValue} subscription_id:${subscriptionIdPresent} status:${statusValue} method:${methodValue} valid:${validValue} reason:${reasonValue}`;
 }
 
 function formatDiagnostics(kind, payload) {
@@ -100,15 +157,11 @@ function createKickEventSubscriptionService(options = {}) {
 
   function requireConfigVar(value, envName) {
     if (typeof value !== 'string' || !value.trim()) {
-      throw new KickEventSubscriptionError(
-        'MISSING_CONFIG',
-        `Configuração obrigatória ausente: ${envName}.`,
-        {
-          httpStatus: 503,
-          category: 'missing_config',
-          missingVar: envName,
-        },
-      );
+      throw new KickEventSubscriptionError('MISSING_CONFIG', `Configuração obrigatória ausente: ${envName}.`, {
+        httpStatus: 503,
+        category: 'missing_config',
+        missingVar: envName,
+      });
     }
 
     return value.trim();
@@ -148,7 +201,6 @@ function createKickEventSubscriptionService(options = {}) {
     } catch (error) {
       if (error?.code === 'UNAUTHORIZED') {
         appTokenService.invalidateToken();
-
         const retryToken = await appTokenService.getAccessToken();
         return onRequest(retryToken);
       }
@@ -161,10 +213,9 @@ function createKickEventSubscriptionService(options = {}) {
     return `${event.name} v${event.version}`;
   }
 
-  async function syncDesiredEvents() {
+  async function syncDesiredEvents(syncOptions = {}) {
     const { broadcasterUserId } = getRequiredConfig();
 
-    let activeSubscriptions;
     let listResponse;
     try {
       listResponse = await runWithAutoRefresh((accessToken) =>
@@ -174,23 +225,23 @@ function createKickEventSubscriptionService(options = {}) {
         }),
       );
 
-      activeSubscriptions = listResponse.subscriptions;
       if (typeof logger?.info === 'function') {
         logger.info(`Kick events sync diagnostics: ${formatDiagnostics('GET', listResponse)}`);
       }
     } catch (error) {
       if (typeof logger?.warn === 'function') {
-        logger.warn(
-          `Kick events sync: falha ao listar subscriptions (${error?.code || 'unknown_error'})`,
-        );
+        logger.warn(`Kick events sync: falha ao listar subscriptions (${error?.code || 'unknown_error'})`);
       }
       throw error;
     }
 
+    const activeSubscriptions = Array.isArray(listResponse.subscriptions) ? listResponse.subscriptions : [];
+    const observedDiagnostics = activeSubscriptions.map((subscription) =>
+      buildSubscriptionDiagnostic(subscription, broadcasterUserId),
+    );
+
     const activeEventKeys = new Set(
-      activeSubscriptions
-        .filter((subscription) => Number(subscription.broadcasterUserId) === broadcasterUserId)
-        .map((subscription) => createEventKey(subscription)),
+      observedDiagnostics.filter((item) => item.valid).map((item) => createEventKey(item)),
     );
 
     const alreadyActive = [];
@@ -204,11 +255,17 @@ function createKickEventSubscriptionService(options = {}) {
       }
     }
 
-    if (missingEvents.length === 0) {
+    const diagnostics = observedDiagnostics.map((item) => formatDiagnosticItem(item));
+    const force = Boolean(syncOptions.force);
+    const requestedEvents = force ? DESIRED_KICK_EVENTS : missingEvents;
+
+    if (requestedEvents.length === 0) {
       return {
         alreadyActive,
         created: [],
         failed: [],
+        diagnostics,
+        force,
       };
     }
 
@@ -218,30 +275,31 @@ function createKickEventSubscriptionService(options = {}) {
         kickApiService.createEventSubscriptions({
           accessToken,
           broadcasterUserId,
-          events: missingEvents,
+          events: requestedEvents,
         }),
       );
+
       if (typeof logger?.info === 'function') {
         logger.info(`Kick events sync diagnostics: ${formatDiagnostics('POST', createdResponse)}`);
       }
     } catch (error) {
       if (typeof logger?.warn === 'function') {
-        logger.warn(
-          `Kick events sync: falha ao criar subscriptions (${error?.code || 'unknown_error'})`,
-        );
+        logger.warn(`Kick events sync: falha ao criar subscriptions (${error?.code || 'unknown_error'})`);
       }
 
       return {
         alreadyActive,
         created: [],
-        failed: missingEvents.map((event) => ({
+        failed: requestedEvents.map((event) => ({
           event: toSummaryEventLine(event),
           reason: error?.code || 'upstream_error',
         })),
+        diagnostics,
+        force,
       };
     }
 
-    const requestedByKey = mapEventsByKey(missingEvents);
+    const requestedByKey = mapEventsByKey(requestedEvents);
     const resultByKey = new Map();
     for (const item of createdResponse.results || []) {
       if (!item?.name || !Number.isInteger(item?.version)) {
@@ -285,6 +343,8 @@ function createKickEventSubscriptionService(options = {}) {
       alreadyActive,
       created,
       failed,
+      diagnostics,
+      force,
     };
   }
 

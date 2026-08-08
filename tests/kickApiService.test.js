@@ -195,6 +195,8 @@ describe('kickApiService', () => {
         broadcasterUserId: '75942843',
         subscriptionId: 'sub-get-1',
         method: 'webhook',
+        status: null,
+        callbackPresent: false,
       },
     ]);
     expect(result.status).toBe(200);

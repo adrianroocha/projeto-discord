@@ -183,6 +183,132 @@ describe('kickEventSubscriptionService', () => {
     expect(result.alreadyActive).toHaveLength(DESIRED_KICK_EVENTS.length);
   });
 
+  test('subscriptions de outro broadcaster não contam como ativas', async () => {
+    const { service, kickApiService } = createService({
+      kickApiService: {
+        listEventSubscriptions: jest.fn().mockResolvedValue({
+          status: 200,
+          message: 'OK',
+          subscriptions: [
+            {
+              name: 'channel.subscription.new',
+              version: 1,
+              broadcasterUserId: '99999999',
+              status: 'active',
+              method: 'webhook',
+            },
+          ],
+          diagnostics: [],
+        }),
+        createEventSubscriptions: jest.fn().mockResolvedValue({
+          status: 200,
+          message: 'OK',
+          results: [
+            {
+              name: 'channel.subscription.new',
+              version: 1,
+              subscriptionId: 'sub-new',
+              error: null,
+              confirmed: true,
+            },
+            {
+              name: 'channel.subscription.renewal',
+              version: 1,
+              subscriptionId: 'sub-renewal',
+              error: null,
+              confirmed: true,
+            },
+            {
+              name: 'channel.subscription.gifts',
+              version: 1,
+              subscriptionId: 'sub-gifts',
+              error: null,
+              confirmed: true,
+            },
+            {
+              name: 'channel.followed',
+              version: 1,
+              subscriptionId: 'sub-followed',
+              error: null,
+              confirmed: true,
+            },
+          ],
+          diagnostics: [],
+        }),
+      },
+    });
+
+    const result = await service.syncDesiredEvents();
+
+    expect(kickApiService.createEventSubscriptions).toHaveBeenCalledTimes(1);
+    expect(result.alreadyActive).toEqual([]);
+    expect(result.created).toHaveLength(DESIRED_KICK_EVENTS.length);
+    expect(result.diagnostics[0]).toContain('wrong_broadcaster');
+  });
+
+  test('subscriptions inativas não contam como ativas', async () => {
+    const { service, kickApiService } = createService({
+      kickApiService: {
+        listEventSubscriptions: jest.fn().mockResolvedValue({
+          status: 200,
+          message: 'OK',
+          subscriptions: [
+            {
+              name: 'channel.subscription.gifts',
+              version: 1,
+              broadcasterUserId: '75942843',
+              status: 'inactive',
+              method: 'webhook',
+            },
+          ],
+          diagnostics: [],
+        }),
+        createEventSubscriptions: jest.fn().mockResolvedValue({
+          status: 200,
+          message: 'OK',
+          results: [
+            {
+              name: 'channel.subscription.new',
+              version: 1,
+              subscriptionId: 'sub-new',
+              error: null,
+              confirmed: true,
+            },
+            {
+              name: 'channel.subscription.renewal',
+              version: 1,
+              subscriptionId: 'sub-renewal',
+              error: null,
+              confirmed: true,
+            },
+            {
+              name: 'channel.subscription.gifts',
+              version: 1,
+              subscriptionId: 'sub-gifts',
+              error: null,
+              confirmed: true,
+            },
+            {
+              name: 'channel.followed',
+              version: 1,
+              subscriptionId: 'sub-followed',
+              error: null,
+              confirmed: true,
+            },
+          ],
+          diagnostics: [],
+        }),
+      },
+    });
+
+    const result = await service.syncDesiredEvents();
+
+    expect(kickApiService.createEventSubscriptions).toHaveBeenCalledTimes(1);
+    expect(result.alreadyActive).toEqual([]);
+    expect(result.created).toHaveLength(DESIRED_KICK_EVENTS.length);
+    expect(result.diagnostics[0]).toContain('status:inactive');
+  });
+
   test('POST com resposta inesperada sem item correspondente vira falha com message da Kick', async () => {
     const { service } = createService({
       kickApiService: {
@@ -528,5 +654,46 @@ describe('kickEventSubscriptionService', () => {
     expect(combinedLogs).toContain('message=OK');
     expect(combinedLogs).not.toContain('super-secret-token');
     expect(combinedLogs).not.toContain('client-secret');
+  });
+
+  test('force resync tenta recriar todos os eventos desejados', async () => {
+    const { service, kickApiService } = createService({
+      kickApiService: {
+        listEventSubscriptions: jest.fn().mockResolvedValue({
+          status: 200,
+          message: 'OK',
+          subscriptions: DESIRED_KICK_EVENTS.map((event) => ({
+            ...event,
+            broadcasterUserId: '75942843',
+            status: 'active',
+            method: 'webhook',
+          })),
+          diagnostics: [],
+        }),
+        createEventSubscriptions: jest.fn().mockResolvedValue({
+          status: 200,
+          message: 'OK',
+          results: DESIRED_KICK_EVENTS.map((event) => ({
+            name: event.name,
+            version: event.version,
+            subscriptionId: `sub-${event.name}`,
+            error: null,
+            confirmed: true,
+          })),
+          diagnostics: [],
+        }),
+      },
+    });
+
+    const result = await service.syncDesiredEvents({ force: true });
+
+    expect(kickApiService.createEventSubscriptions).toHaveBeenCalledTimes(1);
+    expect(kickApiService.createEventSubscriptions).toHaveBeenCalledWith(
+      expect.objectContaining({
+        events: DESIRED_KICK_EVENTS,
+      }),
+    );
+    expect(result.force).toBe(true);
+    expect(result.created).toHaveLength(DESIRED_KICK_EVENTS.length);
   });
 });
