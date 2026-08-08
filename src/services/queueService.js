@@ -579,22 +579,18 @@ function removeFromQueue(discordId) {
     return { success, removedFromQueue, removedFromForced, rebuilt };
   });
 
-  try {
-    const result = transaction({ discordId });
-    if (result.success) {
-      queueEvents.emit('queueUpdated');
-      return {
-        success: true,
-        removedFromQueue: result.removedFromQueue,
-        removedFromForced: result.removedFromForced,
-        rebuilt: result.rebuilt,
-      };
-    }
-
-    return { success: false, reason: 'not_found' };
-  } catch (err) {
-    throw err;
+  const result = transaction({ discordId });
+  if (result.success) {
+    queueEvents.emit('queueUpdated');
+    return {
+      success: true,
+      removedFromQueue: result.removedFromQueue,
+      removedFromForced: result.removedFromForced,
+      rebuilt: result.rebuilt,
+    };
   }
+
+  return { success: false, reason: 'not_found' };
 }
 
 function getQueue() {
