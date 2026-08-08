@@ -1,10 +1,17 @@
 const Database = require('better-sqlite3');
 const { databasePath } = require('../config');
+const lifecycleService = require('../services/applicationLifecycleService');
 
 let db = null;
+let closePromise = null;
 
 function openConnection() {
   return new Promise((resolve, reject) => {
+    if (lifecycleService.isShuttingDown()) {
+      reject(new Error('Aplicação em shutdown: nova conexão SQLite bloqueada.'));
+      return;
+    }
+
     if (db) {
       return resolve(db);
     }
@@ -20,6 +27,10 @@ function openConnection() {
 }
 
 function closeConnection() {
+  if (closePromise) {
+    return closePromise;
+  }
+
   return new Promise((resolve, reject) => {
     if (!db) {
       return resolve();
@@ -35,6 +46,18 @@ function closeConnection() {
   });
 }
 
+function closeConnectionSafe() {
+  closePromise = closeConnection()
+    .catch((error) => {
+      throw error;
+    })
+    .finally(() => {
+      closePromise = null;
+    });
+
+  return closePromise;
+}
+
 function getDatabase() {
   if (!db) {
     throw new Error('Conexão SQLite não aberta.');
@@ -44,7 +67,7 @@ function getDatabase() {
 
 module.exports = {
   openConnection,
-  closeConnection,
+  closeConnection: closeConnectionSafe,
   getDatabase,
   databasePath,
 };

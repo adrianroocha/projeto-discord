@@ -27,6 +27,15 @@ function parsePositiveInteger(value, fallback) {
   return fallback;
 }
 
+function parsePositiveIntegerWithMax(value, fallback, maxValue) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+
+  return Math.min(parsed, maxValue);
+}
+
 function parseBoolean(value, fallback) {
   if (value === undefined || value === null || value === '') {
     return fallback;
@@ -84,6 +93,11 @@ module.exports = {
   subRoleReconciliationUserSyncTimeoutMs: parsePositiveInteger(
     process.env.SUB_ROLE_RECONCILIATION_USER_SYNC_TIMEOUT_MS || '12000',
     12000,
+  ),
+  shutdownTimeoutMs: parsePositiveIntegerWithMax(
+    process.env.SHUTDOWN_TIMEOUT_MS || '10000',
+    10000,
+    120000,
   ),
   nodeEnv: process.env.NODE_ENV || 'development',
 };

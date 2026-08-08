@@ -207,4 +207,22 @@ describe('kickHttpServer', () => {
     expect(body.statusCode).toBe(200);
     expect(JSON.parse(body.body)).toEqual({ status: 'ok', service: 'kick-oauth' });
   });
+
+  test('callback OAuth durante shutdown retorna 503', async () => {
+    const completeOAuthCallback = jest.fn();
+    const handler = createRequestHandler({
+      config: { kickPort: 3000 },
+      applicationLifecycleService: {
+        isShuttingDown: () => true,
+      },
+      kickAuthService: { completeOAuthCallback },
+    });
+
+    const req = { method: 'GET', url: '/kick/callback?code=abc&state=xyz' };
+    const res = createMockResponse();
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(503);
+    expect(completeOAuthCallback).not.toHaveBeenCalled();
+  });
 });

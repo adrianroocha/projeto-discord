@@ -2,6 +2,7 @@ const { PermissionsBitField } = require('discord.js');
 const config = require('../config');
 const queueService = require('./queueService');
 const queueMessageService = require('./queueMessageService');
+const lifecycleService = require('./applicationLifecycleService');
 
 let schedulerState = 'closed';
 let schedulerTimer = null;
@@ -9,6 +10,7 @@ let schedulerLoopTimer = null;
 let currentOpenTimer = null;
 let currentCloseTimer = null;
 let currentCycle = null;
+let schedulerStopped = false;
 
 function isDevelopmentMode() {
   return config.nodeEnv === 'development';
@@ -95,6 +97,10 @@ async function updatePanel(client) {
 }
 
 async function openQueue(client, options = {}) {
+  if (schedulerStopped || lifecycleService.isShuttingDown()) {
+    return false;
+  }
+
   const manual = !!options.manual;
   clearScheduledTimers();
 
@@ -114,6 +120,9 @@ async function openQueue(client, options = {}) {
   if (isDevelopmentMode()) {
     const { closeAt } = getNextDevelopmentCycle();
     currentCloseTimer = setTimeout(() => {
+      if (schedulerStopped || lifecycleService.isShuttingDown()) {
+        return;
+      }
       closeQueue(client).catch((error) => console.error('Erro ao fechar fila no ciclo de desenvolvimento:', error));
     }, Math.max(1, closeAt - Date.now()));
     currentOpenTimer = null;
@@ -123,6 +132,9 @@ async function openQueue(client, options = {}) {
 
   const nextCloseAt = getNextProductionSchedule().nextCloseAt;
   currentCloseTimer = setTimeout(() => {
+    if (schedulerStopped || lifecycleService.isShuttingDown()) {
+      return;
+    }
     closeQueue(client).catch((error) => console.error('Erro ao fechar fila em produção:', error));
   }, Math.max(1, nextCloseAt - Date.now()));
   currentCycle = { mode: 'production', openAt: Date.now(), closeAt: nextCloseAt.getTime() };
@@ -130,12 +142,19 @@ async function openQueue(client, options = {}) {
   if (!manual) {
     const nextOpenAt = getNextProductionSchedule().nextOpenAt;
     currentOpenTimer = setTimeout(() => {
+      if (schedulerStopped || lifecycleService.isShuttingDown()) {
+        return;
+      }
       openQueue(client).catch((error) => console.error('Erro ao reabrir fila em produção:', error));
     }, Math.max(1, nextOpenAt - Date.now()));
   }
 }
 
 async function closeQueue(client, options = {}) {
+  if (schedulerStopped || lifecycleService.isShuttingDown()) {
+    return false;
+  }
+
   const manual = !!options.manual;
   clearScheduledTimers();
   schedulerState = 'closed';
@@ -146,6 +165,9 @@ async function closeQueue(client, options = {}) {
   if (isDevelopmentMode()) {
     const { intervalMs } = getNextDevelopmentCycle();
     schedulerLoopTimer = setTimeout(() => {
+      if (schedulerStopped || lifecycleService.isShuttingDown()) {
+        return;
+      }
       openQueue(client).catch((error) => console.error('Erro ao reabrir fila em desenvolvimento:', error));
     }, intervalMs);
     currentCycle = { mode: 'development', openAt: Date.now(), closeAt: Date.now() + intervalMs };
@@ -155,12 +177,19 @@ async function closeQueue(client, options = {}) {
   if (!manual) {
     const nextOpenAt = getNextProductionSchedule().nextOpenAt;
     schedulerTimer = setTimeout(() => {
+      if (schedulerStopped || lifecycleService.isShuttingDown()) {
+        return;
+      }
       openQueue(client).catch((error) => console.error('Erro ao reabrir fila em produção:', error));
     }, Math.max(1, nextOpenAt - Date.now()));
   }
 }
 
 function startScheduler(client) {
+  if (schedulerStopped || lifecycleService.isShuttingDown()) {
+    return;
+  }
+
   if (schedulerState !== 'closed' || schedulerTimer || schedulerLoopTimer || currentOpenTimer || currentCloseTimer) {
     return;
   }
@@ -174,8 +203,25 @@ function startScheduler(client) {
   const now = Date.now();
   const openDelay = Math.max(1, nextOpenAt.getTime() - now);
   schedulerTimer = setTimeout(() => {
+    if (schedulerStopped || lifecycleService.isShuttingDown()) {
+      return;
+    }
     openQueue(client).catch((error) => console.error('Erro ao abrir fila em produção:', error));
   }, openDelay);
+}
+
+function stopScheduler() {
+  if (schedulerStopped) {
+    return;
+  }
+
+  schedulerStopped = true;
+  clearScheduledTimers();
+  schedulerState = 'closed';
+}
+
+function resetSchedulerStopFlag() {
+  schedulerStopped = false;
 }
 
 function isQueueOpen() {
@@ -194,8 +240,11 @@ function getStatus() {
 
 module.exports = {
   startScheduler,
+  stopScheduler,
   openQueue,
   closeQueue,
   isQueueOpen,
   getStatus,
+  clearScheduledTimers,
+  resetSchedulerStopFlag,
 };

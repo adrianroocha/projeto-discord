@@ -82,6 +82,7 @@ DATABASE_PATH=./data/database.sqlite
 
 # Environment
 NODE_ENV=development
+SHUTDOWN_TIMEOUT_MS=10000
 
 # Production Scheduler
 QUEUE_OPEN_TIME=18:58
@@ -98,6 +99,7 @@ QUEUE_TEST_INTERVAL_MINUTES=5
 - `NODE_ENV=development` ativa o comportamento de desenvolvimento do scheduler.
 - `DATABASE_PATH` aponta para o banco SQLite local por padrão.
 - `QUEUE_TEST_INTERVAL_MINUTES` controla o intervalo de ciclo em desenvolvimento.
+- `SHUTDOWN_TIMEOUT_MS` define o timeout de segurança do shutdown gracioso (padrão 10s).
 
 ## Comandos disponíveis
 
@@ -170,6 +172,21 @@ Quando a fila está fechada, os botões ficam desabilitados.
 - `npm test` - executa a suíte automatizada.
 - `npm run test:watch` - executa os testes em modo assistido.
 - `npm run test:coverage` - executa os testes com cobertura.
+
+## Shutdown gracioso
+
+- Ao receber `SIGINT` (Ctrl+C) ou `SIGTERM`, o bot inicia shutdown coordenado e define `process.exitCode` sem forçar saída imediata na primeira tentativa.
+- Ordem de encerramento: schedulers, servidor HTTP da Kick, client Discord e conexão SQLite.
+- Novas interações e novas requisições HTTP da integração Kick passam a receber resposta de indisponibilidade durante o shutdown.
+- Em erro fatal (`uncaughtException` ou `unhandledRejection`), o encerramento usa `exitCode=1`.
+- Se o timeout (`SHUTDOWN_TIMEOUT_MS`) for excedido, o processo marca falha de shutdown com `exitCode=1`.
+- Um segundo sinal durante shutdown pode forçar encerramento.
+
+### Operação segura
+
+- Para reiniciar localmente: use `Ctrl+C` e aguarde o processo finalizar antes de iniciar novamente.
+- Em produção: envie `SIGTERM` e aguarde o término do processo antes de subir nova instância.
+- Exclusão manual de banco SQLite só deve ocorrer com o processo totalmente parado.
 
 ## Testes automatizados
 

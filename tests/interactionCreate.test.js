@@ -29,10 +29,42 @@ const kickLinkStartButton = require('../src/buttons/kickLinkStart');
 const kickUnlinkConfirmButton = require('../src/buttons/kickUnlinkConfirm');
 const kickUnlinkCancelButton = require('../src/buttons/kickUnlinkCancel');
 const interactionCreateEvent = require('../src/events/interactionCreate');
+const lifecycleService = require('../src/services/applicationLifecycleService');
 
 describe('interactionCreate event', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    lifecycleService._resetForTests();
+  });
+
+  afterEach(() => {
+    lifecycleService._resetForTests();
+  });
+
+  test('recusa interação durante shutdown com resposta ephemeral', async () => {
+    lifecycleService.beginShutdown('SIGTERM');
+
+    const interaction = {
+      isButton: () => false,
+      isChatInputCommand: () => true,
+      commandName: 'status',
+      client: {
+        commands: new Map(),
+      },
+      replied: false,
+      deferred: false,
+      reply: jest.fn().mockResolvedValue(undefined),
+      followUp: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await interactionCreateEvent.execute(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ephemeral: true,
+        content: expect.stringContaining('O bot está reiniciando'),
+      }),
+    );
   });
 
   test('encaminha botões existentes da fila corretamente', async () => {

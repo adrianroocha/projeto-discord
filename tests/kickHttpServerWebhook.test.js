@@ -609,4 +609,26 @@ describe('kickHttpServer webhook route', () => {
     expect(callbackRes.statusCode).toBe(200);
     expect(callbackRes.body).toContain('Conta Kick vinculada com sucesso');
   });
+
+  test('webhook durante shutdown retorna 503 e não processa evento', async () => {
+    const processEvent = jest.fn();
+    const handler = createRequestHandler({
+      config: { kickPort: 3000 },
+      applicationLifecycleService: {
+        isShuttingDown: () => true,
+      },
+      kickWebhookSignatureService: {
+        validateRequest: jest.fn(),
+      },
+      kickSubscriptionEventService: { processEvent },
+    });
+
+    const req = createPostRequest('/kick/webhooks', {}, JSON.stringify({ any: 'payload' }));
+    const res = createMockResponse();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(503);
+    expect(processEvent).not.toHaveBeenCalled();
+  });
 });

@@ -5,8 +5,12 @@ const kickWebhookSignatureService = require('./kickWebhookSignatureService');
 const kickSubscriptionEventService = require('./kickSubscriptionEventService');
 const kickAccountsRepository = require('../database/kickAccountsRepository');
 const subscriberRoleAutoSyncService = require('./subscriberRoleAutoSyncService');
+const applicationLifecycleService = require('./applicationLifecycleService');
 
 let server = null;
+let closePromise = null;
+let isClosing = false;
+const activeSockets = new Set();
 const LOOPBACK_IPV4 = '127.0.0.1';
 
 function readRawRequestBody(req) {
@@ -153,6 +157,7 @@ function createRequestHandler(dependencies = {}) {
   const discordClient = dependencies.discordClient;
   const cfg = dependencies.config || config;
   const logger = dependencies.logger || console;
+  const lifecycleService = dependencies.applicationLifecycleService || applicationLifecycleService;
 
   function logWebhookCategory(statusOrCode) {
     if (!statusOrCode) {
@@ -175,6 +180,13 @@ function createRequestHandler(dependencies = {}) {
   }
 
   return async function requestHandler(req, res) {
+    if (lifecycleService.isShuttingDown()) {
+      res.statusCode = 503;
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.end('Service Unavailable');
+      return;
+    }
+
     const requestUrl = new URL(req.url || '/', `http://127.0.0.1:${cfg.kickPort}`);
 
     if (requestUrl.pathname === '/kick/webhooks') {
@@ -355,7 +367,11 @@ function createRequestHandler(dependencies = {}) {
 }
 
 function startKickHttpServer(options = {}) {
-  if (server) {
+  if (applicationLifecycleService.isShuttingDown()) {
+    return Promise.resolve({ started: false, port: options.config?.kickPort || config.kickPort });
+  }
+
+  if (server || isClosing) {
     return Promise.resolve({ started: false, port: options.config?.kickPort || config.kickPort });
   }
 
@@ -374,6 +390,13 @@ function startKickHttpServer(options = {}) {
     });
   });
 
+  server.on('connection', (socket) => {
+    activeSockets.add(socket);
+    socket.on('close', () => {
+      activeSockets.delete(socket);
+    });
+  });
+
   return new Promise((resolve, reject) => {
     server.once('error', (error) => {
       server = null;
@@ -387,21 +410,48 @@ function startKickHttpServer(options = {}) {
 }
 
 function stopKickHttpServer() {
+  if (closePromise) {
+    return closePromise;
+  }
+
   if (!server) {
     return Promise.resolve();
   }
 
-  return new Promise((resolve, reject) => {
+  isClosing = true;
+  closePromise = new Promise((resolve, reject) => {
     const currentServer = server;
     server = null;
+
+    const forceSocketCloseTimer = setTimeout(() => {
+      for (const socket of activeSockets) {
+        try {
+          socket.destroy();
+        } catch (_error) {
+          // best-effort
+        }
+      }
+    }, 1_000);
+
+    if (typeof forceSocketCloseTimer.unref === 'function') {
+      forceSocketCloseTimer.unref();
+    }
+
     currentServer.close((error) => {
+      clearTimeout(forceSocketCloseTimer);
       if (error) {
+        closePromise = null;
+        isClosing = false;
         reject(error);
         return;
       }
+      closePromise = null;
+      isClosing = false;
       resolve();
     });
   });
+
+  return closePromise;
 }
 
 function getKickHttpServerInstance() {

@@ -7,14 +7,38 @@ const {
 const {
   createSubscriberRoleReconciliationService,
 } = require('../src/services/subscriberRoleReconciliationService');
+const lifecycleService = require('../src/services/applicationLifecycleService');
 
 describe('subscriberRoleReconciliationScheduler', () => {
   beforeEach(() => {
     jest.useFakeTimers();
+    lifecycleService._resetForTests();
   });
 
   afterEach(() => {
     jest.useRealTimers();
+    lifecycleService._resetForTests();
+  });
+
+  test('não inicia enquanto aplicação está em shutdown', () => {
+    lifecycleService.beginShutdown('SIGTERM');
+
+    const scheduler = createSubscriberRoleReconciliationScheduler({
+      config: {
+        nodeEnv: 'production',
+        subRoleReconciliationEnabled: true,
+        subRoleReconciliationIntervalMinutes: 1,
+        subRoleReconciliationStartupDelaySeconds: 1,
+      },
+      subscriberRoleReconciliationService: {
+        reconcileAll: jest.fn(),
+        isRunning: jest.fn(() => false),
+      },
+      logger: { info: jest.fn(), warn: jest.fn() },
+    });
+
+    const startResult = scheduler.start({});
+    expect(startResult).toEqual({ started: false, reason: 'shutting_down' });
   });
 
   test('não inicia em ambiente de teste (sem timers ativos)', () => {

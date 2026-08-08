@@ -2,6 +2,11 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 
 # Comandos e Interações do Discord
 
+## Comportamento global durante shutdown/reinício
+- Quando o processo entra em shutdown (ex.: SIGINT/SIGTERM), novas interações de slash command e botões são recusadas no roteador central.
+- Mensagem retornada quando possível: "O bot está reiniciando. Tente novamente em instantes." (ephemeral).
+- Objetivo: evitar início de operações novas enquanto schedulers, integração HTTP, Discord e SQLite estão sendo encerrados de forma coordenada.
+
 ## /dev-clear-test-data
 - Nome: /dev-clear-test-data
 - Finalidade: limpar dados fictícios de fila/lobbies usados em desenvolvimento.

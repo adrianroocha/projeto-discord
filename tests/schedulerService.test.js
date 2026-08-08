@@ -41,6 +41,7 @@ describe('scheduler service', () => {
     context = await createTestContext({ nodeEnv: 'development', queueChannelId: 'queue-channel' });
     db = getDb(context.sqliteClient);
     schedulerService = require('../src/services/schedulerService');
+    schedulerService.resetSchedulerStopFlag();
     panelService = require('../src/services/queueMessageService');
     client = createClientStub('queue-channel');
   });
@@ -162,5 +163,19 @@ describe('scheduler service', () => {
 
     expect(openSpy).toHaveBeenCalledWith(client, { manual: true });
     expect(closeSpy).toHaveBeenCalledWith(client, { manual: true });
+  });
+
+  test('stopScheduler cancela timers e impede novo ciclo após shutdown', async () => {
+    schedulerService.startScheduler(client);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(schedulerService.isQueueOpen()).toBe(true);
+
+    schedulerService.stopScheduler();
+
+    await jest.advanceTimersByTimeAsync(30 * 60_000);
+    expect(schedulerService.isQueueOpen()).toBe(false);
+    expect(panelService.updatePanel).toHaveBeenCalledTimes(1);
   });
 });

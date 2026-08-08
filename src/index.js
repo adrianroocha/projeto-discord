@@ -4,12 +4,12 @@ const { Client, GatewayIntentBits } = require('discord.js');
 const commandHandler = require('./handlers/commandHandler');
 const eventHandler = require('./handlers/eventHandler');
 const config = require('./config');
-const database = require('./database/database');
 const queueMessageService = require('./services/queueMessageService');
 const kickLinkPanelService = require('./services/kickLinkPanelService');
 const schedulerService = require('./services/schedulerService');
 const subscriberRoleReconciliationScheduler = require('./services/subscriberRoleReconciliationScheduler');
-const { startKickHttpServer } = require('./services/kickHttpServer');
+const gracefulShutdownService = require('./services/gracefulShutdownService');
+const appBootstrapService = require('./services/appBootstrapService');
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
@@ -71,53 +71,10 @@ client.on('shardError', (error) => {
   console.error('Erro de shard do Discord:', error);
 });
 
-process.on('unhandledRejection', (reason) => {
-  console.error('Unhandled promise rejection:', reason);
-});
-
-process.on('uncaughtException', (error) => {
-  console.error('Erro não capturado:', error);
-  process.exit(1);
-});
-
-function stopAuxSchedulers() {
-  try {
-    subscriberRoleReconciliationScheduler.stop();
-  } catch (_error) {
-    // cleanup best-effort
-  }
-}
-
-process.on('SIGINT', () => {
-  stopAuxSchedulers();
-  process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-  stopAuxSchedulers();
-  process.exit(0);
-});
+gracefulShutdownService.installProcessHandlers({ discordClient: client });
 
 async function start() {
-  try {
-    await database.initDatabase();
-    console.log('Banco de dados inicializado em', config.databasePath);
-
-    try {
-      const kickServer = await startKickHttpServer({ discordClient: client });
-      if (kickServer.started) {
-        console.log(`Servidor local da Kick ativo na porta ${kickServer.port}.`);
-      }
-    } catch (kickServerError) {
-      console.error('Falha ao iniciar servidor local da Kick (seguindo sem integração Kick):', kickServerError.message);
-    }
-
-    console.log('Iniciando o bot do Discord...');
-    await client.login(config.discordToken);
-  } catch (error) {
-    console.error('Erro ao iniciar o bot:', error);
-    process.exit(1);
-  }
+  await appBootstrapService.start(client);
 }
 
 start();

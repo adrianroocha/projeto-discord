@@ -3,6 +3,7 @@ const leaveQueueButton = require('../buttons/leaveQueue');
 const kickLinkStartButton = require('../buttons/kickLinkStart');
 const kickUnlinkConfirmButton = require('../buttons/kickUnlinkConfirm');
 const kickUnlinkCancelButton = require('../buttons/kickUnlinkCancel');
+const applicationLifecycleService = require('../services/applicationLifecycleService');
 
 const buttonHandlers = {
   [joinQueueButton.customId]: joinQueueButton,
@@ -12,6 +13,35 @@ const buttonHandlers = {
 
 const prefixButtonHandlers = [kickUnlinkConfirmButton, kickUnlinkCancelButton];
 const legacyDevelopmentCommands = new Set(['fila-add-teste', 'dev-fill-queue', 'dev-clear-test-data']);
+const SHUTDOWN_MESSAGE = 'O bot está reiniciando. Tente novamente em instantes.';
+
+async function rejectIfShuttingDown(interaction) {
+  if (!applicationLifecycleService.isShuttingDown()) {
+    return false;
+  }
+
+  if (!interaction.isButton() && !interaction.isChatInputCommand()) {
+    return true;
+  }
+
+  try {
+    if (interaction.replied || interaction.deferred) {
+      await interaction.followUp({
+        content: SHUTDOWN_MESSAGE,
+        ephemeral: true,
+      });
+    } else {
+      await interaction.reply({
+        content: SHUTDOWN_MESSAGE,
+        ephemeral: true,
+      });
+    }
+  } catch (_error) {
+    // best-effort: a interação pode já não aceitar resposta durante shutdown.
+  }
+
+  return true;
+}
 
 function getButtonHandler(customId) {
   const exactHandler = buttonHandlers[customId];
@@ -28,6 +58,10 @@ function getButtonHandler(customId) {
 module.exports = {
   name: 'interactionCreate',
   async execute(interaction) {
+    if (await rejectIfShuttingDown(interaction)) {
+      return;
+    }
+
     if (interaction.isButton()) {
       const handler = getButtonHandler(interaction.customId);
       if (!handler) return;

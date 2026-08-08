@@ -1,5 +1,6 @@
 const config = require('../config');
 const reconciliationService = require('./subscriberRoleReconciliationService');
+const lifecycleService = require('./applicationLifecycleService');
 
 let startupTimer = null;
 let loopTimer = null;
@@ -27,6 +28,10 @@ function createSubscriberRoleReconciliationScheduler(options = {}) {
   const service = options.subscriberRoleReconciliationService || reconciliationService;
 
   function runOnce(client, reasonLabel) {
+    if (lifecycleService.isShuttingDown()) {
+      return Promise.resolve();
+    }
+
     return service
       .reconcileAll({
         client,
@@ -49,11 +54,14 @@ function createSubscriberRoleReconciliationScheduler(options = {}) {
   }
 
   function scheduleNext(client, intervalMs, reasonLabel) {
-    if (!started) {
+    if (!started || lifecycleService.isShuttingDown()) {
       return;
     }
 
     loopTimer = setTimeout(async () => {
+      if (lifecycleService.isShuttingDown()) {
+        return;
+      }
       await runOnce(client, reasonLabel);
       scheduleNext(client, intervalMs, reasonLabel);
     }, intervalMs);
@@ -62,6 +70,10 @@ function createSubscriberRoleReconciliationScheduler(options = {}) {
   function start(client) {
     if (started) {
       return { started: false, reason: 'already_started' };
+    }
+
+    if (lifecycleService.isShuttingDown()) {
+      return { started: false, reason: 'shutting_down' };
     }
 
     if (isTestEnv(cfg)) {
@@ -79,6 +91,9 @@ function createSubscriberRoleReconciliationScheduler(options = {}) {
     const safeStartupDelayMs = Math.max(0, Math.trunc(startupDelaySeconds)) * 1000;
 
     startupTimer = setTimeout(async () => {
+      if (lifecycleService.isShuttingDown()) {
+        return;
+      }
       const reasonLabel = 'Reconciliação periódica automática de cargo SUB';
       await runOnce(client, reasonLabel);
       scheduleNext(client, safeIntervalMs, reasonLabel);
