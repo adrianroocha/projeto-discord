@@ -1,19 +1,24 @@
-const { PermissionsBitField } = require('discord.js');
 const config = require('../config');
 const queueService = require('./queueService');
 const queueMessageService = require('./queueMessageService');
 const lifecycleService = require('./applicationLifecycleService');
+const schedulerStateRepository = require('../database/schedulerStateRepository');
+const schedulerTimeService = require('./schedulerTimeService');
 
 let schedulerState = 'closed';
+let schedulerOrigin = 'scheduled';
+let activeCycleKey = null;
 let schedulerTimer = null;
-let schedulerLoopTimer = null;
-let currentOpenTimer = null;
-let currentCloseTimer = null;
-let currentCycle = null;
+let schedulerStarted = false;
 let schedulerStopped = false;
+let schedulerClient = null;
 
 function isDevelopmentMode() {
   return config.nodeEnv === 'development';
+}
+
+function nowMs() {
+  return Date.now();
 }
 
 function getQueueChannel(client) {
@@ -41,59 +46,259 @@ async function applyChannelPermissions(client, isOpen) {
   });
 }
 
+async function updatePanel(client) {
+  await queueMessageService.updatePanel(client, { isQueueOpen: schedulerState === 'open' });
+}
+
 function clearScheduledTimers() {
   if (schedulerTimer) {
     clearTimeout(schedulerTimer);
     schedulerTimer = null;
   }
-  if (schedulerLoopTimer) {
-    clearTimeout(schedulerLoopTimer);
-    schedulerLoopTimer = null;
+}
+
+function formatDateMsInConfiguredTimezone(valueMs) {
+  if (!Number.isFinite(Number(valueMs))) {
+    return 'indisponível';
   }
-  if (currentOpenTimer) {
-    clearTimeout(currentOpenTimer);
-    currentOpenTimer = null;
+
+  return schedulerTimeService.formatInTimeZone(Number(valueMs), config.queueTimezone);
+}
+
+function getScheduleSnapshot(referenceNowMs = nowMs()) {
+  return schedulerTimeService.computeScheduleSnapshot({
+    nowMs: referenceNowMs,
+    openTime: config.queueOpenTime,
+    closeTime: config.queueCloseTime,
+    timeZone: config.queueTimezone,
+  });
+}
+
+function setRuntimeState(targetState, origin, cycleKey) {
+  schedulerState = targetState;
+  schedulerOrigin = origin;
+  activeCycleKey = cycleKey || null;
+}
+
+async function applyOpenState(client, options = {}) {
+  const origin = options.origin || 'scheduled';
+  const shouldReset = options.shouldReset === true;
+
+  if (shouldReset) {
+    queueService.resetQueueCycle();
   }
-  if (currentCloseTimer) {
-    clearTimeout(currentCloseTimer);
-    currentCloseTimer = null;
+
+  setRuntimeState('open', origin, options.cycleKey || null);
+  await applyChannelPermissions(client, true);
+  await updatePanel(client);
+}
+
+async function applyClosedState(client, options = {}) {
+  const origin = options.origin || 'scheduled';
+  setRuntimeState('closed', origin, null);
+  await applyChannelPermissions(client, false);
+  await updatePanel(client);
+}
+
+function scheduleProductionTransition(targetAtMs) {
+  clearScheduledTimers();
+
+  if (schedulerStopped || lifecycleService.isShuttingDown() || !schedulerStarted) {
+    return;
+  }
+
+  const delay = Math.max(1, Math.trunc(Number(targetAtMs) - nowMs()));
+  schedulerTimer = setTimeout(() => {
+    reconcileProductionState(schedulerClient, { reason: 'timer' }).catch((error) => {
+      console.error('Scheduler: falha ao aplicar transição agendada:', error);
+      const retryDelayMs = 30_000;
+      if (!schedulerStopped && schedulerStarted && !lifecycleService.isShuttingDown()) {
+        schedulerTimer = setTimeout(() => {
+          reconcileProductionState(schedulerClient, { reason: 'retry_after_failure' }).catch((retryError) => {
+            console.error('Scheduler: falha na tentativa de recuperação:', retryError);
+          });
+        }, retryDelayMs);
+      }
+    });
+  }, delay);
+
+  if (schedulerTimer && typeof schedulerTimer.unref === 'function') {
+    schedulerTimer.unref();
   }
 }
 
-function parseTimeToDate(targetTime, referenceDate = new Date()) {
-  const [hours, minutes] = targetTime.split(':').map(Number);
-  const date = new Date(referenceDate);
-  date.setHours(hours, minutes, 0, 0);
-  return date;
-}
-
-function getNextProductionSchedule() {
-  const now = new Date();
-  const openTime = parseTimeToDate(config.queueOpenTime, now);
-  const closeTime = parseTimeToDate(config.queueCloseTime, now);
-
-  if (now < openTime) {
-    return { nextOpenAt: openTime, nextCloseAt: closeTime < openTime ? new Date(openTime.getTime() + 24 * 60 * 60 * 1000) : closeTime };
+function hasActiveManualOverride(state, currentNowMs) {
+  if (!state || !state.manualOverrideState) {
+    return false;
   }
 
-  const nextOpen = new Date(openTime.getTime() + 24 * 60 * 60 * 1000);
-  const nextClose = closeTime < openTime ? new Date(closeTime.getTime() + 24 * 60 * 60 * 1000) : closeTime;
+  if (!Number.isFinite(Number(state.manualOverrideUntilMs))) {
+    return false;
+  }
 
-  return { nextOpenAt: nextOpen, nextCloseAt: nextClose };
+  return Number(state.manualOverrideUntilMs) > currentNowMs;
 }
 
-function getNextDevelopmentCycle() {
-  const intervalMs = Math.max(1, Number(config.queueTestIntervalMinutes || 5)) * 60 * 1000;
-  const now = Date.now();
-  return {
-    openAt: now,
-    closeAt: now + intervalMs,
-    intervalMs,
-  };
+function clearManualOverride(state) {
+  return schedulerStateRepository.updateState({
+    currentState: state.currentState,
+    stateOrigin: 'scheduled',
+    manualOverrideState: null,
+    manualOverrideUntilMs: null,
+    updatedAtMs: nowMs(),
+  });
 }
 
-async function updatePanel(client) {
-  await queueMessageService.updatePanel(client, { isQueueOpen: schedulerState === 'open' });
+async function reconcileScheduledOpen(client, snapshot, persistedState, currentNowMs) {
+  const currentOpenAtMs = Number(snapshot.currentOpenAtMs);
+  const lastScheduledOpenAtMs = Number(persistedState.lastScheduledOpenAtMs);
+  const alreadyAppliedByTimestamp =
+    Number.isFinite(currentOpenAtMs) &&
+    Number.isFinite(lastScheduledOpenAtMs) &&
+    lastScheduledOpenAtMs >= currentOpenAtMs;
+  const alreadyApplied =
+    persistedState.lastScheduledOpenCycleKey === snapshot.currentCycleKey ||
+    alreadyAppliedByTimestamp;
+  if (!alreadyApplied) {
+    await applyOpenState(client, {
+      origin: 'scheduled',
+      shouldReset: true,
+      cycleKey: snapshot.currentCycleKey,
+    });
+
+    schedulerStateRepository.updateState({
+      currentState: 'open',
+      stateOrigin: 'scheduled',
+      manualOverrideState: null,
+      manualOverrideUntilMs: null,
+      lastScheduledOpenCycleKey: snapshot.currentCycleKey,
+      lastScheduledOpenAtMs: currentNowMs,
+      updatedAtMs: currentNowMs,
+    });
+  } else {
+    await applyOpenState(client, {
+      origin: persistedState.stateOrigin === 'manual_open' ? 'manual_open' : 'scheduled',
+      shouldReset: false,
+      cycleKey: snapshot.currentCycleKey,
+    });
+
+    schedulerStateRepository.updateState({
+      currentState: 'open',
+      stateOrigin: 'scheduled',
+      manualOverrideState: null,
+      manualOverrideUntilMs: null,
+      updatedAtMs: currentNowMs,
+    });
+  }
+}
+
+async function reconcileScheduledClose(client, currentNowMs) {
+  await applyClosedState(client, {
+    origin: 'scheduled',
+  });
+
+  schedulerStateRepository.updateState({
+    currentState: 'closed',
+    stateOrigin: 'scheduled',
+    manualOverrideState: null,
+    manualOverrideUntilMs: null,
+    lastScheduledCloseAtMs: currentNowMs,
+    updatedAtMs: currentNowMs,
+  });
+}
+
+async function reconcileProductionState(client, options = {}) {
+  if (schedulerStopped || lifecycleService.isShuttingDown() || !client) {
+    return;
+  }
+
+  const currentNowMs = Number.isFinite(Number(options.nowMs)) ? Number(options.nowMs) : nowMs();
+  const snapshot = getScheduleSnapshot(currentNowMs);
+  let persistedState = schedulerStateRepository.getState();
+
+  if (hasActiveManualOverride(persistedState, currentNowMs)) {
+    const overrideOpen = persistedState.manualOverrideState === 'open';
+    if (overrideOpen) {
+      await applyOpenState(client, {
+        origin: 'manual_open',
+        shouldReset: false,
+        cycleKey: snapshot.isOpenScheduled ? snapshot.currentCycleKey : null,
+      });
+    } else {
+      await applyClosedState(client, {
+        origin: 'manual_close',
+      });
+    }
+
+    scheduleProductionTransition(Number(persistedState.manualOverrideUntilMs));
+    return;
+  }
+
+  if (persistedState.manualOverrideState) {
+    persistedState = clearManualOverride(persistedState);
+  }
+
+  if (snapshot.isOpenScheduled) {
+    await reconcileScheduledOpen(client, snapshot, persistedState, currentNowMs);
+  } else {
+    await reconcileScheduledClose(client, currentNowMs);
+  }
+
+  scheduleProductionTransition(snapshot.nextTransitionAtMs);
+}
+
+function getDevelopmentIntervalMs() {
+  return Math.max(1, Number(config.queueTestIntervalMinutes || 5)) * 60 * 1000;
+}
+
+async function runDevelopmentOpen(client) {
+  if (schedulerStopped || lifecycleService.isShuttingDown()) {
+    return false;
+  }
+
+  try {
+    queueService.resetQueueCycle();
+  } catch (error) {
+    console.error('Erro ao limpar o ciclo da fila no modo desenvolvimento:', error);
+    setRuntimeState('closed', 'scheduled', null);
+    return false;
+  }
+
+  setRuntimeState('open', 'scheduled', null);
+  await applyChannelPermissions(client, true);
+  await updatePanel(client);
+  console.log('Scheduler: fila aberta.');
+
+  const delay = getDevelopmentIntervalMs();
+  clearScheduledTimers();
+  schedulerTimer = setTimeout(() => {
+    runDevelopmentClose(client).catch((error) => {
+      console.error('Erro ao fechar fila no ciclo de desenvolvimento:', error);
+    });
+  }, delay);
+
+  return true;
+}
+
+async function runDevelopmentClose(client) {
+  if (schedulerStopped || lifecycleService.isShuttingDown()) {
+    return false;
+  }
+
+  setRuntimeState('closed', 'scheduled', null);
+  await applyChannelPermissions(client, false);
+  await updatePanel(client);
+  console.log('Scheduler: fila fechada.');
+
+  const delay = getDevelopmentIntervalMs();
+  clearScheduledTimers();
+  schedulerTimer = setTimeout(() => {
+    runDevelopmentOpen(client).catch((error) => {
+      console.error('Erro ao reabrir fila no ciclo de desenvolvimento:', error);
+    });
+  }, delay);
+
+  return true;
 }
 
 async function openQueue(client, options = {}) {
@@ -101,53 +306,36 @@ async function openQueue(client, options = {}) {
     return false;
   }
 
-  const manual = !!options.manual;
-  clearScheduledTimers();
-
-  try {
-    queueService.resetQueueCycle();
-  } catch (error) {
-    console.error('Erro ao limpar o ciclo da fila:', error);
-    schedulerState = 'closed';
+  if (!client) {
     return false;
   }
 
-  schedulerState = 'open';
-  await applyChannelPermissions(client, true);
-  await updatePanel(client);
-  console.log('Scheduler: fila aberta.');
+  schedulerClient = client;
 
   if (isDevelopmentMode()) {
-    const { closeAt } = getNextDevelopmentCycle();
-    currentCloseTimer = setTimeout(() => {
-      if (schedulerStopped || lifecycleService.isShuttingDown()) {
-        return;
-      }
-      closeQueue(client).catch((error) => console.error('Erro ao fechar fila no ciclo de desenvolvimento:', error));
-    }, Math.max(1, closeAt - Date.now()));
-    currentOpenTimer = null;
-    currentCycle = { mode: 'development', openAt: Date.now(), closeAt };
-    return;
+    return runDevelopmentOpen(client);
   }
 
-  const nextCloseAt = getNextProductionSchedule().nextCloseAt;
-  currentCloseTimer = setTimeout(() => {
-    if (schedulerStopped || lifecycleService.isShuttingDown()) {
-      return;
-    }
-    closeQueue(client).catch((error) => console.error('Erro ao fechar fila em produção:', error));
-  }, Math.max(1, nextCloseAt - Date.now()));
-  currentCycle = { mode: 'production', openAt: Date.now(), closeAt: nextCloseAt.getTime() };
+  const currentNowMs = nowMs();
+  const snapshot = getScheduleSnapshot(currentNowMs);
+  const manualOverrideUntilMs = snapshot.nextTransitionAtMs;
 
-  if (!manual) {
-    const nextOpenAt = getNextProductionSchedule().nextOpenAt;
-    currentOpenTimer = setTimeout(() => {
-      if (schedulerStopped || lifecycleService.isShuttingDown()) {
-        return;
-      }
-      openQueue(client).catch((error) => console.error('Erro ao reabrir fila em produção:', error));
-    }, Math.max(1, nextOpenAt - Date.now()));
-  }
+  await applyOpenState(client, {
+    origin: 'manual_open',
+    shouldReset: Boolean(options.manual),
+    cycleKey: snapshot.isOpenScheduled ? snapshot.currentCycleKey : null,
+  });
+
+  schedulerStateRepository.updateState({
+    currentState: 'open',
+    stateOrigin: 'manual_open',
+    manualOverrideState: 'open',
+    manualOverrideUntilMs,
+    updatedAtMs: currentNowMs,
+  });
+
+  scheduleProductionTransition(manualOverrideUntilMs);
+  return true;
 }
 
 async function closeQueue(client, options = {}) {
@@ -155,59 +343,65 @@ async function closeQueue(client, options = {}) {
     return false;
   }
 
-  const manual = !!options.manual;
-  clearScheduledTimers();
-  schedulerState = 'closed';
-  await applyChannelPermissions(client, false);
-  await updatePanel(client);
-  console.log('Scheduler: fila fechada.');
+  if (!client) {
+    return false;
+  }
+
+  schedulerClient = client;
 
   if (isDevelopmentMode()) {
-    const { intervalMs } = getNextDevelopmentCycle();
-    schedulerLoopTimer = setTimeout(() => {
-      if (schedulerStopped || lifecycleService.isShuttingDown()) {
-        return;
-      }
-      openQueue(client).catch((error) => console.error('Erro ao reabrir fila em desenvolvimento:', error));
-    }, intervalMs);
-    currentCycle = { mode: 'development', openAt: Date.now(), closeAt: Date.now() + intervalMs };
-    return;
+    await runDevelopmentClose(client);
+    return true;
   }
 
-  if (!manual) {
-    const nextOpenAt = getNextProductionSchedule().nextOpenAt;
-    schedulerTimer = setTimeout(() => {
-      if (schedulerStopped || lifecycleService.isShuttingDown()) {
-        return;
-      }
-      openQueue(client).catch((error) => console.error('Erro ao reabrir fila em produção:', error));
-    }, Math.max(1, nextOpenAt - Date.now()));
-  }
+  const currentNowMs = nowMs();
+  const snapshot = getScheduleSnapshot(currentNowMs);
+  const manualOverrideUntilMs = snapshot.nextTransitionAtMs;
+
+  await applyClosedState(client, {
+    origin: 'manual_close',
+  });
+
+  schedulerStateRepository.updateState({
+    currentState: 'closed',
+    stateOrigin: 'manual_close',
+    manualOverrideState: 'closed',
+    manualOverrideUntilMs,
+    updatedAtMs: currentNowMs,
+  });
+
+  scheduleProductionTransition(manualOverrideUntilMs);
+  return true;
 }
 
 function startScheduler(client) {
-  if (schedulerStopped || lifecycleService.isShuttingDown()) {
+  if (schedulerStopped || lifecycleService.isShuttingDown() || !client) {
     return;
   }
 
-  if (schedulerState !== 'closed' || schedulerTimer || schedulerLoopTimer || currentOpenTimer || currentCloseTimer) {
+  if (schedulerStarted) {
     return;
   }
+
+  schedulerStarted = true;
+  schedulerClient = client;
 
   if (isDevelopmentMode()) {
-    openQueue(client).catch((error) => console.error('Erro ao iniciar ciclo de desenvolvimento:', error));
+    runDevelopmentOpen(client).catch((error) => {
+      console.error('Erro ao iniciar ciclo de desenvolvimento:', error);
+    });
     return;
   }
 
-  const { nextOpenAt, nextCloseAt } = getNextProductionSchedule();
-  const now = Date.now();
-  const openDelay = Math.max(1, nextOpenAt.getTime() - now);
-  schedulerTimer = setTimeout(() => {
-    if (schedulerStopped || lifecycleService.isShuttingDown()) {
-      return;
-    }
-    openQueue(client).catch((error) => console.error('Erro ao abrir fila em produção:', error));
-  }, openDelay);
+  reconcileProductionState(client, { reason: 'startup' }).catch((error) => {
+    console.error('Erro ao iniciar scheduler em produção:', error);
+    const retryDelayMs = 30_000;
+    schedulerTimer = setTimeout(() => {
+      reconcileProductionState(client, { reason: 'startup_retry' }).catch((retryError) => {
+        console.error('Erro em tentativa de recuperação do scheduler:', retryError);
+      });
+    }, retryDelayMs);
+  });
 }
 
 function stopScheduler() {
@@ -216,8 +410,9 @@ function stopScheduler() {
   }
 
   schedulerStopped = true;
+  schedulerStarted = false;
   clearScheduledTimers();
-  schedulerState = 'closed';
+  setRuntimeState('closed', 'scheduled', null);
 }
 
 function resetSchedulerStopFlag() {
@@ -229,12 +424,34 @@ function isQueueOpen() {
 }
 
 function getStatus() {
+  if (isDevelopmentMode()) {
+    return {
+      mode: 'development',
+      state: schedulerState,
+      origin: schedulerOrigin,
+      timezone: config.queueTimezone,
+      configuredOpenTime: config.queueOpenTime,
+      configuredCloseTime: config.queueCloseTime,
+      nextOpenAt: 'imediato no ciclo atual',
+      nextCloseAt: 'imediato no ciclo atual',
+      currentCycleKey: null,
+      testIntervalMinutes: config.queueTestIntervalMinutes,
+    };
+  }
+
+  const snapshot = getScheduleSnapshot();
+
   return {
-    mode: isDevelopmentMode() ? 'development' : 'production',
+    mode: 'production',
     state: schedulerState,
-    nextOpenAt: isDevelopmentMode() ? 'imediato no ciclo atual' : new Date(getNextProductionSchedule().nextOpenAt).toLocaleString('pt-BR', { timeZone: config.queueTimezone }),
-    nextCloseAt: isDevelopmentMode() ? 'imediato no ciclo atual' : new Date(getNextProductionSchedule().nextCloseAt).toLocaleString('pt-BR', { timeZone: config.queueTimezone }),
-    testIntervalMinutes: isDevelopmentMode() ? config.queueTestIntervalMinutes : null,
+    origin: schedulerOrigin,
+    timezone: config.queueTimezone,
+    configuredOpenTime: config.queueOpenTime,
+    configuredCloseTime: config.queueCloseTime,
+    nextOpenAt: formatDateMsInConfiguredTimezone(snapshot.nextOpenAtMs),
+    nextCloseAt: formatDateMsInConfiguredTimezone(snapshot.nextCloseAtMs),
+    currentCycleKey: snapshot.isOpenScheduled ? snapshot.currentCycleKey : activeCycleKey,
+    testIntervalMinutes: null,
   };
 }
 
@@ -247,4 +464,9 @@ module.exports = {
   getStatus,
   clearScheduledTimers,
   resetSchedulerStopFlag,
+  _private: {
+    getScheduleSnapshot,
+    reconcileProductionState,
+    scheduleProductionTransition,
+  },
 };

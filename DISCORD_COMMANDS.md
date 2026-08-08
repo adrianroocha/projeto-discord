@@ -205,6 +205,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos na fila: fecha fila para novas entradas.
 - Limitações: ação administrativa.
 - Efeitos em lobbies: preserva lobbies existentes (`forming` e `in_game`) e seus registros em `lobby_players`.
+- Persistência de override: o fechamento manual permanece após restart até a próxima transição agendada (ex.: 08:00/19:00 no timezone configurado).
 
 ## /scheduler-open
 - Nome: /scheduler-open
@@ -219,6 +220,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos na fila: abre fila e reinicia ciclo.
 - Limitações: ação administrativa.
 - Efeitos em lobbies: limpa `lobbies` e `lobby_players` ao iniciar o novo ciclo.
+- Persistência de override: a abertura manual permanece após restart até a próxima transição agendada.
 
 ## /scheduler-status
 - Nome: /scheduler-status
@@ -232,6 +234,8 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: nenhum direto.
 - Limitações: depende de scheduler já inicializado.
+- Campos exibidos: estado atual, origem (`scheduled`, `manual_open` ou `manual_close`), timezone efetivo, horários configurados, próxima abertura, próximo fechamento e chave do ciclo atual quando aplicável.
+- Regra de ciclo operacional (produção): com `QUEUE_OPEN_TIME=19:00`, `QUEUE_CLOSE_TIME=08:00` e `QUEUE_TIMEZONE=America/Sao_Paulo`, a abertura das 19:00 inicia o ciclo da data local da abertura e ele permanece aberto durante a madrugada até 08:00 do dia seguinte.
 
 ## /status
 - Nome: /status

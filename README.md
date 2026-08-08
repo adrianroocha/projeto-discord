@@ -85,8 +85,8 @@ NODE_ENV=development
 SHUTDOWN_TIMEOUT_MS=10000
 
 # Production Scheduler
-QUEUE_OPEN_TIME=18:58
-QUEUE_CLOSE_TIME=06:00
+QUEUE_OPEN_TIME=19:00
+QUEUE_CLOSE_TIME=08:00
 QUEUE_TIMEZONE=America/Sao_Paulo
 
 # Development Scheduler
@@ -100,6 +100,7 @@ QUEUE_TEST_INTERVAL_MINUTES=5
 - `DATABASE_PATH` aponta para o banco SQLite local por padrão.
 - `QUEUE_TEST_INTERVAL_MINUTES` controla o intervalo de ciclo em desenvolvimento.
 - `SHUTDOWN_TIMEOUT_MS` define o timeout de segurança do shutdown gracioso (padrão 10s).
+- Em produção, `QUEUE_OPEN_TIME` e `QUEUE_CLOSE_TIME` são interpretados no `QUEUE_TIMEZONE` IANA configurado (não no timezone local do host).
 
 ## Comandos disponíveis
 
@@ -149,9 +150,21 @@ Quando a fila está fechada, os botões ficam desabilitados.
 - Se a elegibilidade estiver indisponível no momento da entrada, o usuário entra como comum (sem prioridade indevida).
 - A ordenação usa timestamp numérico em milissegundos.
 - O cooldown de saída é de 120 segundos.
-- O scheduler de produção segue os horários configurados em `QUEUE_OPEN_TIME` e `QUEUE_CLOSE_TIME`.
+- O scheduler de produção calcula o estado usando timezone IANA (`QUEUE_TIMEZONE`) e não depende do timezone local do servidor.
+- Regra oficial recomendada: abertura às 19:00 e fechamento às 08:00 em `America/Sao_Paulo`.
+- Nesse modelo, o ciclo operacional começa na abertura das 19:00, permanece aberto durante a madrugada e fecha às 08:00 do dia seguinte.
+- A chave do ciclo corresponde à data local de abertura (ex.: ciclo `2026-08-07` vai de 07/08 19:00 até 08/08 08:00, no horário de Brasília).
 - O scheduler de desenvolvimento abre imediatamente ao iniciar o bot, mantém a fila aberta por 5 minutos, fecha por 5 minutos e repete indefinidamente.
 - Abrir a fila limpa completamente o ciclo anterior: fila, lobby players e lobbies.
+
+### Restart e overrides manuais do scheduler
+
+- O scheduler persiste o último ciclo de abertura programada já aplicado, evitando reset duplicado após restart no mesmo ciclo.
+- Restart no período fechado (08:00-18:59:59 em Brasília): mantém fila fechada, sem criar novo ciclo.
+- Restart no período aberto (após 19:00 e durante madrugada): mantém fila aberta no ciclo correto sem reset repetido.
+- Se o bot perder a abertura programada e iniciar depois, a abertura é aplicada uma única vez e marcada em persistência.
+- `/scheduler-open` cria novo ciclo manualmente (com limpeza), e `/scheduler-close` fecha sem limpar.
+- Overrides manuais permanecem até a próxima transição agendada; nessa transição o scheduler volta ao estado `scheduled`.
 
 ### Ciclo de lobbies no ciclo atual
 

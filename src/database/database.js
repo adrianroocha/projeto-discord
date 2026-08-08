@@ -67,6 +67,20 @@ async function initDatabase() {
     )
   `;
 
+  const createSchedulerStateTableSql = `
+    CREATE TABLE IF NOT EXISTS scheduler_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      current_state TEXT NOT NULL DEFAULT 'closed',
+      state_origin TEXT NOT NULL DEFAULT 'scheduled',
+      manual_override_state TEXT NULL,
+      manual_override_until_ms INTEGER NULL,
+      last_scheduled_open_cycle_key TEXT NULL,
+      last_scheduled_open_at_ms INTEGER NULL,
+      last_scheduled_close_at_ms INTEGER NULL,
+      updated_at_ms INTEGER NOT NULL
+    )
+  `;
+
   const createKickAccountsTableSql = `
     CREATE TABLE IF NOT EXISTS kick_accounts (
       discord_id TEXT PRIMARY KEY,
@@ -182,6 +196,7 @@ async function initDatabase() {
   db.exec(createLobbyPlayersTableSql);
   db.exec(createQueueCycleStateTableSql);
   db.exec(createQueuePrioritySnapshotsTableSql);
+  db.exec(createSchedulerStateTableSql);
   db.exec(createKickAccountsTableSql);
   db.exec(createManualSubGrantsTableSql);
   db.exec(createKickSubscriptionsTableSql);
@@ -196,6 +211,23 @@ async function initDatabase() {
     db.prepare('INSERT INTO queue_cycle_state (id, current_cycle_id, updated_at_ms) VALUES (1, 1, ?)').run(Date.now());
   } else if (!Number.isFinite(cycleState.current_cycle_id) || cycleState.current_cycle_id < 1) {
     db.prepare('UPDATE queue_cycle_state SET current_cycle_id = 1, updated_at_ms = ? WHERE id = 1').run(Date.now());
+  }
+
+  const schedulerState = db.prepare('SELECT id FROM scheduler_state WHERE id = 1').get();
+  if (!schedulerState) {
+    db.prepare(
+      `INSERT INTO scheduler_state (
+        id,
+        current_state,
+        state_origin,
+        manual_override_state,
+        manual_override_until_ms,
+        last_scheduled_open_cycle_key,
+        last_scheduled_open_at_ms,
+        last_scheduled_close_at_ms,
+        updated_at_ms
+      ) VALUES (1, 'closed', 'scheduled', NULL, NULL, NULL, NULL, NULL, ?)`
+    ).run(Date.now());
   }
 
   const lobbyInfo = db.prepare("PRAGMA table_info(lobbies)").all();
