@@ -310,6 +310,14 @@ describe('gracefulShutdownService', () => {
     expect(jest.getTimerCount()).toBe(0);
   });
 
+  test('lifecycle finaliza em stopped após shutdown', async () => {
+    const { service, lifecycle } = createService({ shutdownTimeoutMs: 5000 });
+
+    await service.shutdown({ reason: 'SIGINT' });
+
+    expect(lifecycle.getState().state).toBe('stopped');
+  });
+
   test('segundo sinal durante shutdown pode forçar saída', async () => {
     const deferred = createDeferred();
     const { service, processRef } = createService({

@@ -196,6 +196,14 @@ function getSafePositiveInteger(value, fallback) {
   return fallback;
 }
 
+function getLifecycleState(lifecycleService) {
+  const state = lifecycleService?.getState?.()?.state;
+  if (typeof state === 'string' && state.trim()) {
+    return state.trim();
+  }
+  return lifecycleService?.isShuttingDown?.() ? 'shutting_down' : 'starting';
+}
+
 function writeHtml(res, statusCode, title, message) {
   const body = `<!doctype html>
 <html lang="pt-BR">
@@ -547,9 +555,18 @@ function createRequestHandler(dependencies = {}) {
     }
 
     if (requestUrl.pathname === '/health') {
-      res.statusCode = 200;
+      const state = getLifecycleState(lifecycleService);
+      const isReady = state === 'ready';
+
+      res.statusCode = isReady ? 200 : 503;
       res.setHeader('Content-Type', 'application/json; charset=utf-8');
-      res.end(JSON.stringify({ status: 'ok', service: 'kick-oauth' }));
+      res.end(
+        JSON.stringify(
+          isReady
+            ? { status: 'ready', state: 'ready' }
+            : { status: 'unavailable', state },
+        ),
+      );
       return;
     }
 
@@ -593,6 +610,7 @@ function startKickHttpServer(options = {}) {
   const cfg = options.config || config;
   const logger = options.logger || console;
   const requestHandler = createRequestHandler(options);
+  const host = typeof cfg.kickHost === 'string' && cfg.kickHost.trim() ? cfg.kickHost.trim() : LOOPBACK_IPV4;
 
   if (!cfg.kickEnabled && typeof logger?.info === 'function') {
     logger.info('Integração Kick desativada: variáveis obrigatórias ausentes.');
@@ -618,8 +636,8 @@ function startKickHttpServer(options = {}) {
       reject(error);
     });
 
-    server.listen(cfg.kickPort, LOOPBACK_IPV4, () => {
-      resolve({ started: true, port: cfg.kickPort });
+    server.listen(cfg.kickPort, host, () => {
+      resolve({ started: true, port: cfg.kickPort, host });
     });
   });
 }

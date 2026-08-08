@@ -29,10 +29,34 @@ describe('kickHttpServer', () => {
     await stopKickHttpServer();
   });
 
-  test('rota /health responde 200 com json', async () => {
+  test('rota /health responde 503 antes de ready', async () => {
     const handler = createRequestHandler({
       config: { kickPort: 3000 },
       kickAuthService: { completeOAuthCallback: jest.fn() },
+      applicationLifecycleService: {
+        getState: () => ({ state: 'starting' }),
+        isShuttingDown: () => false,
+      },
+    });
+
+    const req = { method: 'GET', url: '/health' };
+    const res = createMockResponse();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(503);
+    expect(res.headers['Content-Type']).toContain('application/json');
+    expect(JSON.parse(res.body)).toEqual({ status: 'unavailable', state: 'starting' });
+  });
+
+  test('rota /health responde 200 quando ready', async () => {
+    const handler = createRequestHandler({
+      config: { kickPort: 3000 },
+      kickAuthService: { completeOAuthCallback: jest.fn() },
+      applicationLifecycleService: {
+        getState: () => ({ state: 'ready' }),
+        isShuttingDown: () => false,
+      },
     });
 
     const req = { method: 'GET', url: '/health' };
@@ -41,8 +65,35 @@ describe('kickHttpServer', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.headers['Content-Type']).toContain('application/json');
-    expect(JSON.parse(res.body)).toEqual({ status: 'ok', service: 'kick-oauth' });
+    expect(JSON.parse(res.body)).toEqual({ status: 'ready', state: 'ready' });
+  });
+
+  test('rota /health responde 503 em shutting_down e failed', async () => {
+    const shuttingDownHandler = createRequestHandler({
+      config: { kickPort: 3000 },
+      applicationLifecycleService: {
+        getState: () => ({ state: 'shutting_down' }),
+        isShuttingDown: () => true,
+      },
+    });
+
+    const failedHandler = createRequestHandler({
+      config: { kickPort: 3000 },
+      applicationLifecycleService: {
+        getState: () => ({ state: 'failed' }),
+        isShuttingDown: () => false,
+      },
+    });
+
+    const req = { method: 'GET', url: '/health' };
+
+    const shuttingDownRes = createMockResponse();
+    await shuttingDownHandler(req, shuttingDownRes);
+    expect(shuttingDownRes.statusCode).toBe(503);
+
+    const failedRes = createMockResponse();
+    await failedHandler(req, failedRes);
+    expect(failedRes.statusCode).toBe(503);
   });
 
   test('rota desconhecida retorna 404', async () => {
@@ -166,7 +217,7 @@ describe('kickHttpServer', () => {
 
   test('servidor inicia apenas uma vez', async () => {
     const info = await startKickHttpServer({
-      config: { kickPort: 0, kickEnabled: false },
+      config: { kickPort: 0, kickEnabled: false, kickHost: '127.0.0.1' },
       kickAuthService: {
         completeOAuthCallback: jest.fn().mockResolvedValue({
           kickUsername: 'ok',
@@ -176,7 +227,7 @@ describe('kickHttpServer', () => {
     });
 
     const second = await startKickHttpServer({
-      config: { kickPort: 0, kickEnabled: false },
+      config: { kickPort: 0, kickEnabled: false, kickHost: '127.0.0.1' },
       kickAuthService: {
         completeOAuthCallback: jest.fn().mockResolvedValue({
           kickUsername: 'ok',
@@ -191,6 +242,19 @@ describe('kickHttpServer', () => {
     const serverInstance = require('../src/services/kickHttpServer').getKickHttpServerInstance();
     const address = serverInstance.address();
     expect(address.address).toBe('127.0.0.1');
+  });
+
+  test('servidor respeita host configurável', async () => {
+    const info = await startKickHttpServer({
+      config: { kickPort: 0, kickHost: '0.0.0.0', kickEnabled: false },
+      logger: { info: jest.fn(), warn: jest.fn() },
+    });
+
+    expect(info.started).toBe(true);
+    const serverInstance = require('../src/services/kickHttpServer').getKickHttpServerInstance();
+    const address = serverInstance.address();
+
+    expect(address.address === '0.0.0.0' || address.address === '::').toBe(true);
   });
 
   test('mapCallbackError trata rate limit e indisponibilidade', () => {
@@ -219,8 +283,12 @@ describe('kickHttpServer', () => {
   test('rota /health funciona em servidor real via localhost', async () => {
     const logger = { info: jest.fn(), warn: jest.fn() };
     const started = await startKickHttpServer({
-      config: { kickPort: 0, kickEnabled: true },
+      config: { kickPort: 0, kickHost: '127.0.0.1', kickEnabled: true },
       kickAuthService: { completeOAuthCallback: jest.fn() },
+      applicationLifecycleService: {
+        getState: () => ({ state: 'ready' }),
+        isShuttingDown: () => false,
+      },
       logger,
     });
 
@@ -252,7 +320,7 @@ describe('kickHttpServer', () => {
     });
 
     expect(body.statusCode).toBe(200);
-    expect(JSON.parse(body.body)).toEqual({ status: 'ok', service: 'kick-oauth' });
+    expect(JSON.parse(body.body)).toEqual({ status: 'ready', state: 'ready' });
   });
 
   test('callback OAuth durante shutdown retorna 503', async () => {

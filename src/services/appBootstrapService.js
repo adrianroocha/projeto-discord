@@ -1,12 +1,55 @@
 const config = require('../config');
 const database = require('../database/database');
+const commandHandler = require('../handlers/commandHandler');
 const { startKickHttpServer } = require('./kickHttpServer');
+const queueMessageService = require('./queueMessageService');
+const kickLinkPanelService = require('./kickLinkPanelService');
+const schedulerService = require('./schedulerService');
+const sqliteBackupScheduler = require('./sqliteBackupScheduler');
+const subscriberRoleReconciliationScheduler = require('./subscriberRoleReconciliationScheduler');
+const lifecycleService = require('./applicationLifecycleService');
 const gracefulShutdownService = require('./gracefulShutdownService');
+
+function waitForDiscordReady(discordClient) {
+  if (discordClient && discordClient.isReady && discordClient.isReady()) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    function onReady() {
+      cleanup();
+      resolve();
+    }
+
+    function onError(error) {
+      cleanup();
+      reject(error || new Error('Discord client error during startup.'));
+    }
+
+    function cleanup() {
+      discordClient.removeListener('ready', onReady);
+      discordClient.removeListener('error', onError);
+      discordClient.removeListener('shardError', onError);
+    }
+
+    discordClient.once('ready', onReady);
+    discordClient.once('error', onError);
+    discordClient.once('shardError', onError);
+  });
+}
 
 function createAppBootstrapService(options = {}) {
   const cfg = options.config || config;
   const db = options.database || database;
+  const commands = options.commandHandler || commandHandler;
   const kickHttpServerStarter = options.startKickHttpServer || startKickHttpServer;
+  const queuePanel = options.queueMessageService || queueMessageService;
+  const kickPanel = options.kickLinkPanelService || kickLinkPanelService;
+  const queueScheduler = options.schedulerService || schedulerService;
+  const backupScheduler = options.sqliteBackupScheduler || sqliteBackupScheduler;
+  const subReconciliationScheduler =
+    options.subscriberRoleReconciliationScheduler || subscriberRoleReconciliationScheduler;
+  const lifecycle = options.lifecycleService || lifecycleService;
   const shutdownService = options.gracefulShutdownService || gracefulShutdownService;
   const logger = options.logger || console;
 
@@ -17,17 +60,9 @@ function createAppBootstrapService(options = {}) {
         logger.info(`Banco de dados inicializado em ${cfg.databasePath}`);
       }
 
-      try {
-        const kickServer = await kickHttpServerStarter({ discordClient });
-        if (kickServer.started && typeof logger?.info === 'function') {
-          logger.info(`Servidor local da Kick ativo na porta ${kickServer.port}.`);
-        }
-      } catch (kickServerError) {
-        if (typeof logger?.error === 'function') {
-          logger.error(
-            `Falha ao iniciar servidor local da Kick (seguindo sem integração Kick): ${kickServerError.message}`,
-          );
-        }
+      const kickServer = await kickHttpServerStarter({ discordClient });
+      if (kickServer.started && typeof logger?.info === 'function') {
+        logger.info(`Servidor HTTP da Kick ativo em ${kickServer.host}:${kickServer.port}.`);
       }
 
       if (typeof logger?.info === 'function') {
@@ -35,10 +70,34 @@ function createAppBootstrapService(options = {}) {
       }
 
       await discordClient.login(cfg.discordToken);
+      await waitForDiscordReady(discordClient);
+
+      await commands.registerCommands(discordClient, cfg);
+      if (typeof logger?.info === 'function') {
+        logger.info('Slash commands registrados no Discord.');
+      }
+
+      await queuePanel.initPanel(discordClient);
+      if (typeof logger?.info === 'function') {
+        logger.info('Painel de fila inicializado.');
+      }
+
+      const kickPanelResult = await kickPanel.initPanel(discordClient);
+      if (kickPanelResult && kickPanelResult.enabled && typeof logger?.info === 'function') {
+        logger.info('Painel de vínculo Kick inicializado.');
+      }
+
+      queueScheduler.startScheduler(discordClient);
+      backupScheduler.start();
+      subReconciliationScheduler.start(discordClient);
+
+      lifecycle.markReady();
       return { started: true };
-    } catch (_error) {
+    } catch (error) {
+      lifecycle.markFailed('startup_failure');
+
       if (typeof logger?.error === 'function') {
-        logger.error('Erro ao iniciar o bot.');
+        logger.error(`Erro ao iniciar o bot. code=${error?.code || error?.name || 'APP_START_FAILED'}`);
       }
 
       await shutdownService.shutdown({

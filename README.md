@@ -120,6 +120,89 @@ KICK_HTTP_MAX_URL_LENGTH=8192
 - A retenção padrão remove backups antigos após 7 dias e preserva apenas arquivos do padrão do projeto.
 - Limites HTTP da Kick (`KICK_HTTP_MAX_BODY_BYTES`, `KICK_HTTP_BODY_TIMEOUT_MS`, `KICK_HTTP_MAX_URL_LENGTH`) são opcionais e usam fallback seguro para os padrões quando ausentes, inválidos ou fora dos limites aceitos.
 
+## Railway
+
+Este projeto está preparado para primeiro deploy de homologação no Railway com SQLite em volume persistente e apenas uma instância do bot.
+
+### Variáveis obrigatórias (homologação)
+
+```env
+NODE_ENV=production
+DISCORD_TOKEN=
+GUILD_ID=
+SUBSCRIBER_ROLE_ID=
+QUEUE_PANEL_CHANNEL_ID=
+QUEUE_CHANNEL_ID=
+KICK_LINK_CHANNEL_ID=
+KICK_CLIENT_ID=
+KICK_CLIENT_SECRET=
+KICK_BROADCASTER_USER_ID=
+KICK_REDIRECT_URI=
+KICK_HOST=0.0.0.0
+DATABASE_PATH=/data/database.sqlite
+SQLITE_BACKUP_DIRECTORY=/data/backups
+QUEUE_OPEN_TIME=19:00
+QUEUE_CLOSE_TIME=08:00
+QUEUE_TIMEZONE=America/Sao_Paulo
+```
+
+### Variáveis adicionais já existentes (recomendadas)
+
+```env
+# Shutdown gracioso
+SHUTDOWN_TIMEOUT_MS=10000
+
+# Reconciliação SUB
+SUB_ROLE_RECONCILIATION_ENABLED=true
+SUB_ROLE_RECONCILIATION_INTERVAL_MINUTES=15
+SUB_ROLE_RECONCILIATION_STARTUP_DELAY_SECONDS=30
+SUB_ROLE_RECONCILIATION_DISCOVERY_TIMEOUT_MS=20000
+SUB_ROLE_RECONCILIATION_USER_SYNC_TIMEOUT_MS=12000
+
+# Backup SQLite
+SQLITE_BACKUP_ENABLED=true
+SQLITE_BACKUP_TIME=08:15
+SQLITE_BACKUP_TIMEZONE=America/Sao_Paulo
+SQLITE_BACKUP_RETENTION_DAYS=7
+SQLITE_BACKUP_STARTUP_DELAY_SECONDS=60
+
+# HTTP Kick hardening
+KICK_HTTP_MAX_BODY_BYTES=1048576
+KICK_HTTP_BODY_TIMEOUT_MS=10000
+KICK_HTTP_MAX_URL_LENGTH=8192
+
+# Porta da aplicação (fallback local)
+KICK_PORT=3000
+```
+
+### Regras operacionais no Railway
+
+- `PORT` é fornecida automaticamente pelo Railway e não deve ser fixada manualmente.
+- O host deve ser configurado explicitamente com `KICK_HOST=0.0.0.0` no Railway.
+- O domínio público inicial será o domínio gerado `*.up.railway.app`.
+- Após obter o domínio, configure:
+- `KICK_REDIRECT_URI=https://DOMINIO/kick/callback`
+- webhook Kick em `https://DOMINIO/kick/webhooks`
+- O volume persistente deve ser montado exatamente em `/data`.
+- A configuração de réplica única deve ser conferida manualmente no painel do Railway (Scaling).
+- O próprio uso de volume persistente impede operação segura com múltiplas réplicas para este serviço SQLite.
+- Deployments com volume persistente podem causar pequena indisponibilidade durante troca de versão.
+- Não há promessa de zero downtime neste modo de deploy.
+- `drainingSeconds=30` no [railway.json](railway.json) dá janela maior que `SHUTDOWN_TIMEOUT_MS=10000`, ajudando o shutdown gracioso a concluir antes de SIGKILL.
+- Backups no mesmo volume ajudam em erro lógico/restore, mas não protegem contra perda do próprio volume.
+- Depois da homologação, configure backup externo ou backup nativo do volume.
+
+### Sobre railway.json
+
+O arquivo [railway.json](railway.json) já define:
+
+- `startCommand: npm start`
+- healthcheck em `/health`
+- política de restart contínuo (`ALWAYS`)
+- `drainingSeconds: 30`
+
+Replicas não são definidas neste `railway.json`. Ajuste manualmente em Service > Settings > Scaling para manter exatamente 1 réplica.
+
 ## Comandos disponíveis
 
 Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COMMANDS.md](DISCORD_COMMANDS.md).

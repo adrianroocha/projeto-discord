@@ -35,6 +35,11 @@ function createDependencies(overrides = {}) {
       overrides.subscriberRoleAutoSyncService || {
         syncAfterEligibilityChange: jest.fn(),
       },
+    applicationLifecycleService:
+      overrides.applicationLifecycleService || {
+        getState: () => ({ state: 'ready' }),
+        isShuttingDown: () => false,
+      },
     logger: overrides.logger || { info: jest.fn(), warn: jest.fn() },
   };
 }

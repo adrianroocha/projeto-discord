@@ -1,4 +1,6 @@
 const Database = require('better-sqlite3');
+const fs = require('fs');
+const path = require('path');
 const { databasePath } = require('../config');
 const lifecycleService = require('../services/applicationLifecycleService');
 const sqliteOperationalLockService = require('../services/sqliteOperationalLockService');
@@ -19,6 +21,8 @@ function openConnection() {
     }
 
     try {
+      fs.mkdirSync(path.dirname(path.resolve(databasePath)), { recursive: true });
+
       const lockResult = sqliteOperationalLockService.acquireLock(databasePath, {
         ownerTag: 'discord-bot-main',
       });
@@ -31,6 +35,7 @@ function openConnection() {
       }
 
       lockHeld = true;
+      sqliteOperationalLockService.startHeartbeat(databasePath);
       db = new Database(databasePath, { readonly: false, fileMustExist: false });
       resolve(db);
     } catch (err) {
@@ -62,6 +67,7 @@ function closeConnection() {
       db.close();
       db = null;
       if (lockHeld) {
+        sqliteOperationalLockService.stopHeartbeat(databasePath);
         sqliteOperationalLockService.releaseLock(databasePath);
       }
       lockHeld = false;

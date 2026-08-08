@@ -198,6 +198,10 @@ function createGracefulShutdownService(options = {}) {
         summary.exitCode = 1;
       }
 
+      if (typeof lifecycle.markStopped === 'function') {
+        lifecycle.markStopped(reason);
+      }
+
       processRef.exitCode = summary.exitCode;
       completedSummary = summary;
       shutdownPromise = null;

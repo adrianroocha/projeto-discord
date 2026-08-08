@@ -1,3 +1,4 @@
+const net = require('net');
 const path = require('path');
 
 function getRequiredEnv(key) {
@@ -98,6 +99,64 @@ function parseIanaTimeZone(value, fallback) {
   }
 }
 
+function isSafeHostLabel(value) {
+  if (!/^[A-Za-z0-9-]+$/.test(value)) {
+    return false;
+  }
+
+  return !value.startsWith('-') && !value.endsWith('-');
+}
+
+function parseHost(value, fallback) {
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  const normalized = String(value).trim();
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (normalized === 'localhost') {
+    return normalized;
+  }
+
+  if (net.isIP(normalized) !== 0) {
+    return normalized;
+  }
+
+  if (normalized.length > 253) {
+    return fallback;
+  }
+
+  const labels = normalized.split('.');
+  if (!labels.length || labels.some((label) => !isSafeHostLabel(label))) {
+    return fallback;
+  }
+
+  return normalized;
+}
+
+function parsePortWithPrecedence() {
+  const platformPort = parseBoundedPositiveInteger(process.env.PORT, {
+    fallback: null,
+    min: 1,
+    max: 65535,
+  });
+
+  if (platformPort !== null) {
+    return platformPort;
+  }
+
+  const kickPort = parseBoundedPositiveInteger(process.env.KICK_PORT, {
+    fallback: 3000,
+    min: 1,
+    max: 65535,
+  });
+
+  return kickPort;
+}
+
 const kickClientId = process.env.KICK_CLIENT_ID || null;
 const kickClientSecret = process.env.KICK_CLIENT_SECRET || null;
 
@@ -117,9 +176,10 @@ module.exports = {
   queueTestIntervalMinutes: Number(process.env.QUEUE_TEST_INTERVAL_MINUTES || '5'),
   kickClientId,
   kickClientSecret,
+  kickHost: parseHost(process.env.KICK_HOST, '127.0.0.1'),
   kickRedirectUri: process.env.KICK_REDIRECT_URI || 'http://localhost:3000/kick/callback',
   kickOauthScopes: parseKickScopes(process.env.KICK_OAUTH_SCOPES || 'user:read events:subscribe'),
-  kickPort: parsePositiveInteger(process.env.KICK_PORT || '3000', 3000),
+  kickPort: parsePortWithPrecedence(),
   kickBroadcasterUserId: process.env.KICK_BROADCASTER_USER_ID || null,
   kickEnabled: Boolean(kickClientId && kickClientSecret),
   subRoleReconciliationEnabled: parseBoolean(process.env.SUB_ROLE_RECONCILIATION_ENABLED, true),

@@ -45,6 +45,11 @@ function createWebhookDependencies(overrides = {}) {
     kickSubscriptionEventService,
     kickAccountsRepository,
     subscriberRoleAutoSyncService,
+    applicationLifecycleService:
+      overrides.applicationLifecycleService || {
+        getState: () => ({ state: 'ready' }),
+        isShuttingDown: () => false,
+      },
     discordClient: overrides.discordClient || {},
     logger: overrides.logger || { info: jest.fn(), warn: jest.fn() },
   };
@@ -983,6 +988,10 @@ describe('kickHttpServer webhook route', () => {
       },
       kickWebhookSignatureService: { validateRequest: jest.fn() },
       kickSubscriptionEventService: { processEvent: jest.fn() },
+      applicationLifecycleService: {
+        getState: () => ({ state: 'ready' }),
+        isShuttingDown: () => false,
+      },
     });
 
     const healthRes = createMockResponse();
