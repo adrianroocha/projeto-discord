@@ -189,6 +189,31 @@ async function initDatabase() {
     )
   `;
 
+  const createSqliteBackupRunsTableSql = `
+    CREATE TABLE IF NOT EXISTS app_sqlite_backup_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      trigger_type TEXT NOT NULL,
+      started_at_ms INTEGER NOT NULL,
+      finished_at_ms INTEGER NOT NULL,
+      file_name TEXT NULL,
+      size_bytes INTEGER NULL,
+      integrity_result TEXT NOT NULL,
+      result TEXT NOT NULL,
+      error_code TEXT NULL,
+      created_at_ms INTEGER NOT NULL
+    )
+  `;
+
+  const createSqliteBackupSchedulerStateSql = `
+    CREATE TABLE IF NOT EXISTS app_sqlite_backup_scheduler_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      last_success_local_date TEXT NULL,
+      last_attempt_started_at_ms INTEGER NULL,
+      last_result TEXT NULL,
+      updated_at_ms INTEGER NOT NULL
+    )
+  `;
+
 
   db.exec(createUsersTableSql);
   db.exec(createQueueEntriesTableSql);
@@ -205,6 +230,8 @@ async function initDatabase() {
   db.exec(createKickUnlinkAuditTableSql);
   db.exec(createSubscriberRoleSyncAuditTableSql);
   db.exec(createSubscriberRoleReconciliationRunsTableSql);
+  db.exec(createSqliteBackupRunsTableSql);
+  db.exec(createSqliteBackupSchedulerStateSql);
 
   const cycleState = db.prepare('SELECT id, current_cycle_id FROM queue_cycle_state WHERE id = 1').get();
   if (!cycleState) {
@@ -227,6 +254,21 @@ async function initDatabase() {
         last_scheduled_close_at_ms,
         updated_at_ms
       ) VALUES (1, 'closed', 'scheduled', NULL, NULL, NULL, NULL, NULL, ?)`
+    ).run(Date.now());
+  }
+
+  const sqliteBackupSchedulerState = db
+    .prepare('SELECT id FROM app_sqlite_backup_scheduler_state WHERE id = 1')
+    .get();
+  if (!sqliteBackupSchedulerState) {
+    db.prepare(
+      `INSERT INTO app_sqlite_backup_scheduler_state (
+        id,
+        last_success_local_date,
+        last_attempt_started_at_ms,
+        last_result,
+        updated_at_ms
+      ) VALUES (1, NULL, NULL, NULL, ?)`
     ).run(Date.now());
   }
 
@@ -362,6 +404,20 @@ async function initDatabase() {
     .get();
   if (queueSnapshotsByDiscord && queueSnapshotsByDiscord.c === 0) {
     db.exec('CREATE INDEX idx_queue_priority_snapshots_discord_id ON queue_priority_snapshots(discord_id)');
+  }
+
+  const backupRunsByCreatedAt = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='idx_app_sqlite_backup_runs_created_at_ms'")
+    .get();
+  if (backupRunsByCreatedAt && backupRunsByCreatedAt.c === 0) {
+    db.exec('CREATE INDEX idx_app_sqlite_backup_runs_created_at_ms ON app_sqlite_backup_runs(created_at_ms DESC)');
+  }
+
+  const backupRunsByResult = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='idx_app_sqlite_backup_runs_result'")
+    .get();
+  if (backupRunsByResult && backupRunsByResult.c === 0) {
+    db.exec('CREATE INDEX idx_app_sqlite_backup_runs_result ON app_sqlite_backup_runs(result)');
   }
 
 }

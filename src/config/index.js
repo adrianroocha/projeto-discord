@@ -79,6 +79,25 @@ function parseBoolean(value, fallback) {
   return fallback;
 }
 
+function parseTimeLabelWithFallback(value, fallback) {
+  const normalized = String(value || '').trim();
+  const target = normalized || fallback;
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(target)) {
+    return fallback;
+  }
+  return target;
+}
+
+function parseIanaTimeZone(value, fallback) {
+  const normalized = String(value || '').trim() || fallback;
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: normalized }).format(new Date());
+    return normalized;
+  } catch (_error) {
+    return fallback;
+  }
+}
+
 const kickClientId = process.env.KICK_CLIENT_ID || null;
 const kickClientSecret = process.env.KICK_CLIENT_SECRET || null;
 
@@ -140,5 +159,25 @@ module.exports = {
     min: 256,
     max: 65536,
   }),
+  sqliteBackupEnabled: parseBoolean(process.env.SQLITE_BACKUP_ENABLED, true),
+  sqliteBackupDirectory: process.env.SQLITE_BACKUP_DIRECTORY || './backups',
+  sqliteBackupTime: parseTimeLabelWithFallback(process.env.SQLITE_BACKUP_TIME, '08:15'),
+  sqliteBackupTimezone: parseIanaTimeZone(
+    process.env.SQLITE_BACKUP_TIMEZONE,
+    'America/Sao_Paulo',
+  ),
+  sqliteBackupRetentionDays: parseBoundedPositiveInteger(process.env.SQLITE_BACKUP_RETENTION_DAYS, {
+    fallback: 7,
+    min: 1,
+    max: 365,
+  }),
+  sqliteBackupStartupDelaySeconds: parseBoundedPositiveInteger(
+    process.env.SQLITE_BACKUP_STARTUP_DELAY_SECONDS,
+    {
+      fallback: 60,
+      min: 0,
+      max: 86400,
+    },
+  ),
   nodeEnv: process.env.NODE_ENV || 'development',
 };

@@ -1,6 +1,7 @@
 const config = require('../config');
 const lifecycleService = require('./applicationLifecycleService');
 const schedulerService = require('./schedulerService');
+const sqliteBackupScheduler = require('./sqliteBackupScheduler');
 const subscriberRoleReconciliationScheduler = require('./subscriberRoleReconciliationScheduler');
 const kickHttpServer = require('./kickHttpServer');
 const sqliteClient = require('../database/sqliteClient');
@@ -24,6 +25,7 @@ function createGracefulShutdownService(options = {}) {
   const logger = options.logger || console;
   const lifecycle = options.lifecycleService || lifecycleService;
   const queueScheduler = options.schedulerService || schedulerService;
+  const backupScheduler = options.sqliteBackupScheduler || sqliteBackupScheduler;
   const reconciliationScheduler =
     options.subscriberRoleReconciliationScheduler || subscriberRoleReconciliationScheduler;
   const kickServer = options.kickHttpServer || kickHttpServer;
@@ -98,6 +100,8 @@ function createGracefulShutdownService(options = {}) {
     shutdownPromise = (async () => {
       const stageNames = [
         'stop_queue_scheduler',
+        'stop_sqlite_backup_scheduler',
+        'wait_sqlite_backup_inflight',
         'stop_sub_reconciliation_scheduler',
         'stop_kick_http_server',
         'destroy_discord_client',
@@ -121,6 +125,23 @@ function createGracefulShutdownService(options = {}) {
           }
           if (typeof queueScheduler.clearScheduledTimers === 'function') {
             queueScheduler.clearScheduledTimers();
+          }
+        });
+
+        await runStage(summary, 'stop_sqlite_backup_scheduler', async () => {
+          if (typeof backupScheduler.stop === 'function') {
+            backupScheduler.stop();
+          }
+        });
+
+        await runStage(summary, 'wait_sqlite_backup_inflight', async () => {
+          if (typeof backupScheduler.waitForIdle === 'function') {
+            const waitResult = await backupScheduler.waitForIdle(shutdownTimeoutMs);
+            if (waitResult && waitResult.timeout) {
+              const timeoutError = new Error('Timeout aguardando backup SQLite em andamento.');
+              timeoutError.code = 'SQLITE_BACKUP_WAIT_TIMEOUT';
+              throw timeoutError;
+            }
           }
         });
 

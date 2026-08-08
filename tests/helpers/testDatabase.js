@@ -51,6 +51,17 @@ async function createTestContext(options = {}) {
     options.subRoleReconciliationUserSyncTimeoutMs || 12000,
   );
   process.env.KICK_BROADCASTER_USER_ID = options.kickBroadcasterUserId || '';
+  process.env.SQLITE_BACKUP_ENABLED =
+    options.sqliteBackupEnabled === undefined ? 'true' : String(options.sqliteBackupEnabled);
+  process.env.SQLITE_BACKUP_DIRECTORY = options.sqliteBackupDirectory || path.join(tempDir, 'backups');
+  process.env.SQLITE_BACKUP_TIME = options.sqliteBackupTime || '08:15';
+  process.env.SQLITE_BACKUP_TIMEZONE = options.sqliteBackupTimezone || 'America/Sao_Paulo';
+  process.env.SQLITE_BACKUP_RETENTION_DAYS = String(options.sqliteBackupRetentionDays || 7);
+  process.env.SQLITE_BACKUP_STARTUP_DELAY_SECONDS = String(
+    options.sqliteBackupStartupDelaySeconds === undefined
+      ? 60
+      : options.sqliteBackupStartupDelaySeconds,
+  );
 
   const database = require(databaseModulePath);
   const sqliteClient = require(sqliteClientModulePath);
@@ -84,6 +95,12 @@ async function createTestContext(options = {}) {
     delete process.env.SUB_ROLE_RECONCILIATION_DISCOVERY_TIMEOUT_MS;
     delete process.env.SUB_ROLE_RECONCILIATION_USER_SYNC_TIMEOUT_MS;
     delete process.env.KICK_BROADCASTER_USER_ID;
+    delete process.env.SQLITE_BACKUP_ENABLED;
+    delete process.env.SQLITE_BACKUP_DIRECTORY;
+    delete process.env.SQLITE_BACKUP_TIME;
+    delete process.env.SQLITE_BACKUP_TIMEZONE;
+    delete process.env.SQLITE_BACKUP_RETENTION_DAYS;
+    delete process.env.SQLITE_BACKUP_STARTUP_DELAY_SECONDS;
 
     jest.resetModules();
     jest.restoreAllMocks();

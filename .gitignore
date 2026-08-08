@@ -12,6 +12,7 @@ data/test-database.sqlite
 
 data/**/*.sqlite
 data/**/*.db
+backups/
 
 # Test coverage
 coverage/

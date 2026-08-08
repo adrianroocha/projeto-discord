@@ -92,6 +92,14 @@ QUEUE_TIMEZONE=America/Sao_Paulo
 # Development Scheduler
 QUEUE_TEST_INTERVAL_MINUTES=5
 
+# SQLite Backup
+SQLITE_BACKUP_ENABLED=true
+SQLITE_BACKUP_DIRECTORY=./backups
+SQLITE_BACKUP_TIME=08:15
+SQLITE_BACKUP_TIMEZONE=America/Sao_Paulo
+SQLITE_BACKUP_RETENTION_DAYS=7
+SQLITE_BACKUP_STARTUP_DELAY_SECONDS=60
+
 # Kick HTTP Hardening
 KICK_HTTP_MAX_BODY_BYTES=1048576
 KICK_HTTP_BODY_TIMEOUT_MS=10000
@@ -106,6 +114,10 @@ KICK_HTTP_MAX_URL_LENGTH=8192
 - `QUEUE_TEST_INTERVAL_MINUTES` controla o intervalo de ciclo em desenvolvimento.
 - `SHUTDOWN_TIMEOUT_MS` define o timeout de segurança do shutdown gracioso (padrão 10s).
 - Em produção, `QUEUE_OPEN_TIME` e `QUEUE_CLOSE_TIME` são interpretados no `QUEUE_TIMEZONE` IANA configurado (não no timezone local do host).
+- Backups SQLite usam API de backup consistente do próprio SQLite (via `better-sqlite3`) e não fazem cópia insegura de arquivo aberto.
+- O scheduler de backup diário roda em timezone IANA real (`SQLITE_BACKUP_TIMEZONE`), independente do timezone local do host.
+- O backup padrão executa às 08:15 em `America/Sao_Paulo`, após o fechamento padrão da fila às 08:00.
+- A retenção padrão remove backups antigos após 7 dias e preserva apenas arquivos do padrão do projeto.
 - Limites HTTP da Kick (`KICK_HTTP_MAX_BODY_BYTES`, `KICK_HTTP_BODY_TIMEOUT_MS`, `KICK_HTTP_MAX_URL_LENGTH`) são opcionais e usam fallback seguro para os padrões quando ausentes, inválidos ou fora dos limites aceitos.
 
 ## Comandos disponíveis
@@ -191,11 +203,38 @@ Quando a fila está fechada, os botões ficam desabilitados.
 - `npm test` - executa a suíte automatizada.
 - `npm run test:watch` - executa os testes em modo assistido.
 - `npm run test:coverage` - executa os testes com cobertura.
+- `npm run db:backup` - executa backup manual seguro do SQLite com validação de integridade.
+- `npm run db:backup:status` - lista metadados seguros de backups (sem conteúdo de tabelas).
+- `npm run db:restore -- --file <nome-ou-caminho-controlado> --confirm` - restaura backup offline com confirmação explícita.
+
+## Backup e restore do SQLite
+
+- O backup diário é feito por scheduler dedicado, com `setTimeout` encadeado, sem `setInterval`.
+- Cada backup cria arquivo temporário, valida com `PRAGMA integrity_check`, e só depois faz rename atômico para o arquivo final.
+- Falha de retenção não invalida backup já concluído.
+- Execuções são auditadas em `sqlite_backup_runs` (somente metadados seguros).
+- Estado de execução diária do scheduler é persistido em `sqlite_backup_scheduler_state` para evitar duplicidade após restart.
+
+### Restore offline obrigatório
+
+- O bot deve estar desligado para restore.
+- O restore exige `--confirm`; sem isso, nada é alterado.
+- O arquivo de origem é restrito ao diretório configurado de backup e protegido contra path traversal.
+- Antes de restaurar, o script cria backup pré-restore do banco atual e valida esse backup.
+- A substituição usa arquivo temporário e swap controlado; em falha, o banco anterior é preservado.
+
+Runbook completo: [docs/runbooks/sqlite-backup-restore.md](docs/runbooks/sqlite-backup-restore.md).
+
+### Limite de proteção (off-host)
+
+- Backups no mesmo disco não protegem contra perda total do servidor/disco.
+- Em produção, o diretório de backups deve ser copiado para armazenamento externo criptografado.
+- Nunca versionar backups no Git.
 
 ## Shutdown gracioso
 
 - Ao receber `SIGINT` (Ctrl+C) ou `SIGTERM`, o bot inicia shutdown coordenado e define `process.exitCode` sem forçar saída imediata na primeira tentativa.
-- Ordem de encerramento: schedulers, servidor HTTP da Kick, client Discord e conexão SQLite.
+- Ordem de encerramento: marcar shutdown, parar scheduler da fila e scheduler de backup, aguardar backup em andamento (limitado por `SHUTDOWN_TIMEOUT_MS`), parar servidor HTTP da Kick, encerrar client Discord e fechar SQLite.
 - Novas interações e novas requisições HTTP da integração Kick passam a receber resposta de indisponibilidade durante o shutdown.
 - Em erro fatal (`uncaughtException` ou `unhandledRejection`), o encerramento usa `exitCode=1`.
 - Se o timeout (`SHUTDOWN_TIMEOUT_MS`) for excedido, o processo marca falha de shutdown com `exitCode=1`.

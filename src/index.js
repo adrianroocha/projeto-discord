@@ -7,6 +7,7 @@ const config = require('./config');
 const queueMessageService = require('./services/queueMessageService');
 const kickLinkPanelService = require('./services/kickLinkPanelService');
 const schedulerService = require('./services/schedulerService');
+const sqliteBackupScheduler = require('./services/sqliteBackupScheduler');
 const subscriberRoleReconciliationScheduler = require('./services/subscriberRoleReconciliationScheduler');
 const gracefulShutdownService = require('./services/gracefulShutdownService');
 const appBootstrapService = require('./services/appBootstrapService');
@@ -15,6 +16,7 @@ const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers],
 });
 let schedulerStarted = false;
+let sqliteBackupSchedulerStarted = false;
 let subscriberRoleReconciliationSchedulerStarted = false;
 
 commandHandler.loadCommands(client, config);
@@ -51,6 +53,15 @@ client.once('ready', async () => {
     }
   } catch (error) {
     console.error('Erro ao iniciar scheduler:', error);
+  }
+
+  try {
+    if (!sqliteBackupSchedulerStarted) {
+      sqliteBackupSchedulerStarted = true;
+      sqliteBackupScheduler.start();
+    }
+  } catch (error) {
+    console.error('Erro ao iniciar scheduler de backup SQLite:', error);
   }
 
   try {

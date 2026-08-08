@@ -39,6 +39,12 @@ describe('gracefulShutdownService', () => {
       stopScheduler: jest.fn(),
     };
 
+    const sqliteBackupScheduler =
+      overrides.sqliteBackupScheduler || {
+        stop: jest.fn(),
+        waitForIdle: jest.fn().mockResolvedValue({ waited: false, timeout: false }),
+      };
+
     const subscriberRoleReconciliationScheduler =
       overrides.subscriberRoleReconciliationScheduler || {
         stop: jest.fn(),
@@ -63,6 +69,7 @@ describe('gracefulShutdownService', () => {
       config: { shutdownTimeoutMs: overrides.shutdownTimeoutMs || 1000 },
       lifecycleService: lifecycle,
       schedulerService,
+      sqliteBackupScheduler,
       subscriberRoleReconciliationScheduler,
       kickHttpServer,
       sqliteClient,
@@ -76,6 +83,7 @@ describe('gracefulShutdownService', () => {
       lifecycle,
       processRef,
       schedulerService,
+      sqliteBackupScheduler,
       subscriberRoleReconciliationScheduler,
       kickHttpServer,
       sqliteClient,
@@ -91,6 +99,8 @@ describe('gracefulShutdownService', () => {
 
     expect(summary.stageOrder).toEqual([
       'stop_queue_scheduler',
+      'stop_sqlite_backup_scheduler',
+      'wait_sqlite_backup_inflight',
       'stop_sub_reconciliation_scheduler',
       'stop_kick_http_server',
       'destroy_discord_client',
@@ -267,6 +277,22 @@ describe('gracefulShutdownService', () => {
     expect(processRef.exitCode).toBe(1);
 
     deferred.resolve();
+  });
+
+  test('aguarda backup SQLite em andamento até finalizar', async () => {
+    const deferred = createDeferred();
+    const sqliteBackupScheduler = {
+      stop: jest.fn(),
+      waitForIdle: jest.fn(() => deferred.promise),
+    };
+
+    const { service } = createService({ sqliteBackupScheduler });
+    const shutdownPromise = service.shutdown({ reason: 'SIGINT' });
+
+    deferred.resolve({ waited: true, timeout: false, completed: true });
+    const summary = await shutdownPromise;
+
+    expect(summary.stages.wait_sqlite_backup_inflight.status).toBe('ok');
   });
 
   test('timeout é cancelado quando shutdown finaliza', async () => {
