@@ -132,6 +132,27 @@ function formatDiagnostics(kind, payload) {
   return `${kind} status=${status} message=${message} items=${renderedItems}`;
 }
 
+function normalizeFailureReason(rawReason, fallback = 'upstream_error') {
+  if (typeof rawReason !== 'string') {
+    return fallback;
+  }
+
+  const normalized = rawReason.trim();
+  if (!normalized) {
+    return fallback;
+  }
+
+  if (normalized.length > 80) {
+    return fallback;
+  }
+
+  if (!/^[a-zA-Z0-9_.:-]+$/.test(normalized)) {
+    return fallback;
+  }
+
+  return normalized;
+}
+
 function createKickEventSubscriptionService(options = {}) {
   const cfg = options.config || config;
   const logger = options.logger || console;
@@ -244,12 +265,12 @@ function createKickEventSubscriptionService(options = {}) {
       observedDiagnostics.filter((item) => item.valid).map((item) => createEventKey(item)),
     );
 
-    const alreadyActive = [];
+    const initiallyActive = [];
     const missingEvents = [];
 
     for (const desiredEvent of DESIRED_KICK_EVENTS) {
       if (activeEventKeys.has(createEventKey(desiredEvent))) {
-        alreadyActive.push(toSummaryEventLine(desiredEvent));
+        initiallyActive.push(toSummaryEventLine(desiredEvent));
       } else {
         missingEvents.push(desiredEvent);
       }
@@ -261,8 +282,10 @@ function createKickEventSubscriptionService(options = {}) {
 
     if (requestedEvents.length === 0) {
       return {
-        alreadyActive,
+        alreadyActive: initiallyActive,
+        removed: [],
         created: [],
+        recreated: [],
         failed: [],
         diagnostics,
         force,
@@ -288,11 +311,13 @@ function createKickEventSubscriptionService(options = {}) {
       }
 
       return {
-        alreadyActive,
+        alreadyActive: force ? [] : initiallyActive,
+        removed: [],
         created: [],
+        recreated: [],
         failed: requestedEvents.map((event) => ({
           event: toSummaryEventLine(event),
-          reason: error?.code || 'upstream_error',
+          reason: normalizeFailureReason(error?.code, 'upstream_error'),
         })),
         diagnostics,
         force,
@@ -309,6 +334,7 @@ function createKickEventSubscriptionService(options = {}) {
     }
 
     const created = [];
+    const recreated = [];
     const failed = [];
 
     for (const [eventKey, event] of requestedByKey.entries()) {
@@ -316,7 +342,7 @@ function createKickEventSubscriptionService(options = {}) {
       if (!responseItem) {
         failed.push({
           event: toSummaryEventLine(event),
-          reason: createdResponse?.message || 'not_confirmed',
+          reason: normalizeFailureReason(createdResponse?.message, 'not_confirmed'),
         });
         continue;
       }
@@ -324,24 +350,30 @@ function createKickEventSubscriptionService(options = {}) {
       if (responseItem.error) {
         failed.push({
           event: toSummaryEventLine(event),
-          reason: responseItem.error,
+          reason: normalizeFailureReason(responseItem.error, 'upstream_error'),
         });
         continue;
       }
 
       if (responseItem.confirmed) {
-        created.push(toSummaryEventLine(event));
+        if (force) {
+          recreated.push(toSummaryEventLine(event));
+        } else {
+          created.push(toSummaryEventLine(event));
+        }
       } else {
         failed.push({
           event: toSummaryEventLine(event),
-          reason: createdResponse?.message || 'not_confirmed',
+          reason: normalizeFailureReason(createdResponse?.message, 'not_confirmed'),
         });
       }
     }
 
     return {
-      alreadyActive,
+      alreadyActive: force ? [] : initiallyActive,
+      removed: [],
       created,
+      recreated,
       failed,
       diagnostics,
       force,

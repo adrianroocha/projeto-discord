@@ -125,6 +125,89 @@ describe('/kick-events-sync command', () => {
     expect(content).toContain('valid:sim');
   });
 
+  test('force:true exibe apenas Recriados para eventos recriados com sucesso', async () => {
+    kickEventSubscriptionService.syncDesiredEvents.mockResolvedValue({
+      created: [],
+      recreated: [
+        'channel.subscription.new v1',
+        'channel.subscription.renewal v1',
+        'channel.subscription.gifts v1',
+        'channel.followed v1',
+      ],
+      alreadyActive: [],
+      failed: [],
+      diagnostics: ['channel.followed v1 broadcaster:75942843 subscription_id:sim status:active method:webhook valid:sim reason:ok'],
+      force: true,
+    });
+
+    const interaction = createInteraction({
+      options: {
+        getBoolean: jest.fn().mockReturnValue(true),
+      },
+    });
+
+    await command.execute(interaction);
+
+    const content = interaction.editReply.mock.calls[0][0];
+    expect(content).toContain('Forçar ressincronização: sim');
+    expect(content).toContain('Recriados:');
+    expect(content).toContain('- channel.subscription.new v1');
+    expect(content).toContain('- channel.subscription.renewal v1');
+    expect(content).toContain('- channel.subscription.gifts v1');
+    expect(content).toContain('- channel.followed v1');
+    expect(content).toContain('Já ativos:\n- nenhuma');
+    expect(content).toContain('Falhas:\n- nenhuma');
+    expect(content).not.toContain('Criados:');
+  });
+
+  test('force:true não duplica eventos entre Recriados e Já ativos', async () => {
+    kickEventSubscriptionService.syncDesiredEvents.mockResolvedValue({
+      created: [],
+      recreated: ['channel.subscription.new v1', 'channel.subscription.renewal v1'],
+      alreadyActive: ['channel.followed v1'],
+      failed: [{ event: 'channel.subscription.gifts v1', reason: 'RATE_LIMITED' }],
+      diagnostics: [],
+      force: true,
+    });
+
+    const interaction = createInteraction({
+      options: {
+        getBoolean: jest.fn().mockReturnValue(true),
+      },
+    });
+
+    await command.execute(interaction);
+
+    const content = interaction.editReply.mock.calls[0][0];
+    expect(content).toContain('Recriados:\n- channel.subscription.new v1\n- channel.subscription.renewal v1');
+    expect(content).toContain('Já ativos:\n- channel.followed v1');
+    expect(content).not.toContain('Já ativos:\n- channel.subscription.new v1');
+    expect(content).not.toContain('Já ativos:\n- channel.subscription.renewal v1');
+  });
+
+  test('force:true mantém compatibilidade quando serviço legado retorna apenas created', async () => {
+    kickEventSubscriptionService.syncDesiredEvents.mockResolvedValue({
+      created: ['channel.subscription.new v1'],
+      alreadyActive: [],
+      failed: [],
+      diagnostics: [],
+      force: true,
+    });
+
+    const interaction = createInteraction({
+      options: {
+        getBoolean: jest.fn().mockReturnValue(true),
+      },
+    });
+
+    await command.execute(interaction);
+
+    const content = interaction.editReply.mock.calls[0][0];
+    expect(content).toContain('Recriados:');
+    expect(content).toContain('- channel.subscription.new v1');
+    expect(content).not.toContain('Criados:');
+  });
+
   test('erro de configuração incompleta não expõe valor e mostra nome da variável', async () => {
     kickEventSubscriptionService.syncDesiredEvents.mockRejectedValue({
       code: 'MISSING_CONFIG',

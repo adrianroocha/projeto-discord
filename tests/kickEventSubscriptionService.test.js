@@ -694,6 +694,174 @@ describe('kickEventSubscriptionService', () => {
       }),
     );
     expect(result.force).toBe(true);
-    expect(result.created).toHaveLength(DESIRED_KICK_EVENTS.length);
+    expect(result.recreated).toHaveLength(DESIRED_KICK_EVENTS.length);
+    expect(result.created).toEqual([]);
+    expect(result.alreadyActive).toEqual([]);
+  });
+
+  test('force resync não duplica eventos entre recreated e alreadyActive', async () => {
+    const { service } = createService({
+      kickApiService: {
+        listEventSubscriptions: jest.fn().mockResolvedValue({
+          status: 200,
+          message: 'OK',
+          subscriptions: DESIRED_KICK_EVENTS.map((event) => ({
+            ...event,
+            broadcasterUserId: '75942843',
+            status: 'active',
+            method: 'webhook',
+          })),
+          diagnostics: [],
+        }),
+        createEventSubscriptions: jest.fn().mockResolvedValue({
+          status: 200,
+          message: 'OK',
+          results: [
+            {
+              name: 'channel.subscription.new',
+              version: 1,
+              subscriptionId: 'sub-new',
+              error: null,
+              confirmed: true,
+            },
+            {
+              name: 'channel.subscription.renewal',
+              version: 1,
+              subscriptionId: 'sub-renewal',
+              error: null,
+              confirmed: true,
+            },
+            {
+              name: 'channel.subscription.gifts',
+              version: 1,
+              subscriptionId: null,
+              error: 'RATE_LIMITED',
+              confirmed: false,
+            },
+            {
+              name: 'channel.followed',
+              version: 1,
+              subscriptionId: 'sub-followed',
+              error: null,
+              confirmed: true,
+            },
+          ],
+          diagnostics: [],
+        }),
+      },
+    });
+
+    const result = await service.syncDesiredEvents({ force: true });
+
+    expect(result.recreated).toEqual([
+      'channel.subscription.new v1',
+      'channel.subscription.renewal v1',
+      'channel.followed v1',
+    ]);
+    expect(result.created).toEqual([]);
+    expect(result.alreadyActive).toEqual([]);
+    expect(result.failed).toEqual([{ event: 'channel.subscription.gifts v1', reason: 'RATE_LIMITED' }]);
+  });
+
+  test('force resync reporta falha parcial de remoção sem marcar como recriado', async () => {
+    const { service } = createService({
+      kickApiService: {
+        listEventSubscriptions: jest.fn().mockResolvedValue({
+          status: 200,
+          message: 'OK',
+          subscriptions: DESIRED_KICK_EVENTS.map((event) => ({
+            ...event,
+            broadcasterUserId: '75942843',
+            status: 'active',
+            method: 'webhook',
+          })),
+          diagnostics: [],
+        }),
+        createEventSubscriptions: jest.fn().mockResolvedValue({
+          status: 200,
+          message: 'OK',
+          results: [
+            {
+              name: 'channel.subscription.new',
+              version: 1,
+              subscriptionId: null,
+              error: 'REMOVE_FAILED',
+              confirmed: false,
+            },
+            {
+              name: 'channel.subscription.renewal',
+              version: 1,
+              subscriptionId: 'sub-renewal',
+              error: null,
+              confirmed: true,
+            },
+            {
+              name: 'channel.subscription.gifts',
+              version: 1,
+              subscriptionId: 'sub-gifts',
+              error: null,
+              confirmed: true,
+            },
+            {
+              name: 'channel.followed',
+              version: 1,
+              subscriptionId: 'sub-followed',
+              error: null,
+              confirmed: true,
+            },
+          ],
+          diagnostics: [],
+        }),
+      },
+    });
+
+    const result = await service.syncDesiredEvents({ force: true });
+
+    expect(result.recreated).toEqual([
+      'channel.subscription.renewal v1',
+      'channel.subscription.gifts v1',
+      'channel.followed v1',
+    ]);
+    expect(result.failed).toContainEqual({
+      event: 'channel.subscription.new v1',
+      reason: 'REMOVE_FAILED',
+    });
+    expect(result.recreated).not.toContain('channel.subscription.new v1');
+    expect(result.alreadyActive).toEqual([]);
+  });
+
+  test('motivo de falha por evento é sanitizado para evitar dados sensíveis', async () => {
+    const { service } = createService({
+      kickApiService: {
+        listEventSubscriptions: jest.fn().mockResolvedValue({
+          status: 200,
+          message: 'OK',
+          subscriptions: [],
+          diagnostics: [],
+        }),
+        createEventSubscriptions: jest.fn().mockResolvedValue({
+          status: 200,
+          message: 'OK',
+          results: [
+            {
+              name: 'channel.subscription.new',
+              version: 1,
+              subscriptionId: null,
+              error: 'token secret 123',
+              confirmed: false,
+            },
+          ],
+          diagnostics: [],
+        }),
+      },
+    });
+
+    const result = await service.syncDesiredEvents();
+
+    expect(result.failed).toContainEqual({
+      event: 'channel.subscription.new v1',
+      reason: 'upstream_error',
+    });
+    expect(JSON.stringify(result.failed)).not.toContain('token secret 123');
   });
 });

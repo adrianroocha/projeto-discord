@@ -9,6 +9,14 @@ function renderCreated(created) {
   return created.map((event) => `- ${event}`).join('\n');
 }
 
+function renderRecreated(recreated) {
+  if (!Array.isArray(recreated) || recreated.length === 0) {
+    return '- nenhuma';
+  }
+
+  return recreated.map((event) => `- ${event}`).join('\n');
+}
+
 function renderAlreadyActive(alreadyActive) {
   if (!Array.isArray(alreadyActive) || alreadyActive.length === 0) {
     return '- nenhuma';
@@ -102,14 +110,19 @@ module.exports = {
     try {
       const force = interaction.options?.getBoolean('force') ?? false;
       const result = await kickEventSubscriptionService.syncDesiredEvents({ force });
+      const recreated = Array.isArray(result.recreated)
+        ? result.recreated
+        : result.force
+          ? result.created
+          : [];
 
       const message = [
         'Sincronização dos eventos Kick concluída.',
         `Forçar ressincronização: ${result.force ? 'sim' : 'nao'}`,
         '',
-        'Criados:',
-        result.created.length > 0 ? renderCreated(result.created) : '- nenhuma',
-        '',
+        ...(result.force
+          ? ['Recriados:', renderRecreated(recreated), '']
+          : ['Criados:', renderCreated(result.created), '']),
         'Já ativos:',
         renderAlreadyActive(result.alreadyActive),
         '',
