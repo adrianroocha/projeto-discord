@@ -17,7 +17,7 @@ const client = new Client({
 let schedulerStarted = false;
 let subscriberRoleReconciliationSchedulerStarted = false;
 
-commandHandler.loadCommands(client);
+commandHandler.loadCommands(client, config);
 eventHandler.loadEvents(client);
 
 client.once('ready', async () => {

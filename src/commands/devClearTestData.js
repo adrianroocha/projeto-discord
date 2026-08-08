@@ -3,6 +3,7 @@ const queueService = require('../services/queueService');
 const config = require('../config');
 
 module.exports = {
+  developmentOnly: true,
   data: new SlashCommandBuilder()
     .setName('dev-clear-test-data')
     .setDescription('Limpa dados de teste fictícios da fila e das lobbies (apenas em desenvolvimento).')

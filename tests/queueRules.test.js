@@ -25,7 +25,13 @@ describe('queue rules', () => {
       isSubscriber: 1,
     });
 
-    expect(result).toEqual({ success: true, joinedLobby: false });
+    expect(result).toEqual(
+      expect.objectContaining({
+        success: true,
+        joinedLobby: false,
+        isSubscriber: 1,
+      }),
+    );
     expect(countRows(db, 'queue_entries')).toBe(1);
 
     const row = db

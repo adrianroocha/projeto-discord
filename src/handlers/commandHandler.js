@@ -3,14 +3,20 @@ const path = require('path');
 const { Collection } = require('discord.js');
 
 module.exports = {
-  loadCommands(client) {
+  loadCommands(client, config = {}) {
     client.commands = new Collection();
     const commandsPath = path.join(__dirname, '../commands');
     const commandFiles = fs.readdirSync(commandsPath).filter((file) => file.endsWith('.js'));
+    const nodeEnv = config.nodeEnv || process.env.NODE_ENV || 'development';
+    const isDevelopment = nodeEnv === 'development';
 
     for (const file of commandFiles) {
       const filePath = path.join(commandsPath, file);
       const command = require(filePath);
+      if (command.developmentOnly && !isDevelopment) {
+        continue;
+      }
+
       if (command.data && command.execute) {
         client.commands.set(command.data.name, command);
       }

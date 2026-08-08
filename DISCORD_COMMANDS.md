@@ -161,15 +161,15 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 ## /fila-add-teste
 - Nome: /fila-add-teste
 - Finalidade: adicionar usuário específico na fila para testes.
-- Quem pode usar: qualquer usuário com acesso ao comando registrado.
-- Onde usar: servidor Discord.
+- Quem pode usar: Administrator ou Manage Guild.
+- Onde usar: servidor Discord, somente em NODE_ENV=development.
 - Parâmetros: usuario (user, obrigatório), subscriber (boolean, obrigatório).
 - Resposta: ephemeral.
 - Exemplo: /fila-add-teste usuario:@Jogador subscriber:true
 - Efeitos no banco: insere entrada na fila.
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: adiciona usuário e marca subscriber conforme parâmetro.
-- Limitações: pode falhar se usuário já estiver na fila.
+- Limitações: ferramenta de desenvolvimento; fora de development o comando não deve ser registrado e interações legadas são recusadas sem alterar fila/banco.
 
 ## /fila-status
 - Nome: /fila-status
@@ -246,7 +246,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Exemplo: /sub-grant usuario:@Usuario motivo:Pix dias:30
 - Efeitos no banco: cria registro em manual_sub_grants.
 - Efeitos em cargo: recalcula elegibilidade e sincroniza automaticamente o cargo SUB do usuário.
-- Efeitos na fila: nenhum nesta etapa.
+- Efeitos na fila: não altera snapshot de prioridade de usuários já aguardando no ciclo atual.
 - Limitações: não permite bots; bloqueia concessão duplicada ativa.
 
 ## /sub-revoke
@@ -259,7 +259,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Exemplo: /sub-revoke usuario:@Usuario motivo:Encerrado
 - Efeitos no banco: marca concessão ativa como revogada.
 - Efeitos em cargo: recalcula elegibilidade (Kick OU manual) e sincroniza automaticamente o cargo SUB.
-- Efeitos na fila: nenhum nesta etapa.
+- Efeitos na fila: não altera snapshot de prioridade de usuários já aguardando no ciclo atual.
 - Limitações: falha quando não existe concessão ativa.
 
 ## /sub-status
@@ -285,7 +285,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Exemplo: /sub-sync usuario:@Usuario motivo:Sincronização manual
 - Efeitos no banco: registra auditoria em subscriber_role_sync_audit.
 - Efeitos em cargo: adiciona/remove apenas o cargo configurado por SUBSCRIBER_ROLE_ID quando aplicável.
-- Efeitos na fila: nenhum.
+- Efeitos na fila: não altera snapshot de prioridade de usuários já aguardando no ciclo atual.
 - Limitações: permanece como ferramenta manual de diagnóstico/reconciliação mesmo com gatilhos automáticos.
 
 ## /sub-reconcile
@@ -298,7 +298,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Exemplo: /sub-reconcile motivo:Reconciliação pós-instabilidade
 - Efeitos no banco: preserva auditoria individual em subscriber_role_sync_audit e registra execução em subscriber_role_reconciliation_runs.
 - Efeitos em cargo: adiciona/remove apenas o cargo configurado por SUBSCRIBER_ROLE_ID conforme elegibilidade central.
-- Efeitos na fila: nenhum.
+- Efeitos na fila: não altera snapshot de prioridade de usuários já aguardando no ciclo atual.
 - Limitações: se uma execução já estiver em andamento, uma nova chamada é recusada com aviso de execução ativa.
 - Limitações: quando a descoberta de membros com SUB estiver incompleta (falha/timeout do Discord), remoções são bloqueadas por segurança nessa execução; adições para elegíveis conhecidos continuam permitidas.
 - Requisito operacional: para descoberta completa de membros do servidor, o bot usa GuildMembers intent e o Server Members Intent deve estar ativado no Discord Developer Portal.
@@ -314,8 +314,12 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Exemplo: clique em "Entrar na fila".
 - Efeitos no banco: insere usuário na fila e possivelmente o move para lobby em formação.
 - Efeitos em cargo: nenhum.
-- Efeitos na fila: entra na fila; pode entrar direto em lobby em formação.
-- Limitações: bloqueado com fila fechada; impede duplicidade.
+- Efeitos na fila: entra na fila; pode entrar direto em lobby em formação; prioridade SUB é snapshot calculado na entrada.
+- Limitações: bloqueado com fila fechada; impede duplicidade; snapshot de prioridade não é recalculado durante o ciclo.
+- Reentrada no mesmo ciclo: sair e entrar novamente reaproveita a mesma categoria já registrada para o ciclo atual.
+- Novo ciclo: após reset do ciclo (ex.: /scheduler-open), a próxima entrada consulta elegibilidade novamente.
+- Fonte da prioridade: elegibilidade central (Kick ativa OU concessão manual ativa) no momento da entrada, nunca presença de cargo Discord.
+- Falha de elegibilidade na entrada: usuário entra como comum e sem prioridade indevida.
 
 ## Botão leave_queue
 - Nome: leave_queue
@@ -367,7 +371,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Exemplo: clique em "Confirmar desvinculação".
 - Efeitos no banco: remove vínculo em kick_accounts e cria auditoria em kick_unlink_audit na mesma transação.
 - Efeitos em cargo: após a transação de unlink+auditoria, recalcula elegibilidade e sincroniza o cargo SUB.
-- Efeitos na fila: nenhum.
+- Efeitos na fila: não altera snapshot de prioridade de usuários já aguardando no ciclo atual.
 - Limitações: token expira, é de uso único e não pode ser usado por outro usuário.
 
 ## Botão kick-unlink-cancel:{token}

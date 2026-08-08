@@ -11,6 +11,7 @@ const buttonHandlers = {
 };
 
 const prefixButtonHandlers = [kickUnlinkConfirmButton, kickUnlinkCancelButton];
+const legacyDevelopmentCommands = new Set(['fila-add-teste', 'dev-fill-queue', 'dev-clear-test-data']);
 
 function getButtonHandler(customId) {
   const exactHandler = buttonHandlers[customId];
@@ -53,7 +54,16 @@ module.exports = {
     if (!interaction.isChatInputCommand()) return;
 
     const command = interaction.client.commands.get(interaction.commandName);
-    if (!command) return;
+    if (!command) {
+      if (legacyDevelopmentCommands.has(interaction.commandName)) {
+        await interaction.reply({
+          content:
+            'Ferramenta de desenvolvimento: este comando está indisponível neste ambiente.',
+          ephemeral: true,
+        });
+      }
+      return;
+    }
 
     try {
       await command.execute(interaction);

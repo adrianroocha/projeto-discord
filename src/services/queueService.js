@@ -25,6 +25,52 @@ function selectWaitingEntries(limit = 4) {
   return stmt.all();
 }
 
+function getCurrentQueueCycleId(db = getDatabase()) {
+  const row = db.prepare(`SELECT current_cycle_id FROM queue_cycle_state WHERE id = 1`).get();
+  if (!row || typeof row.current_cycle_id !== 'number') {
+    return 1;
+  }
+
+  return row.current_cycle_id;
+}
+
+function getPrioritySnapshot(db, cycleId, discordId) {
+  return db
+    .prepare(
+      `SELECT cycle_id, discord_id, is_subscriber, created_at_ms FROM queue_priority_snapshots WHERE cycle_id = ? AND discord_id = ?`,
+    )
+    .get(cycleId, discordId);
+}
+
+function normalizeSubscriberValue(value) {
+  return value ? 1 : 0;
+}
+
+function resolveSubscriberForSnapshot(discordId, resolvePrioritySnapshot, fallbackIsSubscriber) {
+  if (typeof resolvePrioritySnapshot !== 'function') {
+    return {
+      isSubscriber: normalizeSubscriberValue(fallbackIsSubscriber),
+      source: 'provided',
+      reliable: true,
+    };
+  }
+
+  try {
+    const resolved = resolvePrioritySnapshot({ discordId });
+    return {
+      isSubscriber: normalizeSubscriberValue(resolved?.isSubscriber),
+      source: resolved?.source || 'eligibility',
+      reliable: resolved?.reliable !== false,
+    };
+  } catch (_error) {
+    return {
+      isSubscriber: 0,
+      source: 'eligibility_error',
+      reliable: false,
+    };
+  }
+}
+
 function createLobbyWithEntries(entries, creationType = 'automatic', lobbyNumber = null) {
   if (!entries.length) {
     return null;
@@ -213,38 +259,79 @@ function removePlayerFromFormingLobby(discordId) {
   return { removed: true, lobbyId: lobbyInfo.lobby_id };
 }
 
-function addToQueue({ discordId, username, displayName, isSubscriber = 0 }) {
+function addToQueue({ discordId, username, displayName, isSubscriber = 0, resolvePrioritySnapshot = null }) {
   const db = getDatabase();
 
-  const alreadyWaiting = db.prepare(`SELECT id FROM queue_entries WHERE discord_id = ?`).get(discordId);
-  if (alreadyWaiting) {
-    return { success: false, reason: 'already_waiting' };
-  }
-
-  const inForming = db
-    .prepare(
-      `SELECT l.id FROM lobby_players lp JOIN lobbies l ON l.id = lp.lobby_id WHERE lp.discord_id = ? AND l.status = 'forming' LIMIT 1`,
-    )
-    .get(discordId);
-  if (inForming) {
-    return { success: false, reason: 'in_forming_lobby' };
-  }
+  const selectAlreadyWaiting = db.prepare(`SELECT id FROM queue_entries WHERE discord_id = ?`);
+  const selectInForming = db.prepare(
+    `SELECT l.id FROM lobby_players lp JOIN lobbies l ON l.id = lp.lobby_id WHERE lp.discord_id = ? AND l.status = 'forming' LIMIT 1`,
+  );
+  const insertSnapshotStmt = db.prepare(
+    `INSERT OR IGNORE INTO queue_priority_snapshots (cycle_id, discord_id, is_subscriber, created_at_ms) VALUES (?, ?, ?, ?)`,
+  );
 
   const insertStmt = db.prepare(
     `INSERT INTO queue_entries (discord_id, username, display_name, is_subscriber, joined_at_ms) VALUES (?, ?, ?, ?, ?)`,
   );
-  const joinedAtMs = Date.now();
 
   const transaction = db.transaction((payload) => {
-    insertStmt.run(payload.discordId, payload.username, payload.displayName, payload.isSubscriber ? 1 : 0, joinedAtMs);
+    const alreadyWaiting = selectAlreadyWaiting.get(payload.discordId);
+    if (alreadyWaiting) {
+      return { success: false, reason: 'already_waiting' };
+    }
+
+    const inForming = selectInForming.get(payload.discordId);
+    if (inForming) {
+      return { success: false, reason: 'in_forming_lobby' };
+    }
+
+    const currentCycleId = getCurrentQueueCycleId(db);
+    let snapshot = getPrioritySnapshot(db, currentCycleId, payload.discordId);
+    let snapshotStatus = 'reused';
+    let snapshotResolution = {
+      source: 'existing_snapshot',
+      reliable: true,
+    };
+
+    if (!snapshot) {
+      snapshotStatus = 'created';
+      snapshotResolution = resolveSubscriberForSnapshot(
+        payload.discordId,
+        payload.resolvePrioritySnapshot,
+        payload.isSubscriber,
+      );
+
+      insertSnapshotStmt.run(
+        currentCycleId,
+        payload.discordId,
+        snapshotResolution.isSubscriber,
+        Date.now(),
+      );
+      snapshot = getPrioritySnapshot(db, currentCycleId, payload.discordId);
+    }
+
+    const joinedAtMs = Date.now();
+    insertStmt.run(payload.discordId, payload.username, payload.displayName, snapshot.is_subscriber ? 1 : 0, joinedAtMs);
     rebuildAutomaticFormingLobbies(null);
-    return { joinedLobby: false };
+    return {
+      success: true,
+      joinedLobby: false,
+      isSubscriber: snapshot.is_subscriber ? 1 : 0,
+      snapshotStatus,
+      snapshotResolution,
+      joinedAtMs,
+      cycleId: currentCycleId,
+    };
   });
 
   try {
-    const result = transaction({ discordId, username, displayName, isSubscriber });
+    const result = transaction({ discordId, username, displayName, isSubscriber, resolvePrioritySnapshot });
+    if (result && result.success === false) {
+      return result;
+    }
+
     queueEvents.emit('queueUpdated');
-    return { success: true, joinedLobby: !!result.joinedLobby };
+    return result;
   } catch (error) {
     if (error.message && error.message.includes('UNIQUE')) {
       return { success: false, reason: 'already_waiting' };
@@ -255,6 +342,10 @@ function addToQueue({ discordId, username, displayName, isSubscriber = 0 }) {
 
 function addMultipleToQueue(entries) {
   const db = getDatabase();
+  const currentCycleId = getCurrentQueueCycleId(db);
+  const insertSnapshotStmt = db.prepare(
+    `INSERT OR IGNORE INTO queue_priority_snapshots (cycle_id, discord_id, is_subscriber, created_at_ms) VALUES (?, ?, ?, ?)`,
+  );
   const insertStmt = db.prepare(
     `INSERT INTO queue_entries (discord_id, username, display_name, is_subscriber, joined_at_ms) VALUES (?, ?, ?, ?, ?)`,
   );
@@ -262,7 +353,9 @@ function addMultipleToQueue(entries) {
   const transaction = db.transaction((payload) => {
     for (const player of payload) {
       const joinedAtMs = toTimestampMs(player.joinedAtMs ?? player.joinedAt ?? Date.now());
-      insertStmt.run(player.discordId, player.username, player.displayName, player.isSubscriber ? 1 : 0, joinedAtMs);
+      const normalizedSubscriber = player.isSubscriber ? 1 : 0;
+      insertSnapshotStmt.run(currentCycleId, player.discordId, normalizedSubscriber, joinedAtMs);
+      insertStmt.run(player.discordId, player.username, player.displayName, normalizedSubscriber, joinedAtMs);
     }
 
     rebuildAutomaticFormingLobbies(null);
@@ -407,12 +500,23 @@ function rebuildAutomaticFormingLobbies(excludedDiscordId) {
   const insertQueueEntry = db.prepare(
     `INSERT OR IGNORE INTO queue_entries (discord_id, username, display_name, is_subscriber, joined_at_ms) VALUES (?, ?, ?, ?, ?)`,
   );
+  const currentCycleId = getCurrentQueueCycleId(db);
+  const insertSnapshotStmt = db.prepare(
+    `INSERT OR IGNORE INTO queue_priority_snapshots (cycle_id, discord_id, is_subscriber, created_at_ms) VALUES (?, ?, ?, ?)`,
+  );
 
   const leftoverPlayers = sortedPlayers.slice(completeGroups.length * 4);
   leftoverPlayers.forEach((player) => {
     if (player.id) {
       return;
     }
+
+    insertSnapshotStmt.run(
+      currentCycleId,
+      player.discord_id,
+      player.is_subscriber ? 1 : 0,
+      player.original_joined_at_ms,
+    );
 
     insertQueueEntry.run(
       player.discord_id,
@@ -603,11 +707,17 @@ function resetQueueCycle() {
   const deleteLobbyPlayers = db.prepare(`DELETE FROM lobby_players`);
   const deleteLobbies = db.prepare(`DELETE FROM lobbies`);
   const deleteQueueEntries = db.prepare(`DELETE FROM queue_entries`);
+  const deleteQueuePrioritySnapshots = db.prepare(`DELETE FROM queue_priority_snapshots`);
+  const incrementCycleId = db.prepare(
+    `UPDATE queue_cycle_state SET current_cycle_id = current_cycle_id + 1, updated_at_ms = ? WHERE id = 1`,
+  );
 
   const transaction = db.transaction(() => {
     deleteLobbyPlayers.run();
     deleteLobbies.run();
     deleteQueueEntries.run();
+    deleteQueuePrioritySnapshots.run();
+    incrementCycleId.run(Date.now());
   });
 
   transaction();
@@ -616,14 +726,19 @@ function resetQueueCycle() {
 
 function clearTestData() {
   const db = getDatabase();
+  const currentCycleId = getCurrentQueueCycleId(db);
   const deleteQueueEntries = db.prepare(`DELETE FROM queue_entries WHERE discord_id LIKE 'test-user-%'`);
   const deleteLobbyPlayers = db.prepare(`DELETE FROM lobby_players WHERE discord_id LIKE 'test-user-%'`);
+  const deleteSnapshots = db.prepare(
+    `DELETE FROM queue_priority_snapshots WHERE cycle_id = ? AND discord_id LIKE 'test-user-%'`,
+  );
   const selectEmptyLobbies = db.prepare(`SELECT id FROM lobbies WHERE id NOT IN (SELECT DISTINCT lobby_id FROM lobby_players)`);
   const deleteEmptyLobbies = db.prepare(`DELETE FROM lobbies WHERE id = ?`);
 
   const transaction = db.transaction(() => {
     deleteQueueEntries.run();
     deleteLobbyPlayers.run();
+    deleteSnapshots.run(currentCycleId);
 
     const emptyLobbies = selectEmptyLobbies.all();
     for (const lobby of emptyLobbies) {
@@ -651,4 +766,5 @@ module.exports = {
   forceCreateLobby,
   resetQueueCycle,
   clearTestData,
+  getCurrentQueueCycleId,
 };

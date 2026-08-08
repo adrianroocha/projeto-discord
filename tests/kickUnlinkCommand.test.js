@@ -271,6 +271,7 @@ describe('kick unlink buttons', () => {
     const payload = interaction.update.mock.calls[0][0];
     expect(payload.content).toContain('Desvinculação concluída para <@discord-pending>');
     expect(payload.content).toContain('sincronização automática do cargo ficou pendente');
+    expect(payload.content).not.toContain('Prioridade na fila:');
   });
 
   test('cancelamento válido invalida confirmação sem remover vínculo', async () => {

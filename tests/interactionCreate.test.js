@@ -114,4 +114,79 @@ describe('interactionCreate event', () => {
     expect(kickUnlinkConfirmButton.execute).not.toHaveBeenCalled();
     expect(kickUnlinkCancelButton.execute).not.toHaveBeenCalled();
   });
+
+  test('recusa interação legada de /fila-add-teste quando comando não está registrado', async () => {
+    const interaction = {
+      isButton: () => false,
+      isChatInputCommand: () => true,
+      commandName: 'fila-add-teste',
+      client: {
+        commands: new Map(),
+      },
+      replied: false,
+      deferred: false,
+      reply: jest.fn().mockResolvedValue(undefined),
+      followUp: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await interactionCreateEvent.execute(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ephemeral: true,
+        content: expect.stringContaining('Ferramenta de desenvolvimento'),
+      }),
+    );
+    expect(interaction.followUp).not.toHaveBeenCalled();
+  });
+
+  test('recusa interação legada de /dev-fill-queue quando comando não está registrado', async () => {
+    const interaction = {
+      isButton: () => false,
+      isChatInputCommand: () => true,
+      commandName: 'dev-fill-queue',
+      client: {
+        commands: new Map(),
+      },
+      replied: false,
+      deferred: false,
+      reply: jest.fn().mockResolvedValue(undefined),
+      followUp: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await interactionCreateEvent.execute(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ephemeral: true,
+        content: expect.stringContaining('Ferramenta de desenvolvimento'),
+      }),
+    );
+    expect(interaction.followUp).not.toHaveBeenCalled();
+  });
+
+  test('recusa interação legada de /dev-clear-test-data quando comando não está registrado', async () => {
+    const interaction = {
+      isButton: () => false,
+      isChatInputCommand: () => true,
+      commandName: 'dev-clear-test-data',
+      client: {
+        commands: new Map(),
+      },
+      replied: false,
+      deferred: false,
+      reply: jest.fn().mockResolvedValue(undefined),
+      followUp: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await interactionCreateEvent.execute(interaction);
+
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ephemeral: true,
+        content: expect.stringContaining('Ferramenta de desenvolvimento'),
+      }),
+    );
+    expect(interaction.followUp).not.toHaveBeenCalled();
+  });
 });

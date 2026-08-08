@@ -159,6 +159,7 @@ describe('sub admin commands', () => {
     expect(payload.content).toContain('Vencimento: sem vencimento');
     expect(payload.content).toContain('Estado do cargo SUB: adicionado');
     expect(payload.content).toContain('Elegibilidade final: ativa');
+    expect(payload.content).not.toContain('Prioridade na fila:');
   });
 
   test('grant temporário', async () => {
@@ -224,6 +225,7 @@ describe('sub admin commands', () => {
     const payload = interaction.reply.mock.calls[0][0];
     expect(payload.content).toContain('Concessão manual registrada com sucesso.');
     expect(payload.content).toContain('sincronização automática do cargo ficou pendente');
+    expect(payload.content).not.toContain('benefícios');
   });
 
   test('grant com cargo já presente informa estado mantido', async () => {
@@ -341,6 +343,7 @@ describe('sub admin commands', () => {
     const payload = interaction.reply.mock.calls[0][0];
     expect(payload.content).toContain('Fontes ativas:\n- Kick');
     expect(payload.content).toContain('Estado do cargo SUB: mantido');
+    expect(payload.content).not.toContain('Prioridade na fila:');
   });
 
   test('revoke permanece salvo quando sync falha', async () => {

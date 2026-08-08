@@ -120,7 +120,7 @@ Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COM
 - `/queue` - exibe informações da fila.
 - `/queue-status` - mostra o estado detalhado da fila.
 - `/lobby-status` - mostra o estado dos lobbies.
-- `/queue-add-test` - adiciona jogador de teste à fila.
+- `/fila-add-teste` - adiciona jogador de teste à fila (somente em desenvolvimento).
 - `/dev-fill-queue` - preenche a fila com jogadores fictícios em desenvolvimento.
 - `/dev-clear-test-data` - limpa dados de teste.
 
@@ -139,6 +139,12 @@ Quando a fila está fechada, os botões ficam desabilitados.
 ## Regras de negócio principais
 
 - Subscribers têm prioridade na ordenação da fila.
+- A prioridade SUB na fila é um snapshot calculado na entrada de cada usuário no ciclo atual.
+- A fonte do snapshot é a elegibilidade central (`subscriberEligibilityService`): assinatura Kick ativa OU concessão manual ativa.
+- Após a primeira entrada válida no ciclo, o snapshot de prioridade fica imutável durante todo o ciclo.
+- Sair e entrar novamente no mesmo ciclo reaproveita a mesma categoria (SUB ou comum), sem nova consulta de elegibilidade.
+- O snapshot só deixa de valer quando um novo ciclo é iniciado por `resetQueueCycle` (incluindo `/scheduler-open`).
+- Se a elegibilidade estiver indisponível no momento da entrada, o usuário entra como comum (sem prioridade indevida).
 - A ordenação usa timestamp numérico em milissegundos.
 - O cooldown de saída é de 120 segundos.
 - O scheduler de produção segue os horários configurados em `QUEUE_OPEN_TIME` e `QUEUE_CLOSE_TIME`.
@@ -219,7 +225,7 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - `/sub-grant` e `/sub-revoke` recalculam elegibilidade e tentam sincronizar automaticamente o cargo SUB.
 - Em caso de falha de sincronização de cargo, a alteração de banco permanece e a reconciliação manual pode ser feita via `/sub-sync`.
 - A reconciliação em massa também pode ser executada manualmente via `/sub-reconcile` e periodicamente por scheduler dedicado.
-- Não há alteração da fila por esses comandos.
+- Esses comandos não alteram snapshot de prioridade de quem já está aguardando na fila no ciclo atual.
 - A elegibilidade final atual considera assinatura Kick ativa OU concessão manual ativa, sem misturar os conceitos.
 - O comando `/sub-sync` permanece disponível para diagnóstico e correção manual.
 - O cargo é identificado exclusivamente por `SUBSCRIBER_ROLE_ID` (nunca por nome).
@@ -242,7 +248,7 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - O endpoint permanece local (loopback), ainda não acessível externamente pela Kick nesta etapa.
 - O cadastro de event subscriptions usa o comando administrativo `/kick-events-sync`.
 - A URL pública do webhook continua configurada manualmente no painel da Kick.
-- Integração com fila continua fora de escopo nesta etapa.
+- Webhooks continuam sem alterar snapshot de prioridade de quem já está aguardando na fila no ciclo atual.
 
 ## Kick Event Subscriptions (etapa atual)
 
@@ -273,7 +279,7 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 ### Escopo desta etapa
 
 - Banco SQLite é a fonte de verdade para elegibilidade observada e concessões manuais.
-- Ainda não há integração com a fila.
+- A fila usa elegibilidade central apenas no momento da entrada para congelar prioridade por ciclo.
 - Não há polling da API Kick para decidir elegibilidade.
 
 ## Reconciliação periódica de cargo SUB

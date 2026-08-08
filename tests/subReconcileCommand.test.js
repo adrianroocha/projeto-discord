@@ -146,6 +146,7 @@ describe('/sub-reconcile command', () => {
     expect(message).toContain('Ignorados por código: member_not_found=1');
     expect(message).toContain('Falhas: 0');
     expect(message).toContain('Falhas por código: nenhuma');
+    expect(message).toContain('Descoberta completa de membros com SUB: sim');
   });
 
   test('resumo inclui falhas por código com segurança', async () => {

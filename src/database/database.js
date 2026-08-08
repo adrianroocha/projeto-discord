@@ -49,6 +49,24 @@ async function initDatabase() {
     )
   `;
 
+  const createQueueCycleStateTableSql = `
+    CREATE TABLE IF NOT EXISTS queue_cycle_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      current_cycle_id INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL
+    )
+  `;
+
+  const createQueuePrioritySnapshotsTableSql = `
+    CREATE TABLE IF NOT EXISTS queue_priority_snapshots (
+      cycle_id INTEGER NOT NULL,
+      discord_id TEXT NOT NULL,
+      is_subscriber INTEGER NOT NULL,
+      created_at_ms INTEGER NOT NULL,
+      PRIMARY KEY (cycle_id, discord_id)
+    )
+  `;
+
   const createKickAccountsTableSql = `
     CREATE TABLE IF NOT EXISTS kick_accounts (
       discord_id TEXT PRIMARY KEY,
@@ -157,10 +175,13 @@ async function initDatabase() {
     )
   `;
 
+
   db.exec(createUsersTableSql);
   db.exec(createQueueEntriesTableSql);
   db.exec(createLobbiesTableSql);
   db.exec(createLobbyPlayersTableSql);
+  db.exec(createQueueCycleStateTableSql);
+  db.exec(createQueuePrioritySnapshotsTableSql);
   db.exec(createKickAccountsTableSql);
   db.exec(createManualSubGrantsTableSql);
   db.exec(createKickSubscriptionsTableSql);
@@ -169,6 +190,13 @@ async function initDatabase() {
   db.exec(createKickUnlinkAuditTableSql);
   db.exec(createSubscriberRoleSyncAuditTableSql);
   db.exec(createSubscriberRoleReconciliationRunsTableSql);
+
+  const cycleState = db.prepare('SELECT id, current_cycle_id FROM queue_cycle_state WHERE id = 1').get();
+  if (!cycleState) {
+    db.prepare('INSERT INTO queue_cycle_state (id, current_cycle_id, updated_at_ms) VALUES (1, 1, ?)').run(Date.now());
+  } else if (!Number.isFinite(cycleState.current_cycle_id) || cycleState.current_cycle_id < 1) {
+    db.prepare('UPDATE queue_cycle_state SET current_cycle_id = 1, updated_at_ms = ? WHERE id = 1').run(Date.now());
+  }
 
   const lobbyInfo = db.prepare("PRAGMA table_info(lobbies)").all();
   const hasLobbyStatus = lobbyInfo.some((column) => column.name === 'status');
@@ -296,6 +324,14 @@ async function initDatabase() {
       'CREATE INDEX idx_sub_role_reconciliation_runs_status ON subscriber_role_reconciliation_runs(status)',
     );
   }
+
+  const queueSnapshotsByDiscord = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='idx_queue_priority_snapshots_discord_id'")
+    .get();
+  if (queueSnapshotsByDiscord && queueSnapshotsByDiscord.c === 0) {
+    db.exec('CREATE INDEX idx_queue_priority_snapshots_discord_id ON queue_priority_snapshots(discord_id)');
+  }
+
 }
 
 module.exports = {

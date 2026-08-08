@@ -28,6 +28,7 @@ function getNextTestUserIndex() {
 }
 
 module.exports = {
+  developmentOnly: true,
   data: new SlashCommandBuilder()
     .setName('dev-fill-queue')
     .setDescription('Preenche a fila com jogadores fictícios (apenas em desenvolvimento).')
