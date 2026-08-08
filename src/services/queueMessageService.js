@@ -1,7 +1,8 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, Events } = require('discord.js');
 const queueService = require('./queueService');
 const queueEvents = require('./queueEvents');
 const config = require('../config');
+const lifecycleService = require('./applicationLifecycleService');
 
 function buildPanelContent(allLobbies, queueEntries, options = {}) {
   const isQueueOpen = options.isQueueOpen !== false;
@@ -103,11 +104,21 @@ async function getQueuePanelChannel(client) {
   return channel;
 }
 
+function isPanelMessage(message, channelClient) {
+  if (!message || !channelClient?.user?.id) {
+    return false;
+  }
+
+  return message.author?.id === channelClient.user.id && message.content?.startsWith('# 🎮 Sistema de Fila');
+}
+
 async function fetchPanelMessage(channel) {
-  if (channel.client.queuePanelMessageId) {
+  const channelClient = channel?.client;
+
+  if (channelClient?.queuePanelMessageId) {
     try {
-      const message = await channel.messages.fetch(channel.client.queuePanelMessageId);
-      if (message) {
+      const message = await channel.messages.fetch(channelClient.queuePanelMessageId);
+      if (message && isPanelMessage(message, channelClient)) {
         return message;
       }
     } catch (error) {
@@ -124,16 +135,12 @@ async function fetchPanelMessage(channel) {
       }
 
       const messages = await channel.messages.fetch(options);
-      if (!messages.size) break;
+      if (!messages || !messages.size) break;
 
-      const panelMessage = messages.find(
-        (message) =>
-          message.author.id === channel.client.user.id &&
-          message.content.startsWith('# 🎮 Sistema de Fila'),
-      );
+      const panelMessage = messages.find((message) => isPanelMessage(message, channelClient));
 
       if (panelMessage) {
-        channel.client.queuePanelMessageId = panelMessage.id;
+        channelClient.queuePanelMessageId = panelMessage.id;
         return panelMessage;
       }
 
@@ -147,7 +154,95 @@ async function fetchPanelMessage(channel) {
   return null;
 }
 
+function isRecoverablePanelError(error) {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  if (error.code === 10008) {
+    return true;
+  }
+
+  const message = String(error.message || '').toLowerCase();
+  return message.includes('unknown message') || message.includes('message not found') || message.includes('not found');
+}
+
+function isPanelRecoveryAllowed() {
+  if (lifecycleService.isShuttingDown?.()) {
+    return false;
+  }
+
+  const state = lifecycleService.getState?.()?.state;
+  if (state === 'stopped' || state === 'failed') {
+    return false;
+  }
+
+  return true;
+}
+
+function isIgnorablePanelError(error) {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  if (error.code === 50013 || error.code === 50001) {
+    return true;
+  }
+
+  return false;
+}
+
 let panelUpdatePromise = Promise.resolve();
+let panelRecoveryPromise = Promise.resolve();
+
+async function recoverPanelMessage(channel, payload, options = {}) {
+  const channelClient = channel?.client;
+  if (!channelClient || !isPanelRecoveryAllowed()) {
+    console.log('recover blocked', !!channelClient, isPanelRecoveryAllowed());
+    return null;
+  }
+
+  const forceCreate = Boolean(options.forceCreate);
+
+  const currentRecoverPromise = panelRecoveryPromise
+    .then(async () => {
+      const existingMessage = forceCreate ? null : await fetchPanelMessage(channel);
+      if (!existingMessage) {
+        const createdMessage = await channel.send(payload);
+        channelClient.queuePanelMessageId = createdMessage.id;
+        return createdMessage;
+      }
+
+      try {
+        await existingMessage.edit(payload);
+        channelClient.queuePanelMessageId = existingMessage.id;
+        return existingMessage;
+      } catch (editError) {
+        if (!isRecoverablePanelError(editError)) {
+          if (isIgnorablePanelError(editError)) {
+            console.warn('Painel de fila não pode ser atualizado por permissão/escopo:', editError.code);
+            return existingMessage;
+          }
+          throw editError;
+        }
+
+        channelClient.queuePanelMessageId = null;
+        const createdMessage = await channel.send(payload);
+        channelClient.queuePanelMessageId = createdMessage.id;
+        return createdMessage;
+      }
+    })
+    .catch((error) => {
+      if (isIgnorablePanelError(error)) {
+        console.warn('Painel de fila não pode ser atualizado por permissão/escopo:', error.code);
+        return null;
+      }
+      throw error;
+    });
+
+  panelRecoveryPromise = currentRecoverPromise.catch(() => null);
+  return currentRecoverPromise;
+}
 
 async function doUpdatePanel(client, options = {}) {
   const channel = await getQueuePanelChannel(client);
@@ -157,18 +252,9 @@ async function doUpdatePanel(client, options = {}) {
   const content = buildPanelContent(lobbies, queueEntries, { isQueueOpen });
   const components = [createActionRow(isQueueOpen)];
 
-  let message = await fetchPanelMessage(channel);
-  if (!message) {
-    message = await channel.send({ content, components });
-    channel.client.queuePanelMessageId = message.id;
-    return;
-  }
-
-  try {
-    await message.edit({ content, components });
-  } catch (editError) {
-    console.error('Erro ao editar mensagem do painel de fila:', editError);
-    message = await channel.send({ content, components });
+  const payload = { content, components };
+  const message = await recoverPanelMessage(channel, payload);
+  if (message) {
     channel.client.queuePanelMessageId = message.id;
   }
 }
@@ -184,8 +270,71 @@ async function updatePanel(client, options = {}) {
 }
 
 function startPanelUpdater(client) {
+  if (client.__queuePanelUpdaterRegistered) {
+    return;
+  }
+
+  client.__queuePanelUpdaterRegistered = true;
   queueEvents.on('queueUpdated', async () => {
+    if (lifecycleService.isShuttingDown?.()) {
+      return;
+    }
+
     await updatePanel(client);
+  });
+}
+
+function registerPanelMessageDeleteHandler(client) {
+  if (client.__queuePanelDeleteHandlerRegistered) {
+    return;
+  }
+
+  client.__queuePanelDeleteHandlerRegistered = true;
+  client.on(Events.MessageDelete, async (message) => {
+    if (!message || lifecycleService.isShuttingDown?.()) {
+      return;
+    }
+
+    if (!message.channel || !message.channel.isTextBased?.()) {
+      return;
+    }
+
+    if (!config.queuePanelChannelId || String(message.channel.id) !== String(config.queuePanelChannelId)) {
+      return;
+    }
+
+    if (!message.author || message.author.id !== client.user?.id) {
+      return;
+    }
+
+    const channelClient = message.channel.client;
+    if (!channelClient || !message.content?.startsWith('# 🎮 Sistema de Fila')) {
+      return;
+    }
+
+    if (channelClient.queuePanelMessageId && String(channelClient.queuePanelMessageId) !== String(message.id)) {
+      return;
+    }
+
+    channelClient.queuePanelMessageId = null;
+
+    let payload;
+    try {
+      const queueEntries = queueService.getQueue();
+      const lobbies = queueService.getActiveLobbies();
+      const isQueueOpen = true;
+      const content = buildPanelContent(lobbies, queueEntries, { isQueueOpen });
+      const components = [createActionRow(isQueueOpen)];
+      payload = { content, components };
+    } catch (error) {
+      console.warn('Não foi possível reconstruir o painel de fila após exclusão, usando fallback seguro:', error.message);
+      payload = {
+        content: buildPanelContent([], [], { isQueueOpen: true }),
+        components: [createActionRow(true)],
+      };
+    }
+
+    await recoverPanelMessage(message.channel, payload, { forceCreate: true });
   });
 }
 
@@ -196,13 +345,16 @@ async function initPanel(client) {
   }
 
   startPanelUpdater(client);
+  registerPanelMessageDeleteHandler(client);
   await updatePanel(client);
 }
 
 module.exports = {
   initPanel,
   startPanelUpdater,
+  registerPanelMessageDeleteHandler,
   updatePanel,
+  recoverPanelMessage,
   buildPanelContent,
   createActionRow,
 };
