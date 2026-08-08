@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 const queueService = require('../services/queueService');
 const queueMessageService = require('../services/queueMessageService');
 const schedulerService = require('../services/schedulerService');
@@ -75,14 +76,14 @@ module.exports = {
     const displayName = interaction.member?.displayName || interaction.user.username;
 
     if (!schedulerService.isQueueOpen()) {
-      await interaction.reply({ content: '🔒 A fila está fechada no momento.', ephemeral: true });
+      await interaction.reply({ content: '🔒 A fila está fechada no momento.', flags: MessageFlags.Ephemeral });
       return;
     }
 
     if (queueService.isUserInQueue(discordId)) {
       await interaction.reply({
         content: 'Você já está na fila.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -110,18 +111,18 @@ module.exports = {
     if (!result || result.success === false) {
       const reason = result && result.reason;
       if (reason === 'in_forming_lobby') {
-        await interaction.reply({ content: 'Você já está em uma lobby em formação.', ephemeral: true });
+        await interaction.reply({ content: 'Você já está em uma lobby em formação.', flags: MessageFlags.Ephemeral });
         return;
       }
 
       if (reason === 'already_waiting') {
-        await interaction.reply({ content: 'Você já está na fila.', ephemeral: true });
+        await interaction.reply({ content: 'Você já está na fila.', flags: MessageFlags.Ephemeral });
         return;
       }
 
       await interaction.reply({
         content: 'Não foi possível entrar na fila. Tente novamente mais tarde.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -132,12 +133,12 @@ module.exports = {
     if (result.joinedLobby) {
       await interaction.reply({
         content: `✅ Você foi adicionado diretamente a uma lobby em formação.\n${priorityMessage}`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     } else {
       await interaction.reply({
         content: `✅ Você entrou na fila com sucesso.\n${priorityMessage}`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
 

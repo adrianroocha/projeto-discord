@@ -2,6 +2,8 @@ jest.mock('../src/services/queueService', () => ({
   addToQueue: jest.fn(),
 }));
 
+const { MessageFlags } = require('discord.js');
+
 function makeMemberPermissions(isAdminOrManager) {
   return {
     has: (flag) => {
@@ -59,7 +61,7 @@ describe('/fila-add-teste command', () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
         content: expect.stringContaining('Ferramenta de desenvolvimento'),
       }),
     );

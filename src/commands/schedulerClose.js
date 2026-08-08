@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const schedulerService = require('../services/schedulerService');
 
 module.exports = {
@@ -7,7 +7,7 @@ module.exports = {
     .setDescription('Fecha a fila imediatamente sem limpar os dados do ciclo atual.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator | PermissionFlagsBits.ManageGuild),
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await schedulerService.closeQueue(interaction.client, { manual: true });
     await interaction.editReply('🔒 Fila fechada manualmente.');
   },

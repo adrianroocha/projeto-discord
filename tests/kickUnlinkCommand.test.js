@@ -18,7 +18,7 @@ jest.mock('../src/services/subscriberRoleAutoSyncService', () => ({
 const kickAccountsRepository = require('../src/database/kickAccountsRepository');
 const confirmationService = require('../src/services/kickUnlinkConfirmationService');
 const autoSyncService = require('../src/services/subscriberRoleAutoSyncService');
-const { PermissionFlagsBits } = require('discord.js');
+const { PermissionFlagsBits, MessageFlags } = require('discord.js');
 
 const unlinkCommand = require('../src/commands/kickUnlink');
 const confirmButton = require('../src/buttons/kickUnlinkConfirm');
@@ -61,7 +61,7 @@ describe('/kick-unlink command', () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
     expect(kickAccountsRepository.findByDiscordId).not.toHaveBeenCalled();
@@ -97,7 +97,7 @@ describe('/kick-unlink command', () => {
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'Não há conta Kick vinculada para <@discord-1> no momento.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
     expect(confirmationService.create).not.toHaveBeenCalled();
@@ -120,7 +120,7 @@ describe('/kick-unlink command', () => {
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'O motivo da desvinculação é obrigatório.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
     expect(kickAccountsRepository.findByDiscordId).not.toHaveBeenCalled();
@@ -154,7 +154,7 @@ describe('/kick-unlink command', () => {
     });
 
     const payload = interaction.reply.mock.calls[0][0];
-    expect(payload.ephemeral).toBe(true);
+      expect(payload.flags).toBe(MessageFlags.Ephemeral);
     expect(payload.content).toContain('adrianroocha');
     expect(payload.content).toContain('<@discord-2>');
     expect(payload.content).toContain('Motivo: Solicitação por segurança');
@@ -174,7 +174,7 @@ describe('/kick-unlink command', () => {
 
     await unlinkCommand.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
     expect(kickAccountsRepository.findByDiscordId).not.toHaveBeenCalled();
   });
 });
@@ -306,7 +306,7 @@ describe('kick unlink buttons', () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
     expect(interaction.update).not.toHaveBeenCalled();
@@ -324,7 +324,7 @@ describe('kick unlink buttons', () => {
 
     await confirmButton.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
     expect(confirmationService.consume).not.toHaveBeenCalled();
   });
 
@@ -343,7 +343,7 @@ describe('kick unlink buttons', () => {
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'Esta confirmação pertence a outro usuário.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
     expect(confirmationService.consume).not.toHaveBeenCalled();
@@ -392,7 +392,7 @@ describe('kick unlink buttons', () => {
 
     await confirmButton.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
     expect(kickAccountsRepository.unlinkWithAudit).not.toHaveBeenCalled();
   });
 });

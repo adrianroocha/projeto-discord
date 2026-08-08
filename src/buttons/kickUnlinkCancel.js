@@ -1,4 +1,4 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const confirmationService = require('../services/kickUnlinkConfirmationService');
 
 const PREFIX = 'kick-unlink-cancel:';
@@ -37,7 +37,7 @@ module.exports = {
 
       await interaction.reply({
         content: reasonMessage,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }

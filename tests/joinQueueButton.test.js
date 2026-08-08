@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 jest.mock('../src/services/queueService', () => ({
   isUserInQueue: jest.fn(),
   addToQueue: jest.fn(),
@@ -85,7 +86,7 @@ describe('joinQueue button', () => {
     expect(subscriberEligibilityService.getEligibility).toHaveBeenCalledTimes(1);
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
         content: expect.stringContaining('Prioridade SUB ativa.'),
       }),
     );
@@ -183,7 +184,7 @@ describe('joinQueue button', () => {
     expect(interactionDuplicate.reply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'Você já está na fila.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
 
@@ -195,7 +196,7 @@ describe('joinQueue button', () => {
     expect(interactionLobby.reply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'Você já está em uma lobby em formação.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
   });

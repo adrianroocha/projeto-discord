@@ -2,7 +2,7 @@ jest.mock('../src/services/kickWebhookStatusService', () => ({
   getStatus: jest.fn(),
 }));
 
-const { PermissionFlagsBits } = require('discord.js');
+const { PermissionFlagsBits, MessageFlags } = require('discord.js');
 const kickWebhookStatusService = require('../src/services/kickWebhookStatusService');
 const command = require('../src/commands/kickWebhookStatus');
 
@@ -52,7 +52,7 @@ describe('/kick-webhook-status command', () => {
     await command.execute(interaction);
 
     const payload = interaction.reply.mock.calls[0][0];
-    expect(payload.ephemeral).toBe(true);
+      expect(payload.flags).toBe(MessageFlags.Ephemeral);
     expect(payload.content).toContain('Nenhum webhook válido recebido até o momento.');
   });
 
@@ -77,7 +77,7 @@ describe('/kick-webhook-status command', () => {
     await command.execute(interaction);
 
     const payload = interaction.reply.mock.calls[0][0];
-    expect(payload.ephemeral).toBe(true);
+      expect(payload.flags).toBe(MessageFlags.Ephemeral);
     expect(payload.content).toContain('Webhook configurado: sim');
     expect(payload.content).toContain('Broadcaster configurado: sim');
     expect(payload.content).toContain('Tipo: channel.followed');
@@ -93,7 +93,7 @@ describe('/kick-webhook-status command', () => {
     await command.execute(interaction);
 
     expect(interaction.reply).toHaveBeenCalledWith(
-      expect.objectContaining({ ephemeral: true }),
+      expect.objectContaining({ flags: MessageFlags.Ephemeral }),
     );
     expect(kickWebhookStatusService.getStatus).not.toHaveBeenCalled();
   });
@@ -106,7 +106,7 @@ describe('/kick-webhook-status command', () => {
     await command.execute(interaction);
 
     expect(interaction.reply).toHaveBeenCalledWith(
-      expect.objectContaining({ ephemeral: true }),
+      expect.objectContaining({ flags: MessageFlags.Ephemeral }),
     );
     expect(kickWebhookStatusService.getStatus).not.toHaveBeenCalled();
   });

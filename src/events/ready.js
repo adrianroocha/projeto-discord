@@ -1,5 +1,7 @@
+const { Events } = require('discord.js');
+
 module.exports = {
-  name: 'clientReady',
+  name: Events.ClientReady,
   once: true,
   execute(client) {
     const startedAt = new Date();

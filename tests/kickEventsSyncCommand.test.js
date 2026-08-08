@@ -2,7 +2,7 @@ jest.mock('../src/services/kickEventSubscriptionService', () => ({
   syncDesiredEvents: jest.fn(),
 }));
 
-const { PermissionFlagsBits } = require('discord.js');
+const { PermissionFlagsBits, MessageFlags } = require('discord.js');
 const kickEventSubscriptionService = require('../src/services/kickEventSubscriptionService');
 const command = require('../src/commands/kickEventsSync');
 
@@ -39,7 +39,7 @@ describe('/kick-events-sync command', () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
     expect(interaction.deferReply).not.toHaveBeenCalled();
@@ -56,7 +56,7 @@ describe('/kick-events-sync command', () => {
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'Este comando só pode ser usado dentro de um servidor.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
     expect(interaction.deferReply).not.toHaveBeenCalled();
@@ -73,7 +73,7 @@ describe('/kick-events-sync command', () => {
 
     await command.execute(interaction);
 
-    expect(interaction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+    expect(interaction.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
     expect(interaction.editReply).toHaveBeenCalledTimes(1);
   });
 

@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 jest.mock('../src/services/kickLinkStartService', () => ({
   createStartPayload: jest.fn(),
   mapKickLinkError: jest.fn(() => 'erro-controlado'),
@@ -28,7 +29,7 @@ describe('/kick-link command', () => {
     expect(kickLinkStartService.createStartPayload).toHaveBeenCalledWith('discord-1');
     expect(interaction.reply).toHaveBeenCalledTimes(1);
     const payload = interaction.reply.mock.calls[0][0];
-    expect(payload.ephemeral).toBe(true);
+    expect(payload.flags).toBe(MessageFlags.Ephemeral);
   });
 
   test('retorna payload de já vinculado sem duplicar lógica no comando', async () => {
@@ -47,7 +48,7 @@ describe('/kick-link command', () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
   });
@@ -63,7 +64,7 @@ describe('/kick-link command', () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
     expect(kickLinkStartService.createStartPayload).not.toHaveBeenCalled();
@@ -88,7 +89,7 @@ describe('/kick-link command', () => {
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'erro-controlado',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
   });

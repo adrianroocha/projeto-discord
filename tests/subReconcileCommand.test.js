@@ -12,7 +12,7 @@ jest.mock('../src/services/queueService', () => ({
   getQueue: jest.fn(),
 }));
 
-const { PermissionFlagsBits } = require('discord.js');
+const { PermissionFlagsBits, MessageFlags } = require('discord.js');
 const command = require('../src/commands/subReconcile');
 const reconciliationService = require('../src/services/subscriberRoleReconciliationService');
 const queueService = require('../src/services/queueService');
@@ -65,7 +65,7 @@ describe('/sub-reconcile command', () => {
 
     await command.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
     expect(reconciliationService.reconcileAll).not.toHaveBeenCalled();
   });
 
@@ -74,7 +74,7 @@ describe('/sub-reconcile command', () => {
 
     await command.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
   });
 
   test('recusa em outro guild', async () => {
@@ -82,7 +82,7 @@ describe('/sub-reconcile command', () => {
 
     await command.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
     expect(reconciliationService.reconcileAll).not.toHaveBeenCalled();
   });
 
@@ -91,7 +91,7 @@ describe('/sub-reconcile command', () => {
 
     await command.execute(interaction);
 
-    expect(interaction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+    expect(interaction.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
     expect(reconciliationService.reconcileAll).toHaveBeenCalledWith(
       expect.objectContaining({
         triggeredByDiscordId: 'admin-1',
@@ -114,7 +114,7 @@ describe('/sub-reconcile command', () => {
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'O motivo da reconciliação é obrigatório.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
     expect(interaction.deferReply).not.toHaveBeenCalled();
@@ -180,7 +180,7 @@ describe('/sub-reconcile command', () => {
 
     await command.execute(interaction);
 
-    expect(interaction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+    expect(interaction.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
     expect(interaction.editReply).toHaveBeenCalledTimes(1);
     expect(interaction.editReply.mock.calls[0][0]).toContain('Reconciliação não pôde ser concluída');
   });
@@ -191,7 +191,7 @@ describe('/sub-reconcile command', () => {
 
     await command.execute(interaction);
 
-    expect(interaction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+    expect(interaction.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
     expect(interaction.editReply).toHaveBeenCalledTimes(1);
   });
 

@@ -1,10 +1,4 @@
-const {
-  SlashCommandBuilder,
-  PermissionFlagsBits,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-} = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const kickAccountsRepository = require('../database/kickAccountsRepository');
 const confirmationService = require('../services/kickUnlinkConfirmationService');
 
@@ -43,7 +37,7 @@ module.exports = {
     if (!interaction.inGuild()) {
       await interaction.reply({
         content: 'Este comando só pode ser usado dentro de um servidor.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -51,7 +45,7 @@ module.exports = {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
       await interaction.reply({
         content: 'Você precisa da permissão de Administrator para usar este comando.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -61,7 +55,7 @@ module.exports = {
     if (!reason) {
       await interaction.reply({
         content: 'O motivo da desvinculação é obrigatório.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -70,7 +64,7 @@ module.exports = {
     if (!link) {
       await interaction.reply({
         content: `Não há conta Kick vinculada para <@${targetUser.id}> no momento.`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -93,7 +87,7 @@ module.exports = {
         `Esta confirmação expira em <t:${Math.floor(confirmation.expiresAtMs / 1000)}:R>.`,
       ].join('\n'),
       components: [buildRow(confirmation.token)],
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   },
 };

@@ -378,6 +378,8 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - Painel permanente de vínculo: mensagem única com botão `Vincular conta Kick` no canal configurado por `KICK_LINK_CHANNEL_ID`.
 - O comando `/kick-link` permanece disponível como alternativa ao painel.
 - `/kick-status` mostra o estado do vínculo Kick do usuário, o estado observado da assinatura via webhook e a elegibilidade consolidada.
+- Cargo SUB: sincronizado por gatilhos automáticos e reconciliação periódica.
+- Prioridade da fila: definida por snapshot na primeira entrada do usuário em cada ciclo.
 - `/kick-unlink` é administrativo e desvincula um usuário alvo com confirmação explícita por botões.
 - A confirmação de desvinculação usa identificador temporário, de uso único e com expiração de 5 minutos.
 - Se o bot reiniciar, confirmações de desvinculação pendentes são invalidadas.

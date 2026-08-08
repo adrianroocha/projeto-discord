@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const queueService = require('../services/queueService');
 
 function formatPlayerLine(player) {
@@ -18,7 +18,7 @@ module.exports = {
     if (!lobbies.length) {
       await interaction.reply({
         content: '🎯 Nenhum lobby ativo no momento.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -37,7 +37,7 @@ module.exports = {
 
     await interaction.reply({
       content: lines.join('\n'),
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   },
 };

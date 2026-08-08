@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const kickAccountsRepository = require('../database/kickAccountsRepository');
 const subscriberEligibilityService = require('../services/subscriberEligibilityService');
 
@@ -55,7 +55,7 @@ module.exports = {
     if (!interaction.inGuild()) {
       await interaction.reply({
         content: 'Este comando só pode ser usado dentro de um servidor.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -90,9 +90,10 @@ module.exports = {
         `Elegibilidade: ${eligibility.eligible ? 'ativa' : 'inativa'}`,
         'Fontes ativas:',
         activeSources.length > 0 ? activeSources.join('\n') : '- nenhuma',
-        'Cargo e prioridade ainda não são sincronizados nesta etapa.',
+        'Cargo SUB: sincronizado por gatilhos automáticos e reconciliação periódica.',
+        'Prioridade da fila: definida por snapshot na primeira entrada do usuário em cada ciclo.',
       ].join('\n'),
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   },
 };

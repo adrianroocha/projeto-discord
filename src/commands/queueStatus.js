@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const queueService = require('../services/queueService');
 
 module.exports = {
@@ -11,7 +11,7 @@ module.exports = {
     if (!queueEntries.length) {
       await interaction.reply({
         content: '🎮 Fila atual\n\nA fila está vazia no momento.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -25,7 +25,7 @@ module.exports = {
 
     await interaction.reply({
       content: `🎮 Fila atual\n\n${lines.join('\n')}`,
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   },
 };

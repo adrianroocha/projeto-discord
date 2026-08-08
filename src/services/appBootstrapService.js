@@ -1,4 +1,5 @@
 const config = require('../config');
+const { Events } = require('discord.js');
 const database = require('../database/database');
 const commandHandler = require('../handlers/commandHandler');
 const { startKickHttpServer } = require('./kickHttpServer');
@@ -27,12 +28,12 @@ function waitForDiscordReady(discordClient) {
     }
 
     function cleanup() {
-      discordClient.removeListener('ready', onReady);
+      discordClient.removeListener(Events.ClientReady, onReady);
       discordClient.removeListener('error', onError);
       discordClient.removeListener('shardError', onError);
     }
 
-    discordClient.once('ready', onReady);
+    discordClient.once(Events.ClientReady, onReady);
     discordClient.once('error', onError);
     discordClient.once('shardError', onError);
   });

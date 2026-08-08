@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const schedulerService = require('../services/schedulerService');
 
 module.exports = {
@@ -7,7 +7,7 @@ module.exports = {
     .setDescription('Exibe o estado atual do scheduler da fila.')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator | PermissionFlagsBits.ManageGuild),
   async execute(interaction) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const status = schedulerService.getStatus();
     const lines = [
       `Modo: ${status.mode}`,

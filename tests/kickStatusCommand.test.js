@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 jest.mock('../src/database/kickAccountsRepository', () => ({
   findByDiscordId: jest.fn(),
 }));
@@ -50,7 +51,7 @@ describe('/kick-status command', () => {
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: expect.stringContaining('Conta Kick: não vinculada'),
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
 
@@ -100,7 +101,7 @@ describe('/kick-status command', () => {
     await command.execute(interaction);
 
     const payload = interaction.reply.mock.calls[0][0];
-    expect(payload.ephemeral).toBe(true);
+    expect(payload.flags).toBe(MessageFlags.Ephemeral);
     expect(payload.content).toContain('Conta Kick: adrianroocha');
     expect(payload.content).toContain('Kick ID: 75942843');
   });
@@ -188,7 +189,8 @@ describe('/kick-status command', () => {
     const payload = interaction.reply.mock.calls[0][0];
     expect(payload.content).toContain('Assinatura Kick: ainda não observada por webhook');
     expect(payload.content).toContain('Elegibilidade: inativa');
-    expect(payload.content).toContain('Cargo e prioridade ainda não são sincronizados nesta etapa.');
+    expect(payload.content).toContain('Cargo SUB: sincronizado por gatilhos automáticos e reconciliação periódica.');
+    expect(payload.content).toContain('Prioridade da fila: definida por snapshot na primeira entrada do usuário em cada ciclo.');
   });
 
   test('responde sempre ephemeral', async () => {
@@ -229,7 +231,7 @@ describe('/kick-status command', () => {
 
     await command.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
   });
 
   test('recusa em DM', async () => {
@@ -241,7 +243,7 @@ describe('/kick-status command', () => {
 
     await command.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
     expect(subscriberEligibilityService.getEligibility).not.toHaveBeenCalled();
     expect(kickAccountsRepository.findByDiscordId).not.toHaveBeenCalled();
   });

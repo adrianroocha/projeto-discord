@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionsBitField } = require('discord.js');
+const { SlashCommandBuilder, PermissionsBitField, MessageFlags } = require('discord.js');
 const queueService = require('../services/queueService');
 const config = require('../config');
 const { getDatabase } = require('../database/sqliteClient');
@@ -53,7 +53,7 @@ module.exports = {
     if (config.nodeEnv !== 'development') {
       await interaction.reply({
         content: 'Este comando está disponível apenas em ambiente de desenvolvimento.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -62,7 +62,7 @@ module.exports = {
     if (!member.permissions.has(PermissionsBitField.Flags.Administrator) && !member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
       await interaction.reply({
         content: 'Você precisa ser Administrador ou ter permissão de Gerenciar Servidor para usar este comando.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -73,7 +73,7 @@ module.exports = {
     if (subs > quantidade) {
       await interaction.reply({
         content: 'O número de subs não pode ser maior que a quantidade total.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -99,13 +99,13 @@ module.exports = {
       queueService.addMultipleToQueue(players);
       await interaction.reply({
         content: `✅ ${quantidade} jogadores de teste criados com sucesso (${subs} subs).`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     } catch (error) {
       console.error('Erro ao preencher a fila de teste:', error);
       await interaction.reply({
         content: 'Houve um erro ao criar os jogadores de teste.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   },

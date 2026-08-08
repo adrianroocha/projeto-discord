@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 const joinQueueButton = require('../buttons/joinQueue');
 const leaveQueueButton = require('../buttons/leaveQueue');
 const kickLinkStartButton = require('../buttons/kickLinkStart');
@@ -28,12 +29,12 @@ async function rejectIfShuttingDown(interaction) {
     if (interaction.replied || interaction.deferred) {
       await interaction.followUp({
         content: SHUTDOWN_MESSAGE,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     } else {
       await interaction.reply({
         content: SHUTDOWN_MESSAGE,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   } catch (_error) {
@@ -73,12 +74,12 @@ module.exports = {
         if (interaction.replied || interaction.deferred) {
           await interaction.followUp({
             content: 'Houve um erro ao processar esse botão.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         } else {
           await interaction.reply({
             content: 'Houve um erro ao processar esse botão.',
-            ephemeral: true,
+            flags: MessageFlags.Ephemeral,
           });
         }
       }
@@ -93,7 +94,7 @@ module.exports = {
         await interaction.reply({
           content:
             'Ferramenta de desenvolvimento: este comando está indisponível neste ambiente.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
       return;
@@ -106,12 +107,12 @@ module.exports = {
       if (interaction.replied || interaction.deferred) {
         await interaction.followUp({
           content: 'Houve um erro ao executar esse comando.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       } else {
         await interaction.reply({
           content: 'Houve um erro ao executar esse comando.',
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
       }
     }

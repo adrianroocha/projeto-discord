@@ -19,7 +19,7 @@ jest.mock('../src/services/queueService', () => ({
   getQueue: jest.fn(),
 }));
 
-const { PermissionFlagsBits } = require('discord.js');
+const { PermissionFlagsBits, MessageFlags } = require('discord.js');
 const service = require('../src/services/manualSubGrantService');
 const eligibilityService = require('../src/services/subscriberEligibilityService');
 const autoSyncService = require('../src/services/subscriberRoleAutoSyncService');
@@ -78,7 +78,7 @@ describe('sub admin commands', () => {
 
     await subGrantCommand.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
     expect(service.createGrant).not.toHaveBeenCalled();
   });
 
@@ -87,7 +87,7 @@ describe('sub admin commands', () => {
 
     await subGrantCommand.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
   });
 
   test('respostas são ephemeral no /sub-grant', async () => {
@@ -111,7 +111,7 @@ describe('sub admin commands', () => {
     });
 
     await subGrantCommand.execute(interaction);
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
   });
 
   test('usuário bot é rejeitado no /sub-grant', async () => {
@@ -128,7 +128,7 @@ describe('sub admin commands', () => {
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'Não é possível conceder benefício manual para bots.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
   });
@@ -301,7 +301,7 @@ describe('sub admin commands', () => {
 
     await subRevokeCommand.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
     const payload = interaction.reply.mock.calls[0][0];
     expect(payload.content).toContain('Concessão manual revogada.');
     expect(payload.content).toContain('Fontes ativas:');

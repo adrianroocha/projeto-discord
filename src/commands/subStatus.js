@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const subscriberEligibilityService = require('../services/subscriberEligibilityService');
 
 function toDiscordTimestamp(ms) {
@@ -64,7 +64,7 @@ module.exports = {
     if (!interaction.inGuild()) {
       await interaction.reply({
         content: 'Este comando só pode ser usado dentro de um servidor.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -72,7 +72,7 @@ module.exports = {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
       await interaction.reply({
         content: 'Você precisa da permissão de Administrator para usar este comando.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -119,12 +119,12 @@ module.exports = {
 
       await interaction.reply({
         content: lines.join('\n'),
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     } catch (error) {
       await interaction.reply({
         content: `Não foi possível consultar o status: ${error.message}`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   },

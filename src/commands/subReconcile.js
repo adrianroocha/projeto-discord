@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const config = require('../config');
 const reconciliationService = require('../services/subscriberRoleReconciliationService');
 
@@ -34,7 +34,7 @@ module.exports = {
     if (!interaction.inGuild()) {
       await interaction.reply({
         content: 'Este comando só pode ser usado dentro de um servidor.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -42,7 +42,7 @@ module.exports = {
     if (config.guildId && interaction.guildId !== config.guildId) {
       await interaction.reply({
         content: 'Este comando só pode ser usado no servidor configurado para o bot.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -50,7 +50,7 @@ module.exports = {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
       await interaction.reply({
         content: 'Você precisa da permissão de Administrator para usar este comando.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -59,12 +59,12 @@ module.exports = {
     if (!reason) {
       await interaction.reply({
         content: 'O motivo da reconciliação é obrigatório.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     let finalMessage =
       'Reconciliação não pôde ser concluída no momento. Tente novamente em instantes.';

@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const kickEventSubscriptionService = require('../services/kickEventSubscriptionService');
 
 function renderCreated(created) {
@@ -71,7 +71,7 @@ module.exports = {
     if (!interaction.inGuild()) {
       await interaction.reply({
         content: 'Este comando só pode ser usado dentro de um servidor.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -79,12 +79,12 @@ module.exports = {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
       await interaction.reply({
         content: 'Você precisa da permissão de Administrator para usar este comando.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     try {
       const result = await kickEventSubscriptionService.syncDesiredEvents();

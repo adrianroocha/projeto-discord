@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionsBitField } = require('discord.js');
+const { SlashCommandBuilder, PermissionsBitField, MessageFlags } = require('discord.js');
 const queueService = require('../services/queueService');
 const config = require('../config');
 
@@ -18,7 +18,7 @@ module.exports = {
     if (config.nodeEnv !== 'development') {
       await interaction.reply({
         content: 'Este comando está disponível apenas em ambiente de desenvolvimento.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -27,7 +27,7 @@ module.exports = {
     if (!member.permissions.has(PermissionsBitField.Flags.Administrator) && !member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
       await interaction.reply({
         content: 'Você precisa ser Administrador ou ter permissão de Gerenciar Servidor para usar este comando.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -36,7 +36,7 @@ module.exports = {
     if (!confirmed) {
       await interaction.reply({
         content: 'A limpeza de dados de teste foi cancelada.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -45,13 +45,13 @@ module.exports = {
       queueService.clearTestData();
       await interaction.reply({
         content: '✅ Dados de teste removidos com sucesso.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     } catch (error) {
       console.error('Erro ao limpar dados de teste:', error);
       await interaction.reply({
         content: 'Houve um erro ao limpar os dados de teste.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   },

@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits, PermissionsBitField } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, PermissionsBitField, MessageFlags } = require('discord.js');
 const config = require('../config');
 const queueService = require('../services/queueService');
 
@@ -25,7 +25,7 @@ module.exports = {
       await interaction.reply({
         content:
           'Ferramenta de desenvolvimento: este comando está disponível somente em NODE_ENV=development.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -38,7 +38,7 @@ module.exports = {
       await interaction.reply({
         content:
           'Ferramenta de desenvolvimento: você precisa ser Administrator ou ter Manage Guild para usar este comando.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -58,14 +58,14 @@ module.exports = {
     if (added) {
       await interaction.reply({
         content: `✅ Ferramenta de desenvolvimento: usuário ${targetUser.tag} adicionado à fila${isSubscriber ? ' como SUB' : ''}.`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
     await interaction.reply({
       content: `⚠️ Ferramenta de desenvolvimento: não foi possível adicionar ${targetUser.tag} à fila. Talvez ele já esteja na fila.`,
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   },
 };

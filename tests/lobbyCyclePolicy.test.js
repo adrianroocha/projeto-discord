@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { MessageFlags } = require('discord.js');
 
 const { createTestContext, getDb, insertLobby, insertLobbyPlayer } = require('./helpers/testDatabase');
 
@@ -113,7 +114,7 @@ describe('lobby cycle policy', () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
         content: 'Você já está em uma lobby em formação.',
       }),
     );
@@ -157,7 +158,7 @@ describe('lobby cycle policy', () => {
     expect(queueRow.is_subscriber).toBe(1);
     expect(secondJoin.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
         content: expect.stringContaining('Categoria SUB do ciclo atual reaproveitada.'),
       }),
     );

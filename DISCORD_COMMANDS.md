@@ -70,7 +70,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos no banco: apenas leitura.
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: nenhum.
-- Limitações: não sincroniza cargo/fila nesta etapa; depende de eventos webhook para observar assinatura Kick.
+- Limitações: depende de eventos webhook para observar assinatura Kick; não recalcula snapshot de prioridade para usuários já na fila no ciclo atual.
 
 ## /kick-unlink
 - Nome: /kick-unlink

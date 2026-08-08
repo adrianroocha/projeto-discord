@@ -1,4 +1,4 @@
-const { SlashCommandBuilder } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const kickLinkStartService = require('../services/kickLinkStartService');
 
 module.exports = {
@@ -10,7 +10,7 @@ module.exports = {
     if (!interaction.inGuild()) {
       await interaction.reply({
         content: 'Este comando só pode ser usado dentro de um servidor.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -20,12 +20,12 @@ module.exports = {
       await interaction.reply({
         content: payload.content,
         components: payload.components,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     } catch (error) {
       await interaction.reply({
         content: kickLinkStartService.mapKickLinkError(error),
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   },

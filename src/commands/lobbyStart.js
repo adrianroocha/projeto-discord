@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionsBitField } = require('discord.js');
+const { SlashCommandBuilder, PermissionsBitField, MessageFlags } = require('discord.js');
 const queueService = require('../services/queueService');
 const queueMessageService = require('../services/queueMessageService');
 
@@ -17,7 +17,7 @@ module.exports = {
     if (!member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
       await interaction.reply({
         content: 'Você precisa de permissão de Gerenciar Servidor para executar este comando.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -26,7 +26,7 @@ module.exports = {
     if (!formingLobbies.length) {
       await interaction.reply({
         content: 'Não há lobbies em formação no momento.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -41,7 +41,7 @@ module.exports = {
         const lobbyList = formingLobbies.map((lobby) => `• Lobby #${lobby.lobbyNumber}`).join('\n');
         await interaction.reply({
           content: `Lobbies em formação:\n${lobbyList}\n\nUse /lobby-start numero:<NÚMERO> para iniciar uma lobby.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
@@ -51,7 +51,7 @@ module.exports = {
     if (!started) {
       await interaction.reply({
         content: 'Não foi possível iniciar essa lobby. Verifique se ela ainda está em formação.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -60,7 +60,7 @@ module.exports = {
 
     await interaction.reply({
       content: `Lobby #${lobbyNumber} iniciada com sucesso.`,
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   },
 };

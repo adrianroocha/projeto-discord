@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 jest.mock('../src/config', () => ({
   guildId: 'guild-1',
 }));
@@ -33,7 +34,7 @@ describe('kick-link-start button', () => {
     expect(kickLinkStartService.createStartPayload).toHaveBeenCalledWith('discord-1');
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
         content: 'Clique para autorizar',
       }),
     );
@@ -57,7 +58,7 @@ describe('kick-link-start button', () => {
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: expect.stringContaining('/kick-status'),
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
   });
@@ -74,7 +75,7 @@ describe('kick-link-start button', () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
     expect(kickLinkStartService.createStartPayload).not.toHaveBeenCalled();
@@ -98,7 +99,7 @@ describe('kick-link-start button', () => {
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'erro-controlado',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
   });

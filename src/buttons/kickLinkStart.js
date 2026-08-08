@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 const config = require('../config');
 const kickLinkStartService = require('../services/kickLinkStartService');
 
@@ -8,7 +9,7 @@ module.exports = {
     if (!interaction.inGuild()) {
       await interaction.reply({
         content: 'Este botão só pode ser usado dentro de um servidor.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -16,7 +17,7 @@ module.exports = {
     if (config.guildId && interaction.guildId !== config.guildId) {
       await interaction.reply({
         content: 'Este botão só está disponível no servidor configurado para esta integração.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -26,12 +27,12 @@ module.exports = {
       await interaction.reply({
         content: payload.content,
         components: payload.components,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     } catch (error) {
       await interaction.reply({
         content: kickLinkStartService.mapKickLinkError(error),
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
     }
   },

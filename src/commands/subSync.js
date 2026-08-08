@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionFlagsBits } = require('discord.js');
+const { SlashCommandBuilder, PermissionFlagsBits, MessageFlags } = require('discord.js');
 const config = require('../config');
 const subscriberRoleSyncService = require('../services/subscriberRoleSyncService');
 
@@ -62,7 +62,7 @@ module.exports = {
     if (!interaction.inGuild()) {
       await interaction.reply({
         content: 'Este comando só pode ser usado dentro de um servidor.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -70,7 +70,7 @@ module.exports = {
     if (config.guildId && interaction.guildId !== config.guildId) {
       await interaction.reply({
         content: 'Este comando só pode ser usado no servidor configurado para o bot.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -78,7 +78,7 @@ module.exports = {
     if (!interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
       await interaction.reply({
         content: 'Você precisa da permissão de Administrator para usar este comando.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -89,7 +89,7 @@ module.exports = {
     if (!reason) {
       await interaction.reply({
         content: 'O motivo da sincronização é obrigatório.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -97,12 +97,12 @@ module.exports = {
     if (targetUser.bot) {
       await interaction.reply({
         content: 'Não é permitido sincronizar cargo SUB para bots.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     const result = await subscriberRoleSyncService.syncUser(targetUser.id, {
       client: interaction.client,

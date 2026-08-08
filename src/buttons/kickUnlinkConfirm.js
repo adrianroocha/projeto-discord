@@ -1,4 +1,4 @@
-const { ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const kickAccountsRepository = require('../database/kickAccountsRepository');
 const confirmationService = require('../services/kickUnlinkConfirmationService');
 const subscriberRoleAutoSyncService = require('../services/subscriberRoleAutoSyncService');
@@ -78,7 +78,7 @@ module.exports = {
 
       await interaction.reply({
         content: reasonMessage,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -87,7 +87,7 @@ module.exports = {
     if (!consumed.ok) {
       await interaction.reply({
         content: 'Esta confirmação é inválida, expirou ou já foi utilizada.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -97,7 +97,7 @@ module.exports = {
     if (!targetDiscordId || !reason) {
       await interaction.reply({
         content: 'Esta confirmação está inválida para desvinculação administrativa.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }

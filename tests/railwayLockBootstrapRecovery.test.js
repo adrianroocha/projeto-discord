@@ -2,6 +2,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { EventEmitter } = require('events');
+const { Events } = require('discord.js');
 
 function createTempDbPath() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'railway-bootstrap-lock-'));
@@ -19,7 +20,7 @@ function createDiscordClientStub() {
   emitter.login = jest.fn().mockImplementation(async () => {
     setTimeout(() => {
       ready = true;
-      emitter.emit('ready');
+      emitter.emit(Events.ClientReady);
     }, 0);
     return 'ok';
   });

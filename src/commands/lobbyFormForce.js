@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, PermissionsBitField } = require('discord.js');
+const { SlashCommandBuilder, PermissionsBitField, MessageFlags } = require('discord.js');
 const queueService = require('../services/queueService');
 const queueMessageService = require('../services/queueMessageService');
 
@@ -20,7 +20,7 @@ module.exports = {
     if (!member.permissions.has(PermissionsBitField.Flags.Administrator) && !member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
       await interaction.reply({
         content: 'Você precisa ser Administrador ou ter permissão de Gerenciar Servidor para usar este comando.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -31,7 +31,7 @@ module.exports = {
       const available = result ? result.available : 0;
       await interaction.reply({
         content: `❌ Não há jogadores suficientes na fila. Jogadores disponíveis: ${available}.`,
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
       return;
     }
@@ -47,7 +47,7 @@ module.exports = {
 
     await interaction.reply({
       content: `✅ Lobby criada com sucesso.\n\nJogadores:\n${lines.join('\n')}`,
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   },
 };

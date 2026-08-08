@@ -1,4 +1,4 @@
-const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 
 module.exports = {
   data: new SlashCommandBuilder()
@@ -19,7 +19,7 @@ module.exports = {
     await interaction.reply({
       content: 'Use os botões abaixo para gerenciar sua posição na fila.',
       components: [row],
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   },
 };

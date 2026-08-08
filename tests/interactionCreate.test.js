@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 jest.mock('../src/buttons/joinQueue', () => ({
   customId: 'join_queue',
   execute: jest.fn().mockResolvedValue(undefined),
@@ -61,7 +62,7 @@ describe('interactionCreate event', () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
         content: expect.stringContaining('O bot está reiniciando'),
       }),
     );
@@ -165,7 +166,7 @@ describe('interactionCreate event', () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
         content: expect.stringContaining('Ferramenta de desenvolvimento'),
       }),
     );
@@ -190,7 +191,7 @@ describe('interactionCreate event', () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
         content: expect.stringContaining('Ferramenta de desenvolvimento'),
       }),
     );
@@ -215,7 +216,7 @@ describe('interactionCreate event', () => {
 
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
         content: expect.stringContaining('Ferramenta de desenvolvimento'),
       }),
     );

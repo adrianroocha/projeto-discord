@@ -1,3 +1,4 @@
+const { MessageFlags } = require('discord.js');
 const queueService = require('../services/queueService');
 const queueMessageService = require('../services/queueMessageService');
 const schedulerService = require('../services/schedulerService');
@@ -9,7 +10,7 @@ module.exports = {
     try {
       const result = queueService.removeFromQueue(discordId);
       if (result && result.success) {
-        await interaction.reply({ content: '❌ Você saiu da fila e das suas lobbies atuais.', ephemeral: true });
+        await interaction.reply({ content: '❌ Você saiu da fila e das suas lobbies atuais.', flags: MessageFlags.Ephemeral });
         await queueMessageService.updatePanel(interaction.client, { isQueueOpen: schedulerService.isQueueOpen() }).catch((error) => {
           console.error('Erro ao atualizar painel após sair da fila:', error);
         });
@@ -30,18 +31,18 @@ module.exports = {
         const formatted = parts.join(' e ') || '0 segundos';
         await interaction.reply({
           content: `⏳ Você poderá sair da fila em ${formatted}.`,
-          ephemeral: true,
+          flags: MessageFlags.Ephemeral,
         });
         return;
       }
 
       if (result && result.reason === 'not_found') {
-        await interaction.reply({ content: 'Você não está na fila.', ephemeral: true });
+        await interaction.reply({ content: 'Você não está na fila.', flags: MessageFlags.Ephemeral });
         return;
       }
 
       // fallback
-      await interaction.reply({ content: 'Você não está na fila.', ephemeral: true });
+      await interaction.reply({ content: 'Você não está na fila.', flags: MessageFlags.Ephemeral });
     } catch (error) {
       console.error('Erro ao processar leaveQueue:', error);
       throw error;

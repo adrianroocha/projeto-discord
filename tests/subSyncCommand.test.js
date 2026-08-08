@@ -12,7 +12,7 @@ jest.mock('../src/services/queueService', () => ({
   getQueue: jest.fn(),
 }));
 
-const { PermissionFlagsBits } = require('discord.js');
+const { PermissionFlagsBits, MessageFlags } = require('discord.js');
 const command = require('../src/commands/subSync');
 const syncService = require('../src/services/subscriberRoleSyncService');
 const queueService = require('../src/services/queueService');
@@ -59,7 +59,7 @@ describe('/sub-sync command', () => {
 
     await command.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
     expect(syncService.syncUser).not.toHaveBeenCalled();
   });
 
@@ -68,7 +68,7 @@ describe('/sub-sync command', () => {
 
     await command.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
   });
 
   test('recusa em outro guild', async () => {
@@ -76,7 +76,7 @@ describe('/sub-sync command', () => {
 
     await command.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
     expect(syncService.syncUser).not.toHaveBeenCalled();
   });
 
@@ -90,7 +90,7 @@ describe('/sub-sync command', () => {
 
     await command.execute(interaction);
 
-    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ ephemeral: true }));
+    expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
     expect(syncService.syncUser).not.toHaveBeenCalled();
   });
 
@@ -99,7 +99,7 @@ describe('/sub-sync command', () => {
 
     await command.execute(interaction);
 
-    expect(interaction.deferReply).toHaveBeenCalledWith({ ephemeral: true });
+    expect(interaction.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
     expect(syncService.syncUser).toHaveBeenCalledWith('target-1', expect.objectContaining({
       triggeredByDiscordId: 'admin-1',
       triggerType: 'command_sub_sync',
@@ -121,7 +121,7 @@ describe('/sub-sync command', () => {
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'O motivo da sincronização é obrigatório.',
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       }),
     );
     expect(interaction.deferReply).not.toHaveBeenCalled();
