@@ -151,6 +151,16 @@ Quando a fila está fechada, os botões ficam desabilitados.
 - O scheduler de desenvolvimento abre imediatamente ao iniciar o bot, mantém a fila aberta por 5 minutos, fecha por 5 minutos e repete indefinidamente.
 - Abrir a fila limpa completamente o ciclo anterior: fila, lobby players e lobbies.
 
+### Ciclo de lobbies no ciclo atual
+
+- `forming`: lobby ainda sendo montada. Jogadores desta lobby não podem voltar para a fila.
+- `in_game`: lobby iniciada/despachada. Este é o último estado operacional da lobby no ciclo atual.
+- Após `in_game`, o jogador pode entrar novamente na fila imediatamente e participar de outra lobby no mesmo ciclo.
+- Registros anteriores em `lobby_players` são preservados como histórico do ciclo até o próximo reset.
+- O mesmo `discord_id` pode aparecer em lobbies diferentes no mesmo ciclo de forma intencional.
+- `/scheduler-close` preserva lobbies existentes (forming e in_game).
+- `/scheduler-open` inicia novo ciclo e limpa `lobbies` e `lobby_players` via `resetQueueCycle`.
+
 ## Scripts úteis
 
 - `npm start` - inicia o bot.

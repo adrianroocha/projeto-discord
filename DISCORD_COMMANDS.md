@@ -118,6 +118,9 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: atualiza painel.
 - Limitações: se houver várias lobbies em formação e numero não for informado, apenas lista opções.
+- Estado final operacional: após iniciar, a lobby passa para `in_game` e permanece assim até o reset do ciclo.
+- Reentrada de jogadores: usuários da lobby iniciada (`in_game`) podem entrar novamente na fila no mesmo ciclo.
+- Histórico: os registros anteriores em `lobby_players` permanecem preservados até o próximo `resetQueueCycle`.
 
 ## /lobby-status
 - Nome: /lobby-status
@@ -196,6 +199,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: fecha fila para novas entradas.
 - Limitações: ação administrativa.
+- Efeitos em lobbies: preserva lobbies existentes (`forming` e `in_game`) e seus registros em `lobby_players`.
 
 ## /scheduler-open
 - Nome: /scheduler-open
@@ -209,6 +213,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: abre fila e reinicia ciclo.
 - Limitações: ação administrativa.
+- Efeitos em lobbies: limpa `lobbies` e `lobby_players` ao iniciar o novo ciclo.
 
 ## /scheduler-status
 - Nome: /scheduler-status
@@ -315,7 +320,8 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos no banco: insere usuário na fila e possivelmente o move para lobby em formação.
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: entra na fila; pode entrar direto em lobby em formação; prioridade SUB é snapshot calculado na entrada.
-- Limitações: bloqueado com fila fechada; impede duplicidade; snapshot de prioridade não é recalculado durante o ciclo.
+- Limitações: bloqueado com fila fechada; impede duplicidade; snapshot de prioridade não é recalculado durante o ciclo; usuário em lobby `forming` não pode reentrar.
+- Usuário em lobby `in_game`: pode reentrar na fila no mesmo ciclo.
 - Reentrada no mesmo ciclo: sair e entrar novamente reaproveita a mesma categoria já registrada para o ciclo atual.
 - Novo ciclo: após reset do ciclo (ex.: /scheduler-open), a próxima entrada consulta elegibilidade novamente.
 - Fonte da prioridade: elegibilidade central (Kick ativa OU concessão manual ativa) no momento da entrada, nunca presença de cargo Discord.
