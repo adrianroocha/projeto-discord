@@ -4,6 +4,7 @@ const queueMessageService = require('./queueMessageService');
 const lifecycleService = require('./applicationLifecycleService');
 const schedulerStateRepository = require('../database/schedulerStateRepository');
 const schedulerTimeService = require('./schedulerTimeService');
+const { getDatabase } = require('../database/sqliteClient');
 
 let schedulerState = 'closed';
 let schedulerOrigin = 'scheduled';
@@ -149,7 +150,115 @@ function clearManualOverride(state) {
   });
 }
 
+function getCurrentQueueCycleId(db) {
+  const row = db.prepare('SELECT current_cycle_id FROM queue_cycle_state WHERE id = 1').get();
+  if (!row || !Number.isFinite(Number(row.current_cycle_id)) || Number(row.current_cycle_id) < 1) {
+    throw new Error('Estado inválido de queue_cycle_state.current_cycle_id.');
+  }
+
+  return Math.trunc(Number(row.current_cycle_id));
+}
+
+function getMostRecentScheduledCloseCycleKey(snapshot) {
+  if (!snapshot || !snapshot.localNowKey || !snapshot.localNowParts) {
+    return null;
+  }
+
+  const openTime = schedulerTimeService.parseTimeLabel(snapshot.openTime, 'QUEUE_OPEN_TIME');
+  const nowMinutes = snapshot.localNowParts.hour * 60 + snapshot.localNowParts.minute;
+
+  if (snapshot.crossesMidnight) {
+    return schedulerTimeService.addDaysToLocalDateKey(snapshot.localNowKey, -1);
+  }
+
+  if (nowMinutes < openTime.totalMinutes) {
+    return schedulerTimeService.addDaysToLocalDateKey(snapshot.localNowKey, -1);
+  }
+
+  return snapshot.localNowKey;
+}
+
+function persistScheduledClosedState(currentNowMs) {
+  schedulerStateRepository.updateState({
+    currentState: 'closed',
+    stateOrigin: 'scheduled',
+    manualOverrideState: null,
+    manualOverrideUntilMs: null,
+    updatedAtMs: currentNowMs,
+  });
+}
+
+function finalizeCycleForScheduledClose(cycleKey, currentNowMs) {
+  if (!cycleKey) {
+    return { alreadyFinalized: true, cycleIdBefore: null, cycleIdAfter: null };
+  }
+
+  const db = getDatabase();
+  const deleteLobbyPlayers = db.prepare('DELETE FROM lobby_players');
+  const deleteLobbies = db.prepare('DELETE FROM lobbies');
+  const deleteQueueEntries = db.prepare('DELETE FROM queue_entries');
+  const deleteQueuePrioritySnapshotsByCycle = db.prepare('DELETE FROM queue_priority_snapshots WHERE cycle_id = ?');
+  const incrementCycleId = db.prepare(
+    'UPDATE queue_cycle_state SET current_cycle_id = current_cycle_id + 1, updated_at_ms = ? WHERE id = 1',
+  );
+
+  const transaction = db.transaction(() => {
+    const persistedState = schedulerStateRepository.getState(db);
+    if (persistedState.lastScheduledCloseCycleKey === cycleKey) {
+      return {
+        alreadyFinalized: true,
+        cycleIdBefore: getCurrentQueueCycleId(db),
+        cycleIdAfter: getCurrentQueueCycleId(db),
+      };
+    }
+
+    const cycleIdBefore = getCurrentQueueCycleId(db);
+
+    deleteLobbyPlayers.run();
+    deleteLobbies.run();
+    deleteQueueEntries.run();
+    deleteQueuePrioritySnapshotsByCycle.run(cycleIdBefore);
+    incrementCycleId.run(currentNowMs);
+
+    schedulerStateRepository.updateState(
+      {
+        currentState: 'closed',
+        stateOrigin: 'scheduled',
+        manualOverrideState: null,
+        manualOverrideUntilMs: null,
+        lastScheduledCloseCycleKey: cycleKey,
+        lastScheduledCloseAtMs: currentNowMs,
+        updatedAtMs: currentNowMs,
+      },
+      db,
+    );
+
+    return {
+      alreadyFinalized: false,
+      cycleIdBefore,
+      cycleIdAfter: cycleIdBefore + 1,
+    };
+  });
+
+  return transaction();
+}
+
+function finalizePreviousCycleBeforeScheduledOpen(snapshot, currentNowMs) {
+  if (!snapshot?.currentCycleKey) {
+    return { alreadyFinalized: true, cycleIdBefore: null, cycleIdAfter: null, cycleKey: null };
+  }
+
+  const previousCycleKey = schedulerTimeService.addDaysToLocalDateKey(snapshot.currentCycleKey, -1);
+  const result = finalizeCycleForScheduledClose(previousCycleKey, currentNowMs);
+  return {
+    ...result,
+    cycleKey: previousCycleKey,
+  };
+}
+
 async function reconcileScheduledOpen(client, snapshot, persistedState, currentNowMs) {
+  finalizePreviousCycleBeforeScheduledOpen(snapshot, currentNowMs);
+
   const currentOpenAtMs = Number(snapshot.currentOpenAtMs);
   const lastScheduledOpenAtMs = Number(persistedState.lastScheduledOpenAtMs);
   const alreadyAppliedByTimestamp =
@@ -162,7 +271,7 @@ async function reconcileScheduledOpen(client, snapshot, persistedState, currentN
   if (!alreadyApplied) {
     await applyOpenState(client, {
       origin: 'scheduled',
-      shouldReset: true,
+      shouldReset: false,
       cycleKey: snapshot.currentCycleKey,
     });
 
@@ -177,7 +286,7 @@ async function reconcileScheduledOpen(client, snapshot, persistedState, currentN
     });
   } else {
     await applyOpenState(client, {
-      origin: persistedState.stateOrigin === 'manual_open' ? 'manual_open' : 'scheduled',
+      origin: 'scheduled',
       shouldReset: false,
       cycleKey: snapshot.currentCycleKey,
     });
@@ -193,18 +302,33 @@ async function reconcileScheduledOpen(client, snapshot, persistedState, currentN
 }
 
 async function reconcileScheduledClose(client, currentNowMs) {
-  await applyClosedState(client, {
-    origin: 'scheduled',
-  });
+  const snapshot = getScheduleSnapshot(currentNowMs);
+  const cycleKeyToFinalize = getMostRecentScheduledCloseCycleKey(snapshot);
 
-  schedulerStateRepository.updateState({
-    currentState: 'closed',
-    stateOrigin: 'scheduled',
-    manualOverrideState: null,
-    manualOverrideUntilMs: null,
-    lastScheduledCloseAtMs: currentNowMs,
-    updatedAtMs: currentNowMs,
-  });
+  await applyChannelPermissions(client, false);
+
+  try {
+    finalizeCycleForScheduledClose(cycleKeyToFinalize, currentNowMs);
+    persistScheduledClosedState(currentNowMs);
+    setRuntimeState('closed', 'scheduled', null);
+
+    try {
+      await updatePanel(client);
+    } catch (panelError) {
+      console.warn('Scheduler: finalização automática concluída, mas falhou ao atualizar painel:', panelError);
+    }
+  } catch (error) {
+    setRuntimeState('closed', 'scheduled', null);
+    persistScheduledClosedState(currentNowMs);
+
+    try {
+      await updatePanel(client);
+    } catch (panelError) {
+      console.warn('Scheduler: falha ao atualizar painel após erro de finalização automática:', panelError);
+    }
+
+    throw error;
+  }
 }
 
 async function reconcileProductionState(client, options = {}) {
@@ -468,5 +592,8 @@ module.exports = {
     getScheduleSnapshot,
     reconcileProductionState,
     scheduleProductionTransition,
+    finalizeCycleForScheduledClose,
+    getMostRecentScheduledCloseCycleKey,
+    finalizePreviousCycleBeforeScheduledOpen,
   },
 };

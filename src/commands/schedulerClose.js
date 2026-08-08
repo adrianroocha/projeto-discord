@@ -9,6 +9,6 @@ module.exports = {
   async execute(interaction) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await schedulerService.closeQueue(interaction.client, { manual: true });
-    await interaction.editReply('🔒 Fila fechada manualmente.');
+    await interaction.editReply('🔒 Fila fechada manualmente. O ciclo atual foi preservado.');
   },
 };

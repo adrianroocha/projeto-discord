@@ -256,17 +256,21 @@ Quando a fila está fechada, os botões ficam desabilitados.
 - Regra oficial recomendada: abertura às 19:00 e fechamento às 08:00 em `America/Sao_Paulo`.
 - Nesse modelo, o ciclo operacional começa na abertura das 19:00, permanece aberto durante a madrugada e fecha às 08:00 do dia seguinte.
 - A chave do ciclo corresponde à data local de abertura (ex.: ciclo `2026-08-07` vai de 07/08 19:00 até 08/08 08:00, no horário de Brasília).
+- No fechamento automático das 08:00, o ciclo vigente é finalizado de forma transacional: limpa `queue_entries`, `lobby_players`, `lobbies` e os `queue_priority_snapshots` do ciclo encerrado.
+- O fechamento automático remove lobbies `forming` e `in_game`, pois representam o estado operacional de partidas já despachadas no ciclo encerrado.
 - O scheduler de desenvolvimento abre imediatamente ao iniciar o bot, mantém a fila aberta por 5 minutos, fecha por 5 minutos e repete indefinidamente.
 - Abrir a fila limpa completamente o ciclo anterior: fila, lobby players e lobbies.
 
 ### Restart e overrides manuais do scheduler
 
-- O scheduler persiste o último ciclo de abertura programada já aplicado, evitando reset duplicado após restart no mesmo ciclo.
+- O scheduler persiste o último ciclo de abertura programada já aplicado e a última finalização automática por cycle key, evitando duplicidade em restart/reconciliação.
 - Restart no período fechado (08:00-18:59:59 em Brasília): mantém fila fechada, sem criar novo ciclo.
 - Restart no período aberto (após 19:00 e durante madrugada): mantém fila aberta no ciclo correto sem reset repetido.
-- Se o bot perder a abertura programada e iniciar depois, a abertura é aplicada uma única vez e marcada em persistência.
-- `/scheduler-open` cria novo ciclo manualmente (com limpeza), e `/scheduler-close` fecha sem limpar.
+- Se o bot perder o fechamento das 08:00 (offline), a finalização pendente é aplicada uma única vez na reconciliação seguinte antes de abrir novo ciclo.
+- Se o bot iniciar após 19:00 sem ter executado o fechamento das 08:00, ele finaliza o ciclo anterior e só então abre o ciclo novo vazio.
+- `/scheduler-open` cria novo ciclo manualmente (com limpeza transacional), e `/scheduler-close` fecha sem limpar.
 - Overrides manuais permanecem até a próxima transição agendada; nessa transição o scheduler volta ao estado `scheduled`.
+- A finalização automática é idempotente por cycle key persistida em `scheduler_state.last_scheduled_close_cycle_key`.
 
 ### Ciclo de lobbies no ciclo atual
 
@@ -277,6 +281,7 @@ Quando a fila está fechada, os botões ficam desabilitados.
 - O mesmo `discord_id` pode aparecer em lobbies diferentes no mesmo ciclo de forma intencional.
 - `/scheduler-close` preserva lobbies existentes (forming e in_game).
 - `/scheduler-open` inicia novo ciclo e limpa `lobbies` e `lobby_players` via `resetQueueCycle`.
+- No fechamento automático agendado, `forming` e `in_game` são removidas junto com o restante do ciclo encerrado.
 
 ## Scripts úteis
 

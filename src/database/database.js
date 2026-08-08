@@ -76,6 +76,7 @@ async function initDatabase() {
       manual_override_until_ms INTEGER NULL,
       last_scheduled_open_cycle_key TEXT NULL,
       last_scheduled_open_at_ms INTEGER NULL,
+      last_scheduled_close_cycle_key TEXT NULL,
       last_scheduled_close_at_ms INTEGER NULL,
       updated_at_ms INTEGER NOT NULL
     )
@@ -251,10 +252,19 @@ async function initDatabase() {
         manual_override_until_ms,
         last_scheduled_open_cycle_key,
         last_scheduled_open_at_ms,
+        last_scheduled_close_cycle_key,
         last_scheduled_close_at_ms,
         updated_at_ms
-      ) VALUES (1, 'closed', 'scheduled', NULL, NULL, NULL, NULL, NULL, ?)`
+      ) VALUES (1, 'closed', 'scheduled', NULL, NULL, NULL, NULL, NULL, NULL, ?)`
     ).run(Date.now());
+  }
+
+  const schedulerStateInfo = db.prepare("PRAGMA table_info(scheduler_state)").all();
+  const hasLastScheduledCloseCycleKey = schedulerStateInfo.some(
+    (column) => column.name === 'last_scheduled_close_cycle_key',
+  );
+  if (!hasLastScheduledCloseCycleKey) {
+    db.exec('ALTER TABLE scheduler_state ADD COLUMN last_scheduled_close_cycle_key TEXT NULL');
   }
 
   const sqliteBackupSchedulerState = db

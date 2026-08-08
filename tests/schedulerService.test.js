@@ -163,6 +163,7 @@ describe('scheduler service', () => {
 
     expect(openSpy).toHaveBeenCalledWith(client, { manual: true });
     expect(closeSpy).toHaveBeenCalledWith(client, { manual: true });
+    expect(interaction.editReply).toHaveBeenNthCalledWith(2, '🔒 Fila fechada manualmente. O ciclo atual foi preservado.');
   });
 
   test('stopScheduler cancela timers e impede novo ciclo após shutdown', async () => {

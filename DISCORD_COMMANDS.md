@@ -206,6 +206,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Limitações: ação administrativa.
 - Efeitos em lobbies: preserva lobbies existentes (`forming` e `in_game`) e seus registros em `lobby_players`.
 - Persistência de override: o fechamento manual permanece após restart até a próxima transição agendada (ex.: 08:00/19:00 no timezone configurado).
+- Mensagem administrativa: "Fila fechada manualmente. O ciclo atual foi preservado."
 
 ## /scheduler-open
 - Nome: /scheduler-open
@@ -221,6 +222,12 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Limitações: ação administrativa.
 - Efeitos em lobbies: limpa `lobbies` e `lobby_players` ao iniciar o novo ciclo.
 - Persistência de override: a abertura manual permanece após restart até a próxima transição agendada.
+
+## Regras de transição agendada (produção)
+- Fechamento automático (08:00 no timezone configurado): fecha entradas novas e finaliza o ciclo de forma transacional.
+- Limpeza da finalização automática: remove `queue_entries`, `lobby_players`, `lobbies` (incluindo `forming` e `in_game`) e `queue_priority_snapshots` do ciclo encerrado.
+- Idempotência persistida: a finalização automática é marcada por cycle key em `scheduler_state` e não é aplicada duas vezes no mesmo ciclo.
+- Abertura automática (19:00): abre ciclo novo vazio; se o fechamento das 08:00 foi perdido por offline, a finalização pendente é aplicada uma única vez antes da abertura.
 
 ## /scheduler-status
 - Nome: /scheduler-status

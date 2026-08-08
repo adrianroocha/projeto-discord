@@ -39,9 +39,10 @@ function ensureRow(txDb) {
         manual_override_until_ms,
         last_scheduled_open_cycle_key,
         last_scheduled_open_at_ms,
+        last_scheduled_close_cycle_key,
         last_scheduled_close_at_ms,
         updated_at_ms
-      ) VALUES (1, 'closed', 'scheduled', NULL, NULL, NULL, NULL, NULL, ?)`
+      ) VALUES (1, 'closed', 'scheduled', NULL, NULL, NULL, NULL, NULL, NULL, ?)`
     ).run(Date.now());
   }
 }
@@ -54,6 +55,7 @@ function mapRow(row) {
     manualOverrideUntilMs: row.manual_override_until_ms,
     lastScheduledOpenCycleKey: row.last_scheduled_open_cycle_key,
     lastScheduledOpenAtMs: row.last_scheduled_open_at_ms,
+    lastScheduledCloseCycleKey: row.last_scheduled_close_cycle_key,
     lastScheduledCloseAtMs: row.last_scheduled_close_at_ms,
     updatedAtMs: row.updated_at_ms,
   };
@@ -71,6 +73,7 @@ function getState(txDb) {
       manual_override_until_ms,
       last_scheduled_open_cycle_key,
       last_scheduled_open_at_ms,
+      last_scheduled_close_cycle_key,
       last_scheduled_close_at_ms,
       updated_at_ms
      FROM scheduler_state
@@ -114,6 +117,10 @@ function updateState(patch, txDb) {
       Object.prototype.hasOwnProperty.call(patch, 'lastScheduledOpenAtMs')
         ? toNullableInteger(patch.lastScheduledOpenAtMs)
         : current.lastScheduledOpenAtMs,
+    last_scheduled_close_cycle_key:
+      Object.prototype.hasOwnProperty.call(patch, 'lastScheduledCloseCycleKey')
+        ? toNullableText(patch.lastScheduledCloseCycleKey)
+        : current.lastScheduledCloseCycleKey,
     last_scheduled_close_at_ms:
       Object.prototype.hasOwnProperty.call(patch, 'lastScheduledCloseAtMs')
         ? toNullableInteger(patch.lastScheduledCloseAtMs)
@@ -129,6 +136,7 @@ function updateState(patch, txDb) {
          manual_override_until_ms = ?,
          last_scheduled_open_cycle_key = ?,
          last_scheduled_open_at_ms = ?,
+         last_scheduled_close_cycle_key = ?,
          last_scheduled_close_at_ms = ?,
          updated_at_ms = ?
      WHERE id = 1`
@@ -139,6 +147,7 @@ function updateState(patch, txDb) {
     next.manual_override_until_ms,
     next.last_scheduled_open_cycle_key,
     next.last_scheduled_open_at_ms,
+    next.last_scheduled_close_cycle_key,
     next.last_scheduled_close_at_ms,
     next.updated_at_ms,
   );

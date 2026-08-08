@@ -86,7 +86,7 @@ describe('appBootstrapService', () => {
 
     const startPromise = service.start(discordClient);
 
-    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(discordClient.once).toHaveBeenCalledWith(Events.ClientReady, expect.any(Function));
     expect(discordClient.once).not.toHaveBeenCalledWith('ready', expect.any(Function));
