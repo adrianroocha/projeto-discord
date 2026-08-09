@@ -422,8 +422,10 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 
 - Painel permanente de vínculo: mensagem única com botão `Vincular conta Kick` no canal configurado por `KICK_LINK_CHANNEL_ID`.
 - O comando `/kick-link` permanece disponível como alternativa ao painel.
-- `/kick-status` mostra o estado do vínculo Kick do usuário, o estado observado da assinatura via webhook e a elegibilidade consolidada.
-- Cargo SUB: sincronizado por gatilhos automáticos e reconciliação periódica.
+- `/kick-status` aceita consulta própria (`/kick-status`) e consulta opcional de terceiro (`/kick-status usuario:@Membro`) para quem possui `Administrator` ou `Manage Guild`.
+- A resposta de `/kick-status` é sempre privada (`ephemeral`) e usa apenas estado local persistido (SQLite + services existentes), sem chamada extra à API da Kick por consulta.
+- `/kick-status` não sincroniza cargo automaticamente, não altera banco e não recalcula snapshot de prioridade de quem já entrou na fila no ciclo atual.
+- Em `/kick-status`, elegibilidade de negócio e estado real do cargo Discord são exibidos separadamente (cargo presente/ausente/indisponível e membro gerenciável/não gerenciável/indisponível).
 - Prioridade da fila: definida por snapshot na primeira entrada do usuário em cada ciclo.
 - `/kick-unlink` é administrativo e desvincula um usuário alvo com confirmação explícita por botões.
 - A confirmação de desvinculação usa identificador temporário, de uso único e com expiração de 5 minutos.

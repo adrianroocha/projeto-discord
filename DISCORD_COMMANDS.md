@@ -78,16 +78,22 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 
 ## /kick-status
 - Nome: /kick-status
-- Finalidade: mostrar vínculo Kick, estado da assinatura Kick, concessão manual e elegibilidade final do próprio usuário.
+- Finalidade: mostrar vínculo Kick, estado da assinatura Kick, concessão manual, elegibilidade final e diagnóstico seguro do cargo SUB.
 - Quem pode usar: qualquer usuário.
 - Onde usar: servidor Discord.
-- Parâmetros: nenhum.
+- Parâmetros: usuario (user, opcional).
 - Resposta: ephemeral.
 - Exemplo: /kick-status
+- Exemplo: /kick-status usuario:@Membro
 - Efeitos no banco: apenas leitura.
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: nenhum.
-- Limitações: depende de eventos webhook para observar assinatura Kick; não recalcula snapshot de prioridade para usuários já na fila no ciclo atual.
+- Regras de acesso:
+- Sem `usuario`, o comando consulta o próprio autor.
+- Com `usuario` apontando para o próprio autor, a consulta é permitida normalmente.
+- Com `usuario` apontando para outro membro, exige `Administrator` ou `Manage Guild`.
+- Consulta de terceiro é recusada quando o membro alvo não estiver disponível no servidor.
+- Limitações: depende de eventos webhook para observar assinatura Kick; reflete apenas estado local já persistido; não força atualização na API da Kick, não sincroniza cargo automaticamente e não recalcula snapshot de prioridade para usuários já na fila no ciclo atual.
 
 ## /kick-unlink
 - Nome: /kick-unlink
