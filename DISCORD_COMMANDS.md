@@ -7,6 +7,22 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Mensagem retornada quando possível: "O bot está reiniciando. Tente novamente em instantes." (ephemeral).
 - Objetivo: evitar início de operações novas enquanto schedulers, integração HTTP, Discord e SQLite estão sendo encerrados de forma coordenada.
 
+## Auditoria administrativa de fila e lobbies
+- Fonte oficial: tabela SQLite `admin_command_audit_logs`.
+- Escopo auditado nesta etapa (comandos mutáveis): `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start`.
+- Comandos administrativos de consulta não auditados nesta etapa: `/scheduler-status`, `/fila-status`, `/lobby-status`.
+- Cada tentativa registra início (`pending`) e resultado final (`success`, `failed` ou `denied`) com código seguro.
+- Metadados permitidos: `interaction_id`, `guild_id`, `channel_id`, ator, comando, parâmetros saneados, `queue_cycle_id`, estado operacional seguro antes/depois, `error_code` e timestamps.
+- Dados proibidos: tokens, secrets, payload completo de interação/Discord, stack trace, mensagem interna de exceção, dados sensíveis de OAuth/Kick.
+- Se a auditoria obrigatória falhar antes da mutação, a ação administrativa mutável é recusada.
+- Falha de publicação opcional no Discord não desfaz operação concluída e gera apenas warning seguro.
+- Canal opcional de resumo: `ADMIN_AUDIT_CHANNEL_ID` (com validação de guild e `allowedMentions` sem menções).
+- Retenção automática: `ADMIN_AUDIT_RETENTION_DAYS` (padrão 30 dias; inteiro seguro entre 1 e 3650).
+- Cutoff de retenção: remove apenas registros com `started_at_ms` estritamente anterior a `agora - retentionDays`.
+- Fronteira: registro exatamente no cutoff é preservado.
+- Resultados antigos elegíveis para limpeza: `pending`, `success`, `failed` e `denied`.
+- Escopo da limpeza: somente `admin_command_audit_logs`; sem `VACUUM` automático.
+
 ## /dev-clear-test-data
 - Nome: /dev-clear-test-data
 - Finalidade: limpar dados fictícios de fila/lobbies usados em desenvolvimento.
@@ -111,6 +127,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: reduz fila e atualiza painel.
 - Limitações: falha se não houver jogadores suficientes.
+- Auditoria administrativa: registra tentativa, quantidade solicitada, quantidade usada, lobby criada (ID/número seguro), ciclo e resultado seguro (`success`, `failed` ou `denied`).
 
 ## /lobby-start
 - Nome: /lobby-start
@@ -127,6 +144,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Estado final operacional: após iniciar, a lobby passa para `in_game` e permanece assim até o reset do ciclo.
 - Reentrada de jogadores: usuários da lobby iniciada (`in_game`) podem entrar novamente na fila no mesmo ciclo.
 - Histórico: os registros anteriores em `lobby_players` permanecem preservados até o próximo `resetQueueCycle`.
+- Auditoria administrativa: registra tentativa, lobby alvo (ID/número seguro), estado anterior/seguinte (`in_game`) quando aplicável, ciclo e resultado seguro (`success`, `failed` ou `denied`).
 
 ## /lobby-status
 - Nome: /lobby-status
@@ -208,6 +226,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos em lobbies: preserva lobbies existentes (`forming` e `in_game`) e seus registros em `lobby_players`.
 - Persistência de override: o fechamento manual permanece após restart até a próxima transição agendada (ex.: 08:00/19:00 no timezone configurado).
 - Mensagem administrativa: "Fila fechada manualmente. O ciclo atual foi preservado."
+- Auditoria administrativa: registra tentativa, estado anterior/posterior, ciclo atual preservado e resultado seguro (`success`, `failed` ou `denied`).
 
 ## /scheduler-open
 - Nome: /scheduler-open
@@ -223,12 +242,14 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Limitações: ação administrativa.
 - Efeitos em lobbies: limpa `lobbies` e `lobby_players` ao iniciar o novo ciclo.
 - Persistência de override: a abertura manual permanece após restart até a próxima transição agendada.
+- Auditoria administrativa: registra tentativa, estado anterior/posterior, ciclo anterior/novo ciclo quando disponível e indicação de reinício manual de ciclo.
 
 ## Regras de transição agendada (produção)
 - Fechamento automático (08:00 no timezone configurado): fecha entradas novas e finaliza o ciclo de forma transacional.
 - Limpeza da finalização automática: remove `queue_entries`, `lobby_players`, `lobbies` (incluindo `forming` e `in_game`) e `queue_priority_snapshots` do ciclo encerrado.
 - Idempotência persistida: a finalização automática é marcada por cycle key em `scheduler_state` e não é aplicada duas vezes no mesmo ciclo.
 - Abertura automática (19:00): abre ciclo novo vazio; se o fechamento das 08:00 foi perdido por offline, a finalização pendente é aplicada uma única vez antes da abertura.
+- Observação de auditoria: as transições automáticas (08:00/19:00) não possuem moderador humano e não entram na auditoria administrativa de comandos slash.
 
 ## /scheduler-status
 - Nome: /scheduler-status

@@ -73,6 +73,8 @@ GUILD_ID=
 QUEUE_PANEL_CHANNEL_ID=
 QUEUE_CHANNEL_ID=
 KICK_LINK_CHANNEL_ID=
+ADMIN_AUDIT_CHANNEL_ID=
+ADMIN_AUDIT_RETENTION_DAYS=30
 
 # Roles
 SUBSCRIBER_ROLE_ID=
@@ -173,6 +175,12 @@ KICK_HTTP_MAX_URL_LENGTH=8192
 
 # Porta da aplicação (fallback local)
 KICK_PORT=3000
+
+# Canal opcional de resumo de auditoria administrativa
+ADMIN_AUDIT_CHANNEL_ID=
+
+# Retenção automática da auditoria administrativa (1..3650)
+ADMIN_AUDIT_RETENTION_DAYS=30
 ```
 
 ### Regras operacionais no Railway
@@ -217,6 +225,37 @@ Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COM
 - `/lobby-form-force` - força a criação de uma lobby com jogadores suficientes.
 - `/kick-events-sync` - sincroniza os event subscriptions oficiais da Kick para o webhook da aplicação e aceita `force:true` para uma ressincronização manual.
 - `/kick-webhook-status` - mostra auditoria resumida do último webhook válido recebido pela integração Kick.
+
+### Auditoria administrativa de fila e lobbies
+
+- Fonte oficial: SQLite (`admin_command_audit_logs`).
+- Escopo atual auditado: `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start`.
+- Comandos administrativos de consulta não entram nesta etapa: `/scheduler-status`, `/fila-status`, `/lobby-status`.
+- Para cada tentativa, o bot registra início (`pending`) e finaliza como `success`, `failed` ou `denied`.
+- Campos persistidos são apenas metadados seguros: `interaction_id`, `guild_id`, `channel_id`, ator, comando, parâmetros saneados, `queue_cycle_id`, estados operacionais seguros, código seguro e timestamps.
+- Dados proibidos no log: token, secret, payload completo do Discord, OAuth/Kick sensível, stack trace e mensagens internas de exceção.
+- Se a criação do registro obrigatório no SQLite falhar antes da mutação, a ação administrativa mutável é recusada.
+- Se a ação principal concluir e a finalização da auditoria falhar, a ação não é revertida; o bot gera apenas warning seguro.
+- Idempotência por `interaction_id`: a mesma interação não gera duas execuções auditadas.
+
+#### Canal privado opcional de resumo
+
+- Variável: `ADMIN_AUDIT_CHANNEL_ID`.
+- Quando ausente, a auditoria em SQLite continua ativa e o bot inicia normalmente.
+- Quando presente, o bot valida que o canal pertence ao `GUILD_ID` e publica um resumo curto com `allowedMentions.parse = []`.
+- Falha de envio no Discord não reverte ação concluída e não cria loop de retry.
+
+#### Retenção automática da auditoria administrativa
+
+- Variável: `ADMIN_AUDIT_RETENTION_DAYS` (padrão `30`, faixa `1..3650`, inteiro seguro).
+- Configuração inválida interrompe startup com erro seguro de configuração.
+- A limpeza remove apenas metadados antigos da tabela `admin_command_audit_logs`.
+- Regra de cutoff: remove apenas registros com `started_at_ms < (agora - retentionDays)`.
+- Na fronteira exata (`started_at_ms === cutoff`), o registro é preservado.
+- Registros antigos `pending`, `success`, `failed` e `denied` são elegíveis para remoção.
+- A limpeza roda no startup do processo e depois no máximo uma vez a cada 24h com `setTimeout` encadeado.
+- A rotina não executa `VACUUM`; após `DELETE`, o SQLite pode reutilizar internamente o espaço liberado.
+- Backups SQLite podem manter cópias antigas por um período adicional conforme a retenção dos backups.
 
 ### Comandos de suporte e diagnóstico
 
@@ -271,6 +310,7 @@ Quando a fila está fechada, os botões ficam desabilitados.
 - `/scheduler-open` cria novo ciclo manualmente (com limpeza transacional), e `/scheduler-close` fecha sem limpar.
 - Overrides manuais permanecem até a próxima transição agendada; nessa transição o scheduler volta ao estado `scheduled`.
 - A finalização automática é idempotente por cycle key persistida em `scheduler_state.last_scheduled_close_cycle_key`.
+- As transições automáticas de 08:00 e 19:00 não têm moderador humano e não entram na auditoria administrativa de comandos slash.
 
 ### Ciclo de lobbies no ciclo atual
 

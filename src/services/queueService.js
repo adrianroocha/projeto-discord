@@ -378,12 +378,17 @@ function forceCreateLobby(limit = 4) {
   }
 
   const transaction = db.transaction(() => {
-    createLobbyWithEntries(entries, 'forced');
+    return createLobbyWithEntries(entries, 'forced');
   });
 
-  transaction();
+  const createdLobby = transaction();
   queueEvents.emit('queueUpdated');
-  return { success: true, entries };
+  return {
+    success: true,
+    entries,
+    lobbyId: createdLobby ? createdLobby.lobbyId : null,
+    lobbyNumber: createdLobby ? createdLobby.lobbyNumber : null,
+  };
 }
 
 function rebuildAutomaticFormingLobbies(excludedDiscordId) {

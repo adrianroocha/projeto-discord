@@ -63,6 +63,33 @@ function parseBoundedPositiveInteger(value, options) {
   return parsed;
 }
 
+function parseStrictBoundedPositiveInteger(value, options) {
+  const fallback = options.fallback;
+  const min = options.min;
+  const max = options.max;
+  const name = options.name || 'CONFIG_VALUE';
+
+  if (value === undefined || value === null || value === '') {
+    return fallback;
+  }
+
+  const normalized = String(value).trim();
+  if (!/^\d+$/.test(normalized)) {
+    throw Object.assign(new Error(`${name} inválido.`), {
+      code: 'INVALID_CONFIG_VALUE',
+    });
+  }
+
+  const parsed = Number(normalized);
+  if (!Number.isSafeInteger(parsed) || parsed < min || parsed > max) {
+    throw Object.assign(new Error(`${name} inválido.`), {
+      code: 'INVALID_CONFIG_VALUE',
+    });
+  }
+
+  return parsed;
+}
+
 function parseBoolean(value, fallback) {
   if (value === undefined || value === null || value === '') {
     return fallback;
@@ -170,6 +197,7 @@ module.exports = {
   queueChannelId: process.env.QUEUE_CHANNEL_ID || null,
   queuePanelChannelId: process.env.QUEUE_PANEL_CHANNEL_ID || null,
   kickLinkChannelId: process.env.KICK_LINK_CHANNEL_ID || null,
+  adminAuditChannelId: process.env.ADMIN_AUDIT_CHANNEL_ID || null,
   queueOpenTime: process.env.QUEUE_OPEN_TIME || '18:58',
   queueCloseTime: process.env.QUEUE_CLOSE_TIME || '06:00',
   queueTimezone: process.env.QUEUE_TIMEZONE || 'America/Sao_Paulo',
@@ -230,6 +258,12 @@ module.exports = {
     fallback: 7,
     min: 1,
     max: 365,
+  }),
+  adminAuditRetentionDays: parseStrictBoundedPositiveInteger(process.env.ADMIN_AUDIT_RETENTION_DAYS, {
+    fallback: 30,
+    min: 1,
+    max: 3650,
+    name: 'ADMIN_AUDIT_RETENTION_DAYS',
   }),
   sqliteBackupStartupDelaySeconds: parseBoundedPositiveInteger(
     process.env.SQLITE_BACKUP_STARTUP_DELAY_SECONDS,

@@ -9,6 +9,7 @@ describe('appBootstrapService', () => {
   test('falha parcial no bootstrap executa cleanup', async () => {
     const initDatabase = jest.fn().mockResolvedValue(undefined);
     const startKickHttpServer = jest.fn().mockResolvedValue({ started: true, host: '127.0.0.1', port: 3000 });
+    const adminAuditRetentionStart = jest.fn().mockResolvedValue({ started: true });
     const shutdown = jest.fn().mockResolvedValue({ exitCode: 1 });
     const login = jest.fn().mockRejectedValue(new Error('discord login failed'));
     const lifecycleService = {
@@ -29,6 +30,7 @@ describe('appBootstrapService', () => {
       schedulerService: { startScheduler: jest.fn() },
       sqliteBackupScheduler: { start: jest.fn() },
       subscriberRoleReconciliationScheduler: { start: jest.fn() },
+      adminAuditRetentionScheduler: { start: adminAuditRetentionStart },
       lifecycleService,
       gracefulShutdownService: { shutdown },
       logger: { info: jest.fn(), error: jest.fn() },
@@ -43,6 +45,7 @@ describe('appBootstrapService', () => {
 
     expect(result.started).toBe(false);
     expect(initDatabase).toHaveBeenCalledTimes(1);
+    expect(adminAuditRetentionStart).toHaveBeenCalledTimes(1);
     expect(startKickHttpServer).toHaveBeenCalledTimes(1);
     expect(lifecycleService.markFailed).toHaveBeenCalledWith('startup_failure');
     expect(lifecycleService.markReady).not.toHaveBeenCalled();
@@ -79,6 +82,7 @@ describe('appBootstrapService', () => {
       schedulerService: { startScheduler: jest.fn() },
       sqliteBackupScheduler: { start: jest.fn() },
       subscriberRoleReconciliationScheduler: { start: jest.fn() },
+      adminAuditRetentionScheduler: { start: jest.fn().mockResolvedValue({ started: true }) },
       lifecycleService: { markReady: jest.fn(), markFailed: jest.fn() },
       gracefulShutdownService: { shutdown: jest.fn().mockResolvedValue({ exitCode: 1 }) },
       logger: { info: jest.fn(), error: jest.fn() },
@@ -104,6 +108,7 @@ describe('appBootstrapService', () => {
     const startScheduler = jest.fn();
     const backupStart = jest.fn();
     const subReconciliationStart = jest.fn();
+    const adminAuditRetentionStart = jest.fn().mockResolvedValue({ started: true });
     const lifecycleService = {
       markReady: jest.fn(),
       markFailed: jest.fn(),
@@ -134,6 +139,7 @@ describe('appBootstrapService', () => {
       schedulerService: { startScheduler },
       sqliteBackupScheduler: { start: backupStart },
       subscriberRoleReconciliationScheduler: { start: subReconciliationStart },
+      adminAuditRetentionScheduler: { start: adminAuditRetentionStart },
       lifecycleService,
       gracefulShutdownService: { shutdown: jest.fn().mockResolvedValue({ exitCode: 1 }) },
       logger: { info: jest.fn(), error: jest.fn() },
@@ -149,6 +155,7 @@ describe('appBootstrapService', () => {
     expect(startScheduler).toHaveBeenCalledTimes(1);
     expect(backupStart).toHaveBeenCalledTimes(1);
     expect(subReconciliationStart).toHaveBeenCalledTimes(1);
+    expect(adminAuditRetentionStart).toHaveBeenCalledTimes(1);
     expect(lifecycleService.markReady).toHaveBeenCalledTimes(1);
     expect(lifecycleService.markFailed).not.toHaveBeenCalled();
   });

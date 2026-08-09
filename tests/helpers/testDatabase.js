@@ -30,6 +30,7 @@ async function createTestContext(options = {}) {
   process.env.SUBSCRIBER_ROLE_ID = options.subscriberRoleId || '';
   process.env.QUEUE_CHANNEL_ID = options.queueChannelId || '';
   process.env.QUEUE_PANEL_CHANNEL_ID = options.queuePanelChannelId || '';
+  process.env.ADMIN_AUDIT_CHANNEL_ID = options.adminAuditChannelId || '';
   process.env.QUEUE_OPEN_TIME = options.queueOpenTime || '18:58';
   process.env.QUEUE_CLOSE_TIME = options.queueCloseTime || '06:00';
   process.env.QUEUE_TIMEZONE = options.queueTimezone || 'America/Sao_Paulo';
@@ -57,6 +58,7 @@ async function createTestContext(options = {}) {
   process.env.SQLITE_BACKUP_TIME = options.sqliteBackupTime || '08:15';
   process.env.SQLITE_BACKUP_TIMEZONE = options.sqliteBackupTimezone || 'America/Sao_Paulo';
   process.env.SQLITE_BACKUP_RETENTION_DAYS = String(options.sqliteBackupRetentionDays || 7);
+  process.env.ADMIN_AUDIT_RETENTION_DAYS = String(options.adminAuditRetentionDays || 30);
   process.env.SQLITE_BACKUP_STARTUP_DELAY_SECONDS = String(
     options.sqliteBackupStartupDelaySeconds === undefined
       ? 60
@@ -86,6 +88,7 @@ async function createTestContext(options = {}) {
     delete process.env.SUBSCRIBER_ROLE_ID;
     delete process.env.QUEUE_CHANNEL_ID;
     delete process.env.QUEUE_OPEN_TIME;
+    delete process.env.ADMIN_AUDIT_CHANNEL_ID;
     delete process.env.QUEUE_CLOSE_TIME;
     delete process.env.QUEUE_TIMEZONE;
     delete process.env.QUEUE_TEST_INTERVAL_MINUTES;
@@ -100,6 +103,7 @@ async function createTestContext(options = {}) {
     delete process.env.SQLITE_BACKUP_TIME;
     delete process.env.SQLITE_BACKUP_TIMEZONE;
     delete process.env.SQLITE_BACKUP_RETENTION_DAYS;
+    delete process.env.ADMIN_AUDIT_RETENTION_DAYS;
     delete process.env.SQLITE_BACKUP_STARTUP_DELAY_SECONDS;
 
     jest.resetModules();

@@ -3,6 +3,7 @@ const lifecycleService = require('./applicationLifecycleService');
 const schedulerService = require('./schedulerService');
 const sqliteBackupScheduler = require('./sqliteBackupScheduler');
 const subscriberRoleReconciliationScheduler = require('./subscriberRoleReconciliationScheduler');
+const adminAuditRetentionScheduler = require('./adminAuditRetentionScheduler');
 const kickHttpServer = require('./kickHttpServer');
 const sqliteClient = require('../database/sqliteClient');
 
@@ -26,6 +27,8 @@ function createGracefulShutdownService(options = {}) {
   const lifecycle = options.lifecycleService || lifecycleService;
   const queueScheduler = options.schedulerService || schedulerService;
   const backupScheduler = options.sqliteBackupScheduler || sqliteBackupScheduler;
+  const auditRetentionScheduler =
+    options.adminAuditRetentionScheduler || adminAuditRetentionScheduler;
   const reconciliationScheduler =
     options.subscriberRoleReconciliationScheduler || subscriberRoleReconciliationScheduler;
   const kickServer = options.kickHttpServer || kickHttpServer;
@@ -102,6 +105,8 @@ function createGracefulShutdownService(options = {}) {
         'stop_queue_scheduler',
         'stop_sqlite_backup_scheduler',
         'wait_sqlite_backup_inflight',
+        'stop_admin_audit_retention_scheduler',
+        'wait_admin_audit_retention_inflight',
         'stop_sub_reconciliation_scheduler',
         'stop_kick_http_server',
         'destroy_discord_client',
@@ -140,6 +145,23 @@ function createGracefulShutdownService(options = {}) {
             if (waitResult && waitResult.timeout) {
               const timeoutError = new Error('Timeout aguardando backup SQLite em andamento.');
               timeoutError.code = 'SQLITE_BACKUP_WAIT_TIMEOUT';
+              throw timeoutError;
+            }
+          }
+        });
+
+        await runStage(summary, 'stop_admin_audit_retention_scheduler', async () => {
+          if (typeof auditRetentionScheduler.stop === 'function') {
+            auditRetentionScheduler.stop();
+          }
+        });
+
+        await runStage(summary, 'wait_admin_audit_retention_inflight', async () => {
+          if (typeof auditRetentionScheduler.waitForIdle === 'function') {
+            const waitResult = await auditRetentionScheduler.waitForIdle(shutdownTimeoutMs);
+            if (waitResult && waitResult.timeout) {
+              const timeoutError = new Error('Timeout aguardando retenção de auditoria administrativa.');
+              timeoutError.code = 'ADMIN_AUDIT_RETENTION_WAIT_TIMEOUT';
               throw timeoutError;
             }
           }

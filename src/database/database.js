@@ -215,6 +215,27 @@ async function initDatabase() {
     )
   `;
 
+  const createAdminCommandAuditLogsTableSql = `
+    CREATE TABLE IF NOT EXISTS admin_command_audit_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      interaction_id TEXT NOT NULL,
+      guild_id TEXT NULL,
+      channel_id TEXT NULL,
+      actor_discord_id TEXT NOT NULL,
+      actor_username TEXT NOT NULL,
+      command_name TEXT NOT NULL,
+      parameters_json TEXT NULL,
+      queue_cycle_id INTEGER NULL,
+      previous_state_json TEXT NULL,
+      next_state_json TEXT NULL,
+      result TEXT NOT NULL,
+      error_code TEXT NULL,
+      started_at_ms INTEGER NOT NULL,
+      finished_at_ms INTEGER NULL,
+      created_at_ms INTEGER NOT NULL
+    )
+  `;
+
 
   db.exec(createUsersTableSql);
   db.exec(createQueueEntriesTableSql);
@@ -233,6 +254,7 @@ async function initDatabase() {
   db.exec(createSubscriberRoleReconciliationRunsTableSql);
   db.exec(createSqliteBackupRunsTableSql);
   db.exec(createSqliteBackupSchedulerStateSql);
+  db.exec(createAdminCommandAuditLogsTableSql);
 
   const cycleState = db.prepare('SELECT id, current_cycle_id FROM queue_cycle_state WHERE id = 1').get();
   if (!cycleState) {
@@ -428,6 +450,34 @@ async function initDatabase() {
     .get();
   if (backupRunsByResult && backupRunsByResult.c === 0) {
     db.exec('CREATE INDEX idx_app_sqlite_backup_runs_result ON app_sqlite_backup_runs(result)');
+  }
+
+  const adminAuditInteractionUnique = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='uniq_admin_command_audit_interaction_id'")
+    .get();
+  if (adminAuditInteractionUnique && adminAuditInteractionUnique.c === 0) {
+    db.exec('CREATE UNIQUE INDEX uniq_admin_command_audit_interaction_id ON admin_command_audit_logs(interaction_id)');
+  }
+
+  const adminAuditByActor = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='idx_admin_command_audit_actor_discord_id'")
+    .get();
+  if (adminAuditByActor && adminAuditByActor.c === 0) {
+    db.exec('CREATE INDEX idx_admin_command_audit_actor_discord_id ON admin_command_audit_logs(actor_discord_id)');
+  }
+
+  const adminAuditByCommand = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='idx_admin_command_audit_command_name'")
+    .get();
+  if (adminAuditByCommand && adminAuditByCommand.c === 0) {
+    db.exec('CREATE INDEX idx_admin_command_audit_command_name ON admin_command_audit_logs(command_name)');
+  }
+
+  const adminAuditByStartedAt = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='idx_admin_command_audit_started_at_ms'")
+    .get();
+  if (adminAuditByStartedAt && adminAuditByStartedAt.c === 0) {
+    db.exec('CREATE INDEX idx_admin_command_audit_started_at_ms ON admin_command_audit_logs(started_at_ms DESC)');
   }
 
 }

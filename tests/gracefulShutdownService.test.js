@@ -50,6 +50,12 @@ describe('gracefulShutdownService', () => {
         stop: jest.fn(),
       };
 
+    const adminAuditRetentionScheduler =
+      overrides.adminAuditRetentionScheduler || {
+        stop: jest.fn(),
+        waitForIdle: jest.fn().mockResolvedValue({ waited: false, timeout: false }),
+      };
+
     const kickHttpServer = overrides.kickHttpServer || {
       stopKickHttpServer: jest.fn().mockResolvedValue(undefined),
     };
@@ -71,6 +77,7 @@ describe('gracefulShutdownService', () => {
       schedulerService,
       sqliteBackupScheduler,
       subscriberRoleReconciliationScheduler,
+      adminAuditRetentionScheduler,
       kickHttpServer,
       sqliteClient,
       processRef,
@@ -85,6 +92,7 @@ describe('gracefulShutdownService', () => {
       schedulerService,
       sqliteBackupScheduler,
       subscriberRoleReconciliationScheduler,
+      adminAuditRetentionScheduler,
       kickHttpServer,
       sqliteClient,
       logger,
@@ -101,6 +109,8 @@ describe('gracefulShutdownService', () => {
       'stop_queue_scheduler',
       'stop_sqlite_backup_scheduler',
       'wait_sqlite_backup_inflight',
+      'stop_admin_audit_retention_scheduler',
+      'wait_admin_audit_retention_inflight',
       'stop_sub_reconciliation_scheduler',
       'stop_kick_http_server',
       'destroy_discord_client',

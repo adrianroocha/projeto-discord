@@ -8,6 +8,7 @@ const kickLinkPanelService = require('./kickLinkPanelService');
 const schedulerService = require('./schedulerService');
 const sqliteBackupScheduler = require('./sqliteBackupScheduler');
 const subscriberRoleReconciliationScheduler = require('./subscriberRoleReconciliationScheduler');
+const adminAuditRetentionScheduler = require('./adminAuditRetentionScheduler');
 const lifecycleService = require('./applicationLifecycleService');
 const gracefulShutdownService = require('./gracefulShutdownService');
 
@@ -50,6 +51,7 @@ function createAppBootstrapService(options = {}) {
   const backupScheduler = options.sqliteBackupScheduler || sqliteBackupScheduler;
   const subReconciliationScheduler =
     options.subscriberRoleReconciliationScheduler || subscriberRoleReconciliationScheduler;
+  const adminAuditRetention = options.adminAuditRetentionScheduler || adminAuditRetentionScheduler;
   const lifecycle = options.lifecycleService || lifecycleService;
   const shutdownService = options.gracefulShutdownService || gracefulShutdownService;
   const logger = options.logger || console;
@@ -60,6 +62,8 @@ function createAppBootstrapService(options = {}) {
       if (typeof logger?.info === 'function') {
         logger.info(`Banco de dados inicializado em ${cfg.databasePath}`);
       }
+
+      await adminAuditRetention.start();
 
       const kickServer = await kickHttpServerStarter({ discordClient });
       if (kickServer.started && typeof logger?.info === 'function') {

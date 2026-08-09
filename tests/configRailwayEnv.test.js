@@ -14,6 +14,7 @@ function loadConfig(overrides = {}) {
       key === 'KICK_HOST' ||
       key === 'DATABASE_PATH' ||
       key === 'SQLITE_BACKUP_DIRECTORY' ||
+      key === 'ADMIN_AUDIT_RETENTION_DAYS' ||
       key === 'DISCORD_TOKEN' ||
       key === 'GUILD_ID'
     ) {
@@ -32,6 +33,7 @@ describe('config Railway host/port and data paths', () => {
     delete process.env.KICK_HOST;
     delete process.env.DATABASE_PATH;
     delete process.env.SQLITE_BACKUP_DIRECTORY;
+    delete process.env.ADMIN_AUDIT_RETENTION_DAYS;
     delete process.env.DISCORD_TOKEN;
     delete process.env.GUILD_ID;
     jest.resetModules();
@@ -70,5 +72,25 @@ describe('config Railway host/port and data paths', () => {
 
     expect(config.databasePath).toBe('/data/database.sqlite');
     expect(config.sqliteBackupDirectory).toBe('/data/backups');
+  });
+
+  test('retenção de auditoria administrativa usa padrão de 30 dias', () => {
+    const config = loadConfig({});
+    expect(config.adminAuditRetentionDays).toBe(30);
+  });
+
+  test('retenção de auditoria administrativa aceita valor válido', () => {
+    const config = loadConfig({ ADMIN_AUDIT_RETENTION_DAYS: '3650' });
+    expect(config.adminAuditRetentionDays).toBe(3650);
+  });
+
+  test.each([
+    ['0'],
+    ['-1'],
+    ['30.5'],
+    ['abc'],
+    ['3651'],
+  ])('retenção de auditoria administrativa inválida (%s) falha startup de configuração', (value) => {
+    expect(() => loadConfig({ ADMIN_AUDIT_RETENTION_DAYS: value })).toThrow('ADMIN_AUDIT_RETENTION_DAYS inválido.');
   });
 });
