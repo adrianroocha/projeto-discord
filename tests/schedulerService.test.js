@@ -7,6 +7,9 @@ const { createTestContext, getDb, countRows, insertLobby, insertLobbyPlayer, see
 function createClientStub(queueChannelId) {
   const permissionOverwrites = {
     edit: jest.fn().mockResolvedValue(undefined),
+    set: jest.fn().mockResolvedValue(undefined),
+    create: jest.fn().mockResolvedValue(undefined),
+    delete: jest.fn().mockResolvedValue(undefined),
   };
 
   const channel = {
@@ -20,6 +23,7 @@ function createClientStub(queueChannelId) {
   };
 
   return {
+    __queuePermissionOverwrites: permissionOverwrites,
     user: { id: 'bot-user' },
     channels: {
       cache: new Map([[queueChannelId, channel]]),
@@ -128,6 +132,10 @@ describe('scheduler service', () => {
     expect(countRows(db, 'lobby_players')).toBe(0);
     expect(countRows(db, 'lobbies')).toBe(0);
     expect(panelService.updatePanel).toHaveBeenCalled();
+    expect(client.__queuePermissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(client.__queuePermissionOverwrites.set).not.toHaveBeenCalled();
+    expect(client.__queuePermissionOverwrites.create).not.toHaveBeenCalled();
+    expect(client.__queuePermissionOverwrites.delete).not.toHaveBeenCalled();
 
     await jest.advanceTimersByTimeAsync(5 * 60_000);
     expect(schedulerService.isQueueOpen()).toBe(false);
@@ -144,6 +152,8 @@ describe('scheduler service', () => {
 
     expect(schedulerService.isQueueOpen()).toBe(true);
     expect(panelService.updatePanel).toHaveBeenCalledTimes(1);
+    expect(client.__queuePermissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(client.__queuePermissionOverwrites.set).not.toHaveBeenCalled();
   });
 
   test('scheduler-open e scheduler-close usam o mesmo serviço manual', async () => {
@@ -164,6 +174,8 @@ describe('scheduler service', () => {
     expect(openSpy).toHaveBeenCalledWith(client, { manual: true });
     expect(closeSpy).toHaveBeenCalledWith(client, { manual: true });
     expect(interaction.editReply).toHaveBeenNthCalledWith(2, '🔒 Fila fechada manualmente. O ciclo atual foi preservado.');
+    expect(client.__queuePermissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(client.__queuePermissionOverwrites.set).not.toHaveBeenCalled();
   });
 
   test('stopScheduler cancela timers e impede novo ciclo após shutdown', async () => {
@@ -178,5 +190,7 @@ describe('scheduler service', () => {
     await jest.advanceTimersByTimeAsync(30 * 60_000);
     expect(schedulerService.isQueueOpen()).toBe(false);
     expect(panelService.updatePanel).toHaveBeenCalledTimes(1);
+    expect(client.__queuePermissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(client.__queuePermissionOverwrites.set).not.toHaveBeenCalled();
   });
 });

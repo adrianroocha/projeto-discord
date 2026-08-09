@@ -82,13 +82,21 @@ function createAppBootstrapService(options = {}) {
         logger.info('Slash commands registrados no Discord.');
       }
 
-      await queuePanel.initPanel(discordClient);
-      if (typeof logger?.info === 'function') {
+      const queuePanelResult = await queuePanel.initPanel(discordClient);
+      if (queuePanelResult && queuePanelResult.code === 'CHANNEL_ACCESS_DENIED') {
+        if (typeof logger?.warn === 'function') {
+          logger.warn('Painel de fila não inicializado: permissões insuficientes no canal. code=CHANNEL_ACCESS_DENIED');
+        }
+      } else if (typeof logger?.info === 'function') {
         logger.info('Painel de fila inicializado.');
       }
 
       const kickPanelResult = await kickPanel.initPanel(discordClient);
-      if (kickPanelResult && kickPanelResult.enabled && typeof logger?.info === 'function') {
+      if (kickPanelResult && kickPanelResult.code === 'CHANNEL_ACCESS_DENIED') {
+        if (typeof logger?.warn === 'function') {
+          logger.warn('Painel de vínculo Kick não inicializado: permissões insuficientes no canal. code=CHANNEL_ACCESS_DENIED');
+        }
+      } else if (kickPanelResult && kickPanelResult.enabled && typeof logger?.info === 'function') {
         logger.info('Painel de vínculo Kick inicializado.');
       }
 

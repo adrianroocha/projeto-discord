@@ -2,6 +2,7 @@ const { ActionRowBuilder, ButtonBuilder, ButtonStyle, PermissionFlagsBits, Chann
 const config = require('../config');
 
 const PANEL_PREFIX = '## Vincule sua conta Kick';
+const CHANNEL_ACCESS_DENIED_CODE = 'CHANNEL_ACCESS_DENIED';
 
 function buildPanelContent() {
   return [
@@ -38,6 +39,10 @@ function createKickLinkPanelService(options = {}) {
     }
   }
 
+  function isAccessDeniedError(error) {
+    return error?.code === 50001 || error?.code === 50013;
+  }
+
   async function fetchChannel(client) {
     if (!cfg.kickLinkChannelId) {
       logInfo('Painel Kick Link desativado: KICK_LINK_CHANNEL_ID ausente.');
@@ -47,7 +52,11 @@ function createKickLinkPanelService(options = {}) {
     let channel;
     try {
       channel = await client.channels.fetch(cfg.kickLinkChannelId);
-    } catch (_error) {
+    } catch (error) {
+      if (isAccessDeniedError(error)) {
+        logWarn('Painel Kick Link não inicializado: permissões insuficientes no canal. code=CHANNEL_ACCESS_DENIED');
+        return { code: CHANNEL_ACCESS_DENIED_CODE };
+      }
       logWarn('Painel Kick Link não inicializado: canal inexistente.');
       return null;
     }
@@ -76,7 +85,7 @@ function createKickLinkPanelService(options = {}) {
 
     if (!hasRequiredPermissions) {
       logWarn('Painel Kick Link não inicializado: permissões insuficientes no canal.');
-      return null;
+      return { code: CHANNEL_ACCESS_DENIED_CODE };
     }
 
     return channel;
@@ -129,6 +138,10 @@ function createKickLinkPanelService(options = {}) {
 
   async function upsertPanel(client) {
     const channel = await fetchChannel(client);
+    if (channel && channel.code === CHANNEL_ACCESS_DENIED_CODE) {
+      return { enabled: false, code: CHANNEL_ACCESS_DENIED_CODE };
+    }
+
     if (!channel) {
       return { enabled: false };
     }

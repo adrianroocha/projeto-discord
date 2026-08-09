@@ -143,7 +143,12 @@ describe('queue cycle reset', () => {
             {
               isTextBased: () => true,
               guild: { roles: { everyone: { id: 'everyone-role' } } },
-              permissionOverwrites: { edit: jest.fn().mockResolvedValue(undefined) },
+              permissionOverwrites: {
+                edit: jest.fn().mockResolvedValue(undefined),
+                set: jest.fn().mockResolvedValue(undefined),
+                create: jest.fn().mockResolvedValue(undefined),
+                delete: jest.fn().mockResolvedValue(undefined),
+              },
             },
           ],
         ]),
@@ -157,5 +162,10 @@ describe('queue cycle reset', () => {
     expect(schedulerService.isQueueOpen()).toBe(false);
     expect(resetSpy).toHaveBeenCalledTimes(1);
     expect(updatePanelSpy).not.toHaveBeenCalled();
+    const channel = client.channels.cache.get('queue-channel');
+    expect(channel.permissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.set).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.create).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.delete).not.toHaveBeenCalled();
   });
 });

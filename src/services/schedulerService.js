@@ -22,31 +22,6 @@ function nowMs() {
   return Date.now();
 }
 
-function getQueueChannel(client) {
-  if (!config.queueChannelId) {
-    return null;
-  }
-  return client.channels.cache.get(config.queueChannelId) || null;
-}
-
-async function applyChannelPermissions(client, isOpen) {
-  const channel = getQueueChannel(client);
-  if (!channel || !channel.isTextBased()) {
-    return;
-  }
-
-  const everyoneRole = channel.guild?.roles?.everyone;
-  if (!everyoneRole) {
-    return;
-  }
-
-  await channel.permissionOverwrites.edit(everyoneRole.id, {
-    ViewChannel: true,
-    ReadMessageHistory: true,
-    SendMessages: false,
-  });
-}
-
 async function updatePanel(client) {
   await queueMessageService.updatePanel(client, { isQueueOpen: schedulerState === 'open' });
 }
@@ -90,14 +65,12 @@ async function applyOpenState(client, options = {}) {
   }
 
   setRuntimeState('open', origin, options.cycleKey || null);
-  await applyChannelPermissions(client, true);
   await updatePanel(client);
 }
 
 async function applyClosedState(client, options = {}) {
   const origin = options.origin || 'scheduled';
   setRuntimeState('closed', origin, null);
-  await applyChannelPermissions(client, false);
   await updatePanel(client);
 }
 
@@ -305,8 +278,6 @@ async function reconcileScheduledClose(client, currentNowMs) {
   const snapshot = getScheduleSnapshot(currentNowMs);
   const cycleKeyToFinalize = getMostRecentScheduledCloseCycleKey(snapshot);
 
-  await applyChannelPermissions(client, false);
-
   try {
     finalizeCycleForScheduledClose(cycleKeyToFinalize, currentNowMs);
     persistScheduledClosedState(currentNowMs);
@@ -389,7 +360,6 @@ async function runDevelopmentOpen(client) {
   }
 
   setRuntimeState('open', 'scheduled', null);
-  await applyChannelPermissions(client, true);
   await updatePanel(client);
   console.log('Scheduler: fila aberta.');
 
@@ -410,7 +380,6 @@ async function runDevelopmentClose(client) {
   }
 
   setRuntimeState('closed', 'scheduled', null);
-  await applyChannelPermissions(client, false);
   await updatePanel(client);
   console.log('Scheduler: fila fechada.');
 

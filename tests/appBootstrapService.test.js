@@ -159,4 +159,47 @@ describe('appBootstrapService', () => {
     expect(lifecycleService.markReady).toHaveBeenCalledTimes(1);
     expect(lifecycleService.markFailed).not.toHaveBeenCalled();
   });
+
+  test('startup continua quando painel retorna CHANNEL_ACCESS_DENIED', async () => {
+    const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
+    const service = createAppBootstrapService({
+      config: {
+        databasePath: './data/database.sqlite',
+        discordToken: 'token',
+      },
+      database: { initDatabase: jest.fn().mockResolvedValue(undefined) },
+      commandHandler: { registerCommands: jest.fn().mockResolvedValue(undefined) },
+      startKickHttpServer: jest.fn().mockResolvedValue({ started: false }),
+      queueMessageService: { initPanel: jest.fn().mockResolvedValue({ enabled: false, code: 'CHANNEL_ACCESS_DENIED' }) },
+      kickLinkPanelService: { initPanel: jest.fn().mockResolvedValue({ enabled: false, code: 'CHANNEL_ACCESS_DENIED' }) },
+      schedulerService: { startScheduler: jest.fn() },
+      sqliteBackupScheduler: { start: jest.fn() },
+      subscriberRoleReconciliationScheduler: { start: jest.fn() },
+      adminAuditRetentionScheduler: { start: jest.fn().mockResolvedValue({ started: true }) },
+      lifecycleService: { markReady: jest.fn(), markFailed: jest.fn() },
+      gracefulShutdownService: { shutdown: jest.fn().mockResolvedValue({ exitCode: 1 }) },
+      logger,
+    });
+
+    const discordClient = new EventEmitter();
+    let ready = false;
+    discordClient.isReady = () => ready;
+    discordClient.login = jest.fn().mockImplementation(async () => {
+      setTimeout(() => {
+        ready = true;
+        discordClient.emit(Events.ClientReady);
+      }, 0);
+      return 'ok';
+    });
+
+    const result = await service.start(discordClient);
+
+    expect(result).toEqual({ started: true });
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Painel de fila não inicializado: permissões insuficientes no canal. code=CHANNEL_ACCESS_DENIED',
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Painel de vínculo Kick não inicializado: permissões insuficientes no canal. code=CHANNEL_ACCESS_DENIED',
+    );
+  });
 });

@@ -18,10 +18,23 @@ function createMockClient(userId = 'bot-id') {
 }
 
 function createMockChannel(client = {}, channelId = 'panel-channel') {
+  const permissionOverwrites = {
+    cache: [
+      { id: 'everyone-role', allow: ['ViewChannel'], deny: ['SendMessages'] },
+      { id: 'staff-role', allow: ['ReadMessageHistory'], deny: [] },
+      { id: 'member-1', allow: ['ViewChannel'], deny: ['AddReactions'] },
+    ],
+    edit: jest.fn(),
+    set: jest.fn(),
+    create: jest.fn(),
+    delete: jest.fn(),
+  };
+
   return {
     id: channelId,
     client,
     isTextBased: () => true,
+    permissionOverwrites,
     send: jest.fn().mockResolvedValue({ id: 'new-msg', edit: jest.fn().mockResolvedValue(undefined) }),
     messages: {
       fetch: jest.fn().mockImplementation(async (arg) => {
@@ -126,6 +139,10 @@ describe('queue panel', () => {
 
     expect(channel.send).toHaveBeenCalledTimes(1);
     expect(client.queuePanelMessageId).toBe('new-msg');
+    expect(channel.permissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.set).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.create).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.delete).not.toHaveBeenCalled();
   });
 
   test('erro 10008 durante edit recria exatamente uma vez', async () => {
@@ -156,6 +173,8 @@ describe('queue panel', () => {
     await queueMessageService.recoverPanelMessage(channel, { content: 'new', components: [] });
 
     expect(channel.send).toHaveBeenCalledTimes(1);
+    expect(channel.permissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.set).not.toHaveBeenCalled();
   });
 
   test('startup reutiliza painel existente quando a mensagem ainda existe', async () => {
@@ -174,6 +193,8 @@ describe('queue panel', () => {
 
     expect(result.id).toBe('old-msg');
     expect(channel.send).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.set).not.toHaveBeenCalled();
   });
 
   test('exclusão de outra mensagem do bot não recria painel', async () => {
@@ -352,6 +373,8 @@ describe('queue panel', () => {
 
     expect(result).toEqual(existingMessage);
     expect(channel.send).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.set).not.toHaveBeenCalled();
   });
 
   test('erro 50001 não inicia retry ou loop de criação', async () => {
@@ -370,6 +393,20 @@ describe('queue panel', () => {
 
     expect(result).toEqual(existingMessage);
     expect(channel.send).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.set).not.toHaveBeenCalled();
+  });
+
+  test('updatePanel sem acesso retorna código seguro sem alterar overwrites', async () => {
+    require('../src/config').queuePanelChannelId = 'panel-channel';
+    const client = createMockClient();
+    client.channels = {
+      fetch: jest.fn().mockRejectedValue(Object.assign(new Error('Missing Access'), { code: 50001 })),
+    };
+
+    const result = await queueMessageService.updatePanel(client, { isQueueOpen: false });
+
+    expect(result).toEqual({ updated: false, code: 'CHANNEL_ACCESS_DENIED' });
   });
 
   test('estado shutting_down não recria painel', async () => {

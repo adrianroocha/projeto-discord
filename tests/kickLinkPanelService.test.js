@@ -14,10 +14,23 @@ function makeTextChannel(overrides = {}) {
     fetch: jest.fn().mockResolvedValue({ size: 0, find: () => null, last: () => null }),
   };
 
+  const permissionOverwrites = {
+    cache: [
+      { id: 'everyone-role', allow: ['ViewChannel'], deny: ['SendMessages'] },
+      { id: 'staff-role', allow: ['ReadMessageHistory'], deny: [] },
+      { id: 'member-1', allow: ['ViewChannel'], deny: ['AddReactions'] },
+    ],
+    edit: jest.fn(),
+    set: jest.fn(),
+    create: jest.fn(),
+    delete: jest.fn(),
+  };
+
   return {
     guildId: 'guild-1',
     type: 0,
     isTextBased: () => true,
+    permissionOverwrites,
     permissionsFor: jest.fn().mockReturnValue(makePermissions(true)),
     messages,
     send: jest.fn().mockResolvedValue({ id: 'msg-1' }),
@@ -107,8 +120,31 @@ describe('kickLinkPanelService', () => {
 
     const channel = makeTextChannel({ permissionsFor: jest.fn().mockReturnValue(makePermissions(false)) });
     const result = await service.upsertPanel(makeClient(channel));
-    expect(result.enabled).toBe(false);
+    expect(result).toEqual({ enabled: false, code: 'CHANNEL_ACCESS_DENIED' });
     expect(logger.warn).toHaveBeenCalledWith('Painel Kick Link não inicializado: permissões insuficientes no canal.');
+    expect(channel.permissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.set).not.toHaveBeenCalled();
+  });
+
+  test('falta de acesso ao buscar canal retorna código seguro', async () => {
+    const logger = { info: jest.fn(), warn: jest.fn() };
+    const service = createKickLinkPanelService({
+      config: { kickLinkChannelId: 'channel-1', guildId: 'guild-1' },
+      logger,
+    });
+
+    const client = {
+      user: { id: 'bot-1' },
+      channels: {
+        fetch: jest.fn().mockRejectedValue(Object.assign(new Error('Missing Access'), { code: 50001 })),
+      },
+    };
+
+    const result = await service.upsertPanel(client);
+    expect(result).toEqual({ enabled: false, code: 'CHANNEL_ACCESS_DENIED' });
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Painel Kick Link não inicializado: permissões insuficientes no canal. code=CHANNEL_ACCESS_DENIED',
+    );
   });
 
   test('criação do painel com botão único Vincular conta Kick', async () => {
@@ -134,6 +170,8 @@ describe('kickLinkPanelService', () => {
     expect(components[0].custom_id).toBe('kick-link-start');
     expect(components[0].label).toBe('Vincular conta Kick');
     expect(payload.content).not.toContain('desvincular');
+    expect(channel.permissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.set).not.toHaveBeenCalled();
   });
 
   test('atualização do painel existente sem duplicar', async () => {
@@ -175,6 +213,8 @@ describe('kickLinkPanelService', () => {
     expect(client.kickLinkPanelMessageId).toBe('msg-existing');
     expect(existingMessage.edit).toHaveBeenCalledTimes(1);
     expect(channel.send).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(channel.permissionOverwrites.set).not.toHaveBeenCalled();
   });
 
   test('não duplica após reiniciar quando mensagem já é conhecida', async () => {

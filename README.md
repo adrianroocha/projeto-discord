@@ -280,6 +280,16 @@ O painel é atualizado automaticamente e exibe:
 
 Quando a fila está fechada, os botões ficam desabilitados.
 
+### Permissões dos canais de painel
+
+- O scheduler controla apenas estado operacional da fila (`open`/`closed`) e estado visual dos botões no painel.
+- Startup, restart e novo deploy (incluindo Railway) não alteram privacidade do canal nem permission overwrites configurados manualmente no Discord.
+- O bot nunca executa ajuste automático de `ViewChannel`, `SendMessages`, `ReadMessageHistory`, `AddReactions`, `UseApplicationCommands`, permissões de thread, overwrite de `@everyone`, overwrite de cargos ou overwrite individual de membros nos canais de painel.
+- Canais privados permanecem privados; canais públicos permanecem públicos.
+- Se o bot não tiver acesso suficiente ao canal do painel, ele não se auto-concede acesso: registra código seguro `CHANNEL_ACCESS_DENIED` e o administrador deve corrigir permissões manualmente no Discord.
+- Antes da liberação oficial, um administrador deve tornar os canais visíveis manualmente quando necessário.
+- O bot precisa receber manualmente permissões para visualizar canal, enviar mensagens e ler histórico para conseguir publicar/atualizar os painéis.
+
 ## Regras de negócio principais
 
 - Subscribers têm prioridade na ordenação da fila.
@@ -299,6 +309,7 @@ Quando a fila está fechada, os botões ficam desabilitados.
 - O fechamento automático remove lobbies `forming` e `in_game`, pois representam o estado operacional de partidas já despachadas no ciclo encerrado.
 - O scheduler de desenvolvimento abre imediatamente ao iniciar o bot, mantém a fila aberta por 5 minutos, fecha por 5 minutos e repete indefinidamente.
 - Abrir a fila limpa completamente o ciclo anterior: fila, lobby players e lobbies.
+- Abrir/fechar fila significa apenas alterar estado interno e atualizar painel/botões; não altera visibilidade nem permissões do canal.
 
 ### Restart e overrides manuais do scheduler
 

@@ -4,6 +4,8 @@ const queueEvents = require('./queueEvents');
 const config = require('../config');
 const lifecycleService = require('./applicationLifecycleService');
 
+const CHANNEL_ACCESS_DENIED_CODE = 'CHANNEL_ACCESS_DENIED';
+
 function buildPanelContent(allLobbies, queueEntries, options = {}) {
   const isQueueOpen = options.isQueueOpen !== false;
   const lines = [
@@ -96,7 +98,18 @@ async function getQueuePanelChannel(client) {
     throw new Error('Variável de ambiente QUEUE_PANEL_CHANNEL_ID não configurada.');
   }
 
-  const channel = await client.channels.fetch(config.queuePanelChannelId);
+  let channel;
+  try {
+    channel = await client.channels.fetch(config.queuePanelChannelId);
+  } catch (error) {
+    if (isIgnorablePanelError(error)) {
+      const denied = new Error('Sem acesso ao canal do painel de fila.');
+      denied.code = CHANNEL_ACCESS_DENIED_CODE;
+      throw denied;
+    }
+    throw error;
+  }
+
   if (!channel || !channel.isTextBased()) {
     throw new Error('Canal do painel de fila não encontrado ou não é um canal de texto.');
   }
@@ -198,7 +211,6 @@ let panelRecoveryPromise = Promise.resolve();
 async function recoverPanelMessage(channel, payload, options = {}) {
   const channelClient = channel?.client;
   if (!channelClient || !isPanelRecoveryAllowed()) {
-    console.log('recover blocked', !!channelClient, isPanelRecoveryAllowed());
     return null;
   }
 
@@ -256,13 +268,20 @@ async function doUpdatePanel(client, options = {}) {
   const message = await recoverPanelMessage(channel, payload);
   if (message) {
     channel.client.queuePanelMessageId = message.id;
+    return { updated: true };
   }
+
+  return { updated: false, code: CHANNEL_ACCESS_DENIED_CODE };
 }
 
 async function updatePanel(client, options = {}) {
   panelUpdatePromise = panelUpdatePromise
     .then(() => doUpdatePanel(client, options))
     .catch((error) => {
+      if (error?.code === CHANNEL_ACCESS_DENIED_CODE) {
+        console.warn('Painel de fila não inicializado/atualizado: acesso insuficiente ao canal.');
+        return { updated: false, code: CHANNEL_ACCESS_DENIED_CODE };
+      }
       console.error('Erro na sequência de atualização do painel de fila:', error);
       throw error;
     });
@@ -341,12 +360,17 @@ function registerPanelMessageDeleteHandler(client) {
 async function initPanel(client) {
   if (!config.queuePanelChannelId) {
     console.warn('QUEUE_PANEL_CHANNEL_ID não configurado. Painel de fila não será inicializado.');
-    return;
+    return { enabled: false, code: 'QUEUE_PANEL_DISABLED' };
   }
 
   startPanelUpdater(client);
   registerPanelMessageDeleteHandler(client);
-  await updatePanel(client);
+  const result = await updatePanel(client);
+  if (result && result.code === CHANNEL_ACCESS_DENIED_CODE) {
+    return { enabled: false, code: CHANNEL_ACCESS_DENIED_CODE };
+  }
+
+  return { enabled: true };
 }
 
 module.exports = {

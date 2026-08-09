@@ -9,6 +9,7 @@ describe('scheduler production timezone behavior', () => {
   let context;
   let schedulerService;
   let client;
+  let queuePermissionOverwrites;
 
   async function flushTasks() {
     await Promise.resolve();
@@ -87,10 +88,31 @@ describe('scheduler production timezone behavior', () => {
       queueOpenTime: '19:00',
       queueCloseTime: '08:00',
       queueTimezone: 'America/Sao_Paulo',
+      queueChannelId: 'queue-channel',
     });
 
     schedulerService = require('../src/services/schedulerService');
-    client = { user: { id: 'bot-user' }, channels: { cache: new Map() } };
+    queuePermissionOverwrites = {
+      edit: jest.fn().mockResolvedValue(undefined),
+      set: jest.fn().mockResolvedValue(undefined),
+      create: jest.fn().mockResolvedValue(undefined),
+      delete: jest.fn().mockResolvedValue(undefined),
+    };
+    client = {
+      user: { id: 'bot-user' },
+      channels: {
+        cache: new Map([
+          [
+            'queue-channel',
+            {
+              isTextBased: () => true,
+              guild: { roles: { everyone: { id: 'everyone-role' } } },
+              permissionOverwrites: queuePermissionOverwrites,
+            },
+          ],
+        ]),
+      },
+    };
   });
 
   afterEach(async () => {
@@ -124,6 +146,8 @@ describe('scheduler production timezone behavior', () => {
     expect(schedulerService.isQueueOpen()).toBe(true);
     expect(schedulerService.getStatus().state).toBe('open');
     expect(schedulerService.getStatus().currentCycleKey).toBe('2026-08-07');
+    expect(queuePermissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(queuePermissionOverwrites.set).not.toHaveBeenCalled();
   });
 
   test('após 19:00 aplica abertura agendada uma única vez e não repete no restart', async () => {
@@ -141,6 +165,8 @@ describe('scheduler production timezone behavior', () => {
     await settleScheduler();
 
     expect(readCycleId(db)).toBe(cycleBeforeRestart);
+    expect(queuePermissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(queuePermissionOverwrites.set).not.toHaveBeenCalled();
   });
 
   test('restart durante madrugada mantém ciclo do dia de abertura sem novo reset', async () => {
@@ -160,6 +186,7 @@ describe('scheduler production timezone behavior', () => {
 
     expect(readCycleId(db)).toBe(cycleAfterOpen);
     expect(schedulerService.getStatus().currentCycleKey).toBe('2026-08-07');
+    expect(queuePermissionOverwrites.edit).not.toHaveBeenCalled();
   });
 
   test('às 08:00 fecha automaticamente, finaliza ciclo e limpa estado transacionalmente', async () => {
@@ -191,6 +218,8 @@ describe('scheduler production timezone behavior', () => {
     expect(schedulerState.last_scheduled_close_cycle_key).toBe('2026-08-07');
     expect(schedulerState.current_state).toBe('closed');
     expect(schedulerState.state_origin).toBe('scheduled');
+    expect(queuePermissionOverwrites.edit).not.toHaveBeenCalled();
+    expect(queuePermissionOverwrites.set).not.toHaveBeenCalled();
   });
 
   test('scheduler-close manual preserva ciclo, fila, lobbies e snapshots', async () => {
@@ -212,6 +241,7 @@ describe('scheduler production timezone behavior', () => {
     expect(countRows(db, 'lobby_players')).toBe(2);
     expect(countRows(db, 'lobbies')).toBe(2);
     expect(countRows(db, 'queue_priority_snapshots')).toBe(1);
+    expect(queuePermissionOverwrites.edit).not.toHaveBeenCalled();
   });
 
   test('restart às 08:01 não duplica finalização automática já concluída', async () => {

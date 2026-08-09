@@ -7,6 +7,14 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Mensagem retornada quando possível: "O bot está reiniciando. Tente novamente em instantes." (ephemeral).
 - Objetivo: evitar início de operações novas enquanto schedulers, integração HTTP, Discord e SQLite estão sendo encerrados de forma coordenada.
 
+## Regra obrigatória de permissões dos canais
+- O bot nunca altera automaticamente privacidade nem permission overwrites dos canais de painel/fila.
+- Isso vale para startup local, startup no Railway, restart, redeploy, reconciliação do scheduler, abertura/fechamento automático (19:00/08:00), `/scheduler-open`, `/scheduler-close`, inicialização/recuperação de painel e shutdown.
+- `open`/`closed` controla apenas estado operacional da fila e estado visual dos botões.
+- Canais privados permanecem privados e canais públicos permanecem públicos, exatamente conforme configuração manual no Discord.
+- O bot não executa autoajuste de `ViewChannel`, `SendMessages`, `ReadMessageHistory`, `AddReactions`, `UseApplicationCommands`, permissões de threads, overwrite de `@everyone`, overwrite de cargos ou overwrite individual de membros.
+- Sem acesso suficiente ao canal, o bot não se auto-concede acesso e registra código seguro `CHANNEL_ACCESS_DENIED`.
+
 ## Auditoria administrativa de fila e lobbies
 - Fonte oficial: tabela SQLite `admin_command_audit_logs`.
 - Escopo auditado nesta etapa (comandos mutáveis): `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start`.
@@ -228,6 +236,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos no banco: mantém dados do ciclo; altera estado de fila no scheduler.
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: fecha fila para novas entradas.
+- Efeitos em permissões de canal: nenhum (não altera visibilidade nem overwrites).
 - Limitações: ação administrativa.
 - Efeitos em lobbies: preserva lobbies existentes (`forming` e `in_game`) e seus registros em `lobby_players`.
 - Persistência de override: o fechamento manual permanece após restart até a próxima transição agendada (ex.: 08:00/19:00 no timezone configurado).
@@ -245,6 +254,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos no banco: limpeza/reinício de ciclo conforme regra do scheduler.
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: abre fila e reinicia ciclo.
+- Efeitos em permissões de canal: nenhum (não altera visibilidade nem overwrites).
 - Limitações: ação administrativa.
 - Efeitos em lobbies: limpa `lobbies` e `lobby_players` ao iniciar o novo ciclo.
 - Persistência de override: a abertura manual permanece após restart até a próxima transição agendada.
@@ -255,6 +265,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Limpeza da finalização automática: remove `queue_entries`, `lobby_players`, `lobbies` (incluindo `forming` e `in_game`) e `queue_priority_snapshots` do ciclo encerrado.
 - Idempotência persistida: a finalização automática é marcada por cycle key em `scheduler_state` e não é aplicada duas vezes no mesmo ciclo.
 - Abertura automática (19:00): abre ciclo novo vazio; se o fechamento das 08:00 foi perdido por offline, a finalização pendente é aplicada uma única vez antes da abertura.
+- As transições automáticas mudam apenas estado interno e botões do painel; não alteram permissões/privacidade de canal.
 - Observação de auditoria: as transições automáticas (08:00/19:00) não possuem moderador humano e não entram na auditoria administrativa de comandos slash.
 
 ## /scheduler-status
