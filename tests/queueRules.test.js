@@ -83,6 +83,7 @@ describe('queue rules', () => {
       displayName: 'User 200',
       isSubscriber: 0,
       joinedAtMs: 2_000,
+      queueOrderKey: 4,
     });
     seedQueueEntry(db, {
       id: 2,
@@ -91,6 +92,7 @@ describe('queue rules', () => {
       displayName: 'User 100',
       isSubscriber: 1,
       joinedAtMs: 3_000,
+      queueOrderKey: 1,
     });
     seedQueueEntry(db, {
       id: 3,
@@ -99,6 +101,7 @@ describe('queue rules', () => {
       displayName: 'User 150',
       isSubscriber: 0,
       joinedAtMs: 1_000,
+      queueOrderKey: 3,
     });
     seedQueueEntry(db, {
       id: 4,
@@ -107,6 +110,7 @@ describe('queue rules', () => {
       displayName: 'User 050',
       isSubscriber: 0,
       joinedAtMs: 1_000,
+      queueOrderKey: 2,
     });
 
     const queue = context.queueService.getQueue();

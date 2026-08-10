@@ -228,6 +228,7 @@ Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COM
 - `/scheduler-status` - mostra o estado atual do scheduler.
 - `/lobby-start` - inicia uma lobby pelo número informado obrigatoriamente.
 - `/lobby-form-force` - força a criação de uma lobby com jogadores suficientes.
+- `/lobby-swap` - troca administrativamente um jogador em lobby em formação por um jogador da fila mantendo posição operacional.
 - `/kick-events-sync` - sincroniza os event subscriptions oficiais da Kick para o webhook da aplicação e aceita `force:true` para uma ressincronização manual.
 - `/kick-webhook-status` - mostra auditoria resumida do último webhook válido recebido pela integração Kick.
 
@@ -241,7 +242,7 @@ Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COM
 ### Auditoria administrativa de fila e lobbies
 
 - Fonte oficial: SQLite (`admin_command_audit_logs`).
-- Escopo atual auditado: `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start` e consultas administrativas de `/kick-status usuario:@Membro` para terceiros.
+- Escopo atual auditado: `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start`, `/lobby-swap` e consultas administrativas de `/kick-status usuario:@Membro` para terceiros.
 - Consultas próprias continuam fora da auditoria administrativa.
 - Comandos administrativos de consulta ainda fora desta etapa: `/scheduler-status`, `/fila-status`, `/lobby-status`.
 - Para cada tentativa, o bot registra início (`pending`) e finaliza como `success`, `failed` ou `denied`.

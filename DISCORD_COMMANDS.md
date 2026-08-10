@@ -17,7 +17,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 
 ## Auditoria administrativa de fila e lobbies
 - Fonte oficial: tabela SQLite `admin_command_audit_logs`.
-- Escopo auditado nesta etapa (comandos mutáveis): `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start`.
+- Escopo auditado nesta etapa (comandos mutáveis): `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start`, `/lobby-swap`.
 - Consulta administrativa auditada nesta etapa: `/kick-status usuario:@Membro` quando o alvo é terceiro.
 - Consultas próprias continuam fora da auditoria administrativa.
 - Comandos administrativos de consulta ainda não auditados nesta etapa: `/scheduler-status`, `/fila-status`, `/lobby-status`.
@@ -171,6 +171,20 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Reentrada de jogadores: usuários da lobby iniciada (`in_game`) podem entrar novamente na fila no mesmo ciclo.
 - Histórico: os registros anteriores em `lobby_players` permanecem preservados até o próximo `resetQueueCycle`.
 - Auditoria administrativa: registra tentativa, número solicitado, lobby alvo (ID/número seguro), estado anterior/seguinte (`in_game`) quando aplicável, ciclo e resultado seguro (`success`, `failed` ou `denied`).
+
+## /lobby-swap
+- Nome: /lobby-swap
+- Finalidade: trocar administrativamente um jogador em lobby `forming` por um jogador que está aguardando na fila.
+- Quem pode usar: autorização operacional centralizada (`Administrator`, `Manage Guild` ou cargo em `BOT_OPERATOR_ROLE_IDS`).
+- Onde usar: servidor Discord.
+- Parâmetros: usuario_lobby (user, obrigatório), usuario_fila (user, obrigatório), motivo (string 3-200, obrigatório).
+- Resposta: ephemeral.
+- Exemplo: /lobby-swap usuario_lobby:@JogadorLobby usuario_fila:@JogadorFila motivo:Troca administrativa validada
+- Efeitos no banco: executa troca transacional entre `lobby_players` e `queue_entries`, preservando `queue_order_key`, prioridade real (`is_subscriber`) e aplicando `admin_sort_priority_override` temporário para manter posição operacional.
+- Efeitos em cargo: nenhum.
+- Efeitos na fila: remove usuário B da fila, insere usuário A na fila na posição absoluta de B e fixa lobby alvo como `rebuild_locked=1` até saída/remoção do jogador inserido.
+- Limitações: recusado para lobby `in_game`, para usuários ausentes, para conflito de posição e para inconsistências de dupla presença em lobby/fila.
+- Auditoria administrativa obrigatória: registra tentativa com parâmetros saneados (incluindo motivo), resultado seguro (`success`, `failed` ou `denied`), código seguro e resumo de estado operacional antes/depois.
 
 ## /lobby-status
 - Nome: /lobby-status

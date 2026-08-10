@@ -144,8 +144,16 @@ function insertLobby(db, lobby) {
 }
 
 function insertLobbyPlayer(db, player) {
+  const originalQueueOrderKey = Number.isSafeInteger(player.originalQueueOrderKey)
+    ? player.originalQueueOrderKey
+    : Number.isSafeInteger(player.originalJoinedAtMs)
+      ? player.originalJoinedAtMs
+      : Number.isSafeInteger(player.id)
+        ? player.id
+        : null;
+
   db.prepare(
-    `INSERT INTO lobby_players (id, lobby_id, discord_id, username, display_name, position, original_joined_at_ms, is_subscriber) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO lobby_players (id, lobby_id, discord_id, username, display_name, position, original_joined_at_ms, original_queue_order_key, is_subscriber) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     player.id,
     player.lobbyId,
@@ -154,13 +162,28 @@ function insertLobbyPlayer(db, player) {
     player.displayName,
     player.position,
     player.originalJoinedAtMs,
+    originalQueueOrderKey,
     player.isSubscriber ? 1 : 0,
   );
 }
 
 function seedQueueEntry(db, entry) {
+  const queueOrderKey = Number.isSafeInteger(entry.queueOrderKey)
+    ? entry.queueOrderKey
+    : Number.isSafeInteger(entry.id)
+      ? entry.id
+      : Number.isSafeInteger(entry.joinedAtMs)
+        ? entry.joinedAtMs
+        : null;
+  const adminSortPriorityOverride =
+    entry.adminSortPriorityOverride === undefined || entry.adminSortPriorityOverride === null
+      ? null
+      : entry.adminSortPriorityOverride
+        ? 1
+        : 0;
+
   db.prepare(
-    `INSERT INTO queue_entries (id, discord_id, username, display_name, is_subscriber, joined_at_ms) VALUES (?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO queue_entries (id, discord_id, username, display_name, is_subscriber, joined_at_ms, queue_order_key, admin_sort_priority_override) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   ).run(
     entry.id,
     entry.discordId,
@@ -168,6 +191,8 @@ function seedQueueEntry(db, entry) {
     entry.displayName,
     entry.isSubscriber ? 1 : 0,
     entry.joinedAtMs,
+    queueOrderKey,
+    adminSortPriorityOverride,
   );
 }
 

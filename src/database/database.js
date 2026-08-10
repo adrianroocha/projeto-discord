@@ -21,7 +21,9 @@ async function initDatabase() {
       display_name TEXT NOT NULL,
       is_subscriber INTEGER DEFAULT 0,
       joined_at_ms INTEGER NOT NULL,
-      status TEXT DEFAULT 'waiting'
+      status TEXT DEFAULT 'waiting',
+      queue_order_key INTEGER,
+      admin_sort_priority_override INTEGER NULL
     )
   `;
 
@@ -31,7 +33,8 @@ async function initDatabase() {
       created_at_ms INTEGER NOT NULL,
       status TEXT DEFAULT 'forming',
       creation_type TEXT NOT NULL DEFAULT 'automatic',
-      lobby_number INTEGER NOT NULL
+      lobby_number INTEGER NOT NULL,
+      rebuild_locked INTEGER NOT NULL DEFAULT 0
     )
   `;
 
@@ -44,6 +47,7 @@ async function initDatabase() {
       display_name TEXT NOT NULL,
       position INTEGER NOT NULL,
       original_joined_at_ms INTEGER NOT NULL,
+      original_queue_order_key INTEGER NULL,
       is_subscriber INTEGER NOT NULL DEFAULT 0,
       FOREIGN KEY (lobby_id) REFERENCES lobbies(id)
     )
@@ -53,6 +57,14 @@ async function initDatabase() {
     CREATE TABLE IF NOT EXISTS queue_cycle_state (
       id INTEGER PRIMARY KEY CHECK (id = 1),
       current_cycle_id INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL
+    )
+  `;
+
+  const createQueueOrderSequenceTableSql = `
+    CREATE TABLE IF NOT EXISTS queue_order_sequence (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      next_order_key INTEGER NOT NULL,
       updated_at_ms INTEGER NOT NULL
     )
   `;
@@ -242,6 +254,7 @@ async function initDatabase() {
   db.exec(createLobbiesTableSql);
   db.exec(createLobbyPlayersTableSql);
   db.exec(createQueueCycleStateTableSql);
+  db.exec(createQueueOrderSequenceTableSql);
   db.exec(createQueuePrioritySnapshotsTableSql);
   db.exec(createSchedulerStateTableSql);
   db.exec(createKickAccountsTableSql);
@@ -345,10 +358,80 @@ async function initDatabase() {
     db.exec("ALTER TABLE queue_entries ADD COLUMN joined_at_ms INTEGER NOT NULL DEFAULT 0");
   }
 
+  const hasQueueOrderKey = queueInfo.some((column) => column.name === 'queue_order_key');
+  if (!hasQueueOrderKey) {
+    db.exec('ALTER TABLE queue_entries ADD COLUMN queue_order_key INTEGER NULL');
+  }
+
+  const hasAdminSortPriorityOverride = queueInfo.some(
+    (column) => column.name === 'admin_sort_priority_override',
+  );
+  if (!hasAdminSortPriorityOverride) {
+    db.exec('ALTER TABLE queue_entries ADD COLUMN admin_sort_priority_override INTEGER NULL');
+  }
+
   const lobbiesInfo = db.prepare("PRAGMA table_info(lobbies)").all();
   const hasCreatedAtMs = lobbiesInfo.some((column) => column.name === 'created_at_ms');
   if (!hasCreatedAtMs) {
     db.exec("ALTER TABLE lobbies ADD COLUMN created_at_ms INTEGER NOT NULL DEFAULT 0");
+  }
+
+  const hasRebuildLocked = lobbiesInfo.some((column) => column.name === 'rebuild_locked');
+  if (!hasRebuildLocked) {
+    db.exec("ALTER TABLE lobbies ADD COLUMN rebuild_locked INTEGER NOT NULL DEFAULT 0");
+  }
+
+  const lobbyPlayersInfoAfter = db.prepare("PRAGMA table_info(lobby_players)").all();
+  const hasOriginalQueueOrderKey = lobbyPlayersInfoAfter.some(
+    (column) => column.name === 'original_queue_order_key',
+  );
+  if (!hasOriginalQueueOrderKey) {
+    db.exec('ALTER TABLE lobby_players ADD COLUMN original_queue_order_key INTEGER NULL');
+  }
+
+  const queueOrderInfo = db.prepare("PRAGMA table_info(queue_entries)").all();
+  const queueOrderKeyAvailable = queueOrderInfo.some((column) => column.name === 'queue_order_key');
+  if (queueOrderKeyAvailable) {
+    const missingQueueOrderKeyCount = db
+      .prepare('SELECT COUNT(1) AS c FROM queue_entries WHERE queue_order_key IS NULL OR queue_order_key <= 0')
+      .get().c;
+
+    if (missingQueueOrderKeyCount > 0) {
+      const orderedRows = db
+        .prepare(
+          `SELECT id FROM queue_entries ORDER BY is_subscriber DESC, joined_at_ms ASC, discord_id ASC`,
+        )
+        .all();
+
+      const updateQueueOrderKey = db.prepare('UPDATE queue_entries SET queue_order_key = ? WHERE id = ?');
+      orderedRows.forEach((row, index) => {
+        updateQueueOrderKey.run(index + 1, row.id);
+      });
+    }
+
+    const maxQueueOrderKeyRow = db
+      .prepare('SELECT COALESCE(MAX(queue_order_key), 0) AS max_key FROM queue_entries')
+      .get();
+    const nextQueueOrderKey = Math.trunc(Number(maxQueueOrderKeyRow?.max_key || 0)) + 1;
+
+    const queueOrderSequenceRow = db
+      .prepare('SELECT id, next_order_key FROM queue_order_sequence WHERE id = 1')
+      .get();
+
+    if (!queueOrderSequenceRow) {
+      db.prepare('INSERT INTO queue_order_sequence (id, next_order_key, updated_at_ms) VALUES (1, ?, ?)').run(
+        Math.max(1, nextQueueOrderKey),
+        Date.now(),
+      );
+    } else if (
+      !Number.isFinite(Number(queueOrderSequenceRow.next_order_key)) ||
+      Number(queueOrderSequenceRow.next_order_key) < nextQueueOrderKey
+    ) {
+      db.prepare('UPDATE queue_order_sequence SET next_order_key = ?, updated_at_ms = ? WHERE id = 1').run(
+        Math.max(1, nextQueueOrderKey),
+        Date.now(),
+      );
+    }
   }
 
   // Ensure queue_entries does not contain players that are already in lobbies
@@ -436,6 +519,15 @@ async function initDatabase() {
     .get();
   if (queueSnapshotsByDiscord && queueSnapshotsByDiscord.c === 0) {
     db.exec('CREATE INDEX idx_queue_priority_snapshots_discord_id ON queue_priority_snapshots(discord_id)');
+  }
+
+  const queueEntriesQueueOrderUnique = db
+    .prepare("SELECT COUNT(1) AS c FROM sqlite_master WHERE type='index' AND name='idx_queue_entries_queue_order_key_unique'")
+    .get();
+  if (queueEntriesQueueOrderUnique && queueEntriesQueueOrderUnique.c === 0) {
+    db.exec(
+      'CREATE UNIQUE INDEX idx_queue_entries_queue_order_key_unique ON queue_entries(queue_order_key) WHERE queue_order_key IS NOT NULL',
+    );
   }
 
   const backupRunsByCreatedAt = db

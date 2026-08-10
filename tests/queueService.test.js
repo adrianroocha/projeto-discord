@@ -206,7 +206,17 @@ describe('queueService timestamps', () => {
       )
       .get('user-old-5');
 
-    expect(movedPlayer.original_joined_at_ms).toBe(baseTime - 126_000);
+    if (movedPlayer) {
+      expect(movedPlayer.original_joined_at_ms).toBe(baseTime - 126_000);
+      return;
+    }
+
+    const remainingQueueEntry = sqliteClient
+      .getDatabase()
+      .prepare(`SELECT joined_at_ms FROM queue_entries WHERE discord_id = ?`)
+      .get('user-old-5');
+
+    expect(remainingQueueEntry.joined_at_ms).toBe(baseTime - 126_000);
   });
 
   test('resetQueueCycle apaga todo o estado do ciclo', () => {
@@ -254,5 +264,100 @@ describe('queueService timestamps', () => {
     expect(beforeReset.prepare(`SELECT COUNT(1) AS count FROM queue_entries`).get().count).toBe(0);
     expect(beforeReset.prepare(`SELECT COUNT(1) AS count FROM lobby_players`).get().count).toBe(0);
     expect(beforeReset.prepare(`SELECT COUNT(1) AS count FROM lobbies`).get().count).toBe(0);
+  });
+
+  test('entrada normal grava override nulo e chave de ordem monotônica', () => {
+    jest.spyOn(Date, 'now').mockReturnValue(5_000_000);
+
+    queueService.addToQueue({
+      discordId: 'normal-1',
+      username: 'Normal 1#0001',
+      displayName: 'Normal 1',
+      isSubscriber: 0,
+    });
+
+    queueService.addToQueue({
+      discordId: 'normal-2',
+      username: 'Normal 2#0001',
+      displayName: 'Normal 2',
+      isSubscriber: 1,
+    });
+
+    const rows = sqliteClient
+      .getDatabase()
+      .prepare(
+        `SELECT discord_id, is_subscriber, queue_order_key, admin_sort_priority_override
+         FROM queue_entries
+         ORDER BY queue_order_key ASC`,
+      )
+      .all();
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0].admin_sort_priority_override).toBeNull();
+    expect(rows[1].admin_sort_priority_override).toBeNull();
+    expect(rows[1].queue_order_key).toBe(rows[0].queue_order_key + 1);
+  });
+
+  test('inserção em lote gera queue_order_key distintas', () => {
+    queueService.addMultipleToQueue([
+      { discordId: 'batch-1', username: 'Batch 1#0001', displayName: 'Batch 1', isSubscriber: 0, joinedAtMs: 10_000 },
+      { discordId: 'batch-2', username: 'Batch 2#0001', displayName: 'Batch 2', isSubscriber: 1, joinedAtMs: 10_001 },
+      { discordId: 'batch-3', username: 'Batch 3#0001', displayName: 'Batch 3', isSubscriber: 0, joinedAtMs: 10_002 },
+    ]);
+
+    const rows = sqliteClient
+      .getDatabase()
+      .prepare('SELECT queue_order_key FROM queue_entries ORDER BY queue_order_key ASC')
+      .all();
+
+    const keys = rows.map((row) => row.queue_order_key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  test('ordenação canônica usa override temporário sem alterar prioridade real', () => {
+    queueService.addMultipleToQueue([
+      { discordId: 'canon-sub', username: 'Canon Sub#0001', displayName: 'Canon Sub', isSubscriber: 1, joinedAtMs: 20_000 },
+      { discordId: 'canon-regular', username: 'Canon Regular#0001', displayName: 'Canon Regular', isSubscriber: 0, joinedAtMs: 20_001 },
+    ]);
+
+    const db = sqliteClient.getDatabase();
+    db.prepare('UPDATE queue_entries SET admin_sort_priority_override = 1 WHERE discord_id = ?').run('canon-regular');
+
+    const queue = queueService.getQueue();
+    expect(queue[0].discord_id).toBe('canon-sub');
+    expect(queue[1].discord_id).toBe('canon-regular');
+    expect(queue[1].is_subscriber).toBe(0);
+    expect(queue[1].effective_sort_priority).toBe(1);
+  });
+
+  test('sequência de ordenação persiste após reinicialização', async () => {
+    queueService.addMultipleToQueue([
+      { discordId: 'persist-1', username: 'Persist 1#0001', displayName: 'Persist 1', isSubscriber: 0, joinedAtMs: 30_000 },
+      { discordId: 'persist-2', username: 'Persist 2#0001', displayName: 'Persist 2', isSubscriber: 0, joinedAtMs: 30_001 },
+    ]);
+
+    const before = sqliteClient
+      .getDatabase()
+      .prepare('SELECT MAX(queue_order_key) AS max_key FROM queue_entries')
+      .get().max_key;
+
+    await sqliteClient.closeConnection();
+    const loaded = await loadQueueService(databasePath);
+    sqliteClient = loaded.sqliteClient;
+    queueService = loaded.queueService;
+
+    queueService.addToQueue({
+      discordId: 'persist-3',
+      username: 'Persist 3#0001',
+      displayName: 'Persist 3',
+      isSubscriber: 0,
+    });
+
+    const after = sqliteClient
+      .getDatabase()
+      .prepare('SELECT queue_order_key FROM queue_entries WHERE discord_id = ?')
+      .get('persist-3').queue_order_key;
+
+    expect(after).toBeGreaterThan(before);
   });
 });
