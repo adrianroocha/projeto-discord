@@ -17,7 +17,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 
 ## Auditoria administrativa de fila e lobbies
 - Fonte oficial: tabela SQLite `admin_command_audit_logs`.
-- Escopo auditado nesta etapa (comandos mutáveis): `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start`, `/lobby-swap`.
+- Escopo auditado nesta etapa (comandos mutáveis): `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start`, `/lobby-swap`, `/lobby-remove`.
 - Consulta administrativa auditada nesta etapa: `/kick-status usuario:@Membro` quando o alvo é terceiro.
 - Consultas próprias continuam fora da auditoria administrativa.
 - Comandos administrativos de consulta ainda não auditados nesta etapa: `/scheduler-status`, `/fila-status`, `/lobby-status`.
@@ -185,6 +185,21 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos na fila: remove usuário B da fila, insere usuário A na fila na posição absoluta de B e fixa lobby alvo como `rebuild_locked=1` até saída/remoção do jogador inserido.
 - Limitações: recusado para lobby `in_game`, para usuários ausentes, para conflito de posição e para inconsistências de dupla presença em lobby/fila.
 - Auditoria administrativa obrigatória: registra tentativa com parâmetros saneados (incluindo motivo), resultado seguro (`success`, `failed` ou `denied`), código seguro e resumo de estado operacional antes/depois.
+
+## /lobby-remove
+- Nome: /lobby-remove
+- Finalidade: remover administrativamente um jogador ausente de uma lobby `forming`, localizada automaticamente pelo Discord ID.
+- Quem pode usar: autorização operacional centralizada (`Administrator`, `Manage Guild` ou cargo em `BOT_OPERATOR_ROLE_IDS`).
+- Onde usar: servidor Discord.
+- Parâmetros: usuario (user, obrigatório), motivo (string 3-200, obrigatório).
+- Resposta: ephemeral.
+- Exemplo: /lobby-remove usuario:@Membro motivo:Jogador ausente
+- Efeitos no banco: remove o jogador da lobby `forming` em transação única, remove eventual `queue_entry` residual do mesmo Discord ID e libera `rebuild_locked` quando aplicável antes do rebuild canônico.
+- Efeitos em cargo: nenhum.
+- Efeitos na fila: o usuário removido não retorna automaticamente para a fila; para voltar, precisa entrar novamente pelo botão normal.
+- Limitações: lobby `in_game` é imutável; jogador fora de lobby removível retorna falha segura sem mutação; o comando não funciona como remoção genérica da fila.
+- Reentrada posterior: ao voltar, o usuário recebe nova posição normal com novo `queue_order_key`, `admin_sort_priority_override` nulo e prioridade calculada pela regra/snapshot canônica do ciclo.
+- Auditoria administrativa obrigatória: registra tentativa e finalização (`success`, `failed` ou `denied`) com código seguro, ciclo, alvo e resumo operacional saneado, mantendo retenção padrão de 30 dias.
 
 ## /lobby-status
 - Nome: /lobby-status
