@@ -20,6 +20,41 @@ function parseKickScopes(rawScopes) {
     .filter(Boolean);
 }
 
+function parseDiscordIdList(value, options = {}) {
+  const name = options.name || 'CONFIG_VALUE';
+
+  if (value === undefined || value === null) {
+    return [];
+  }
+
+  const items = String(value)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (!items.length) {
+    return [];
+  }
+
+  const uniqueItems = [];
+  const seen = new Set();
+
+  for (const item of items) {
+    if (!/^\d{17,20}$/.test(item)) {
+      throw Object.assign(new Error(`${name} inválido.`), {
+        code: 'INVALID_CONFIG_VALUE',
+      });
+    }
+
+    if (!seen.has(item)) {
+      seen.add(item);
+      uniqueItems.push(item);
+    }
+  }
+
+  return uniqueItems;
+}
+
 function parsePositiveInteger(value, fallback) {
   const parsed = Number(value);
   if (Number.isInteger(parsed) && parsed > 0) {
@@ -194,6 +229,9 @@ module.exports = {
   clientId: process.env.CLIENT_ID,
   guildId: getRequiredEnv('GUILD_ID'),
   subscriberRoleId: process.env.SUBSCRIBER_ROLE_ID || null,
+  botOperatorRoleIds: parseDiscordIdList(process.env.BOT_OPERATOR_ROLE_IDS, {
+    name: 'BOT_OPERATOR_ROLE_IDS',
+  }),
   queueChannelId: process.env.QUEUE_CHANNEL_ID || null,
   queuePanelChannelId: process.env.QUEUE_PANEL_CHANNEL_ID || null,
   kickLinkChannelId: process.env.KICK_LINK_CHANNEL_ID || null,

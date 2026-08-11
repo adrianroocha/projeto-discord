@@ -1,10 +1,11 @@
 const {
   SlashCommandBuilder,
   MessageFlags,
-  PermissionFlagsBits,
 } = require('discord.js');
 const config = require('../config');
 const kickAccountsRepository = require('../database/kickAccountsRepository');
+const adminCommandAuditService = require('../services/adminCommandAuditService');
+const operationalAuthorizationService = require('../services/operationalAuthorizationService');
 const subscriberEligibilityService = require('../services/subscriberEligibilityService');
 
 function toDiscordFullTimestamp(linkedAtMs) {
@@ -51,17 +52,6 @@ function formatOptionalTimestamp(ms) {
   return toDiscordFullTimestamp(ms);
 }
 
-function hasCrossQueryPermission(member) {
-  if (!member || !member.permissions || typeof member.permissions.has !== 'function') {
-    return false;
-  }
-
-  return (
-    member.permissions.has(PermissionFlagsBits.Administrator) ||
-    member.permissions.has(PermissionFlagsBits.ManageGuild)
-  );
-}
-
 async function fetchGuildMember(guild, discordId) {
   if (!guild || !guild.members || typeof guild.members.fetch !== 'function') {
     return null;
@@ -78,45 +68,12 @@ function getSafeInteractionUser(interaction) {
   return interaction.options?.getUser?.('usuario', false) || interaction.user;
 }
 
-async function resolveTargetContext(interaction, requestedUser) {
-  const isOwnQuery = requestedUser.id === interaction.user.id;
-
-  if (isOwnQuery) {
-    return {
-      code: 'ok',
-      targetUser: requestedUser,
-      targetMember: null,
-      isOwnQuery: true,
-    };
+function buildCrossQueryDeniedReplyContent(code) {
+  if (code === operationalAuthorizationService.codes.MEMBER_UNAVAILABLE) {
+    return 'Não foi possível validar sua autorização operacional neste servidor. Consulta recusada.';
   }
 
-  const guild = interaction.guild;
-  const actorMember = await fetchGuildMember(guild, interaction.user.id);
-  if (!hasCrossQueryPermission(actorMember)) {
-    return {
-      code: 'forbidden_cross_query',
-      targetUser: null,
-      targetMember: null,
-      isOwnQuery: false,
-    };
-  }
-
-  const targetMember = await fetchGuildMember(guild, requestedUser.id);
-  if (!targetMember) {
-    return {
-      code: 'target_member_unavailable',
-      targetUser: requestedUser,
-      targetMember: null,
-      isOwnQuery: false,
-    };
-  }
-
-  return {
-    code: 'ok',
-    targetUser: requestedUser,
-    targetMember,
-    isOwnQuery: false,
-  };
+  return 'Você só pode consultar o status de outro membro com autorização operacional.';
 }
 
 async function buildSubRoleDiagnostics(interaction, discordId, prefetchedMember) {
@@ -160,27 +117,70 @@ module.exports = {
     }
 
     const requestedUser = getSafeInteractionUser(interaction);
-    const targetContext = await resolveTargetContext(interaction, requestedUser);
+    const isOwnQuery = requestedUser.id === interaction.user.id;
+    let auditContext = null;
+    let targetMember = null;
 
-    if (targetContext.code === 'forbidden_cross_query') {
-      await interaction.reply({
-        content:
-          'Você só pode consultar o status de outro membro com Administrator ou Manage Guild.',
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
+    if (!isOwnQuery) {
+      try {
+        auditContext = await adminCommandAuditService.beginRequired(interaction, {
+          commandName: 'kick-status',
+          parameters: {
+            targetDiscordId: requestedUser.id,
+            queryScope: 'third_party',
+          },
+        });
+      } catch {
+        await interaction.reply({
+          content: 'Não foi possível registrar a auditoria obrigatória desta consulta. Operação recusada.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
 
-    if (targetContext.code === 'target_member_unavailable') {
-      await interaction.reply({
-        content: 'O usuário informado não está disponível neste servidor.',
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
+      const authorization = await operationalAuthorizationService.authorize(interaction);
+      if (!authorization.allowed) {
+        await adminCommandAuditService.finishDenied(auditContext, {
+          errorCode: authorization.code,
+          nextState: {
+            denied: true,
+            reason: authorization.reason,
+            targetDiscordId: requestedUser.id,
+            queryScope: 'third_party',
+          },
+          client: interaction.client,
+        });
+
+        await interaction.reply({
+          content: buildCrossQueryDeniedReplyContent(authorization.code),
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      targetMember = await fetchGuildMember(interaction.guild, requestedUser.id);
+      if (!targetMember) {
+        await adminCommandAuditService.finishFailed(auditContext, {
+          errorCode: 'TARGET_MEMBER_UNAVAILABLE',
+          nextState: {
+            failed: true,
+            reason: 'target_member_unavailable',
+            targetDiscordId: requestedUser.id,
+            queryScope: 'third_party',
+          },
+          client: interaction.client,
+        });
+
+        await interaction.reply({
+          content: 'O usuário informado não está disponível neste servidor.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
     }
 
     try {
-      const targetDiscordId = targetContext.targetUser.id;
+      const targetDiscordId = requestedUser.id;
       const eligibility = subscriberEligibilityService.getEligibility(targetDiscordId);
       const kickSource = eligibility.sources.kick;
       const manualSource = eligibility.sources.manual;
@@ -199,8 +199,18 @@ module.exports = {
       const diagnostics = await buildSubRoleDiagnostics(
         interaction,
         targetDiscordId,
-        targetContext.targetMember,
+        targetMember,
       );
+
+      if (auditContext) {
+        await adminCommandAuditService.finishSuccess(auditContext, {
+          nextState: {
+            targetDiscordId,
+            queryScope: 'third_party',
+          },
+          client: interaction.client,
+        });
+      }
 
       await interaction.reply({
         content: [
@@ -227,6 +237,19 @@ module.exports = {
         flags: MessageFlags.Ephemeral,
       });
     } catch {
+      if (auditContext) {
+        await adminCommandAuditService.finishFailed(auditContext, {
+          errorCode: 'KICK_STATUS_READ_FAILED',
+          nextState: {
+            failed: true,
+            reason: 'kick_status_read_failed',
+            targetDiscordId: requestedUser.id,
+            queryScope: 'third_party',
+          },
+          client: interaction.client,
+        });
+      }
+
       await interaction.reply({
         content: 'Não foi possível consultar o status no momento. Código: KICK_STATUS_READ_FAILED.',
         flags: MessageFlags.Ephemeral,

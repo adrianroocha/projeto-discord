@@ -28,6 +28,7 @@ async function createTestContext(options = {}) {
   process.env.GUILD_ID = 'test-guild';
   process.env.CLIENT_ID = options.clientId || '';
   process.env.SUBSCRIBER_ROLE_ID = options.subscriberRoleId || '';
+  process.env.BOT_OPERATOR_ROLE_IDS = options.botOperatorRoleIds || '';
   process.env.QUEUE_CHANNEL_ID = options.queueChannelId || '';
   process.env.QUEUE_PANEL_CHANNEL_ID = options.queuePanelChannelId || '';
   process.env.ADMIN_AUDIT_CHANNEL_ID = options.adminAuditChannelId || '';
@@ -86,6 +87,7 @@ async function createTestContext(options = {}) {
     delete process.env.QUEUE_PANEL_CHANNEL_ID;
     delete process.env.CLIENT_ID;
     delete process.env.SUBSCRIBER_ROLE_ID;
+    delete process.env.BOT_OPERATOR_ROLE_IDS;
     delete process.env.QUEUE_CHANNEL_ID;
     delete process.env.QUEUE_OPEN_TIME;
     delete process.env.ADMIN_AUDIT_CHANNEL_ID;

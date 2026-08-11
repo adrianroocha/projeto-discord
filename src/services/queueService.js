@@ -18,6 +18,15 @@ function toTimestampMs(value) {
   return null;
 }
 
+function toLobbyNumber(value) {
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    return null;
+  }
+
+  return parsed;
+}
+
 function selectWaitingEntries(limit = 4) {
   const db = getDatabase();
   const query = `SELECT id, discord_id, username, display_name, is_subscriber, joined_at_ms FROM queue_entries ORDER BY is_subscriber DESC, joined_at_ms ASC, discord_id ASC LIMIT ${limit}`;
@@ -693,9 +702,36 @@ function startLobby(lobbyId) {
 
 function startLobbyByNumber(lobbyNumber) {
   const db = getDatabase();
-  const stmt = db.prepare(`UPDATE lobbies SET status = 'in_game' WHERE lobby_number = ? AND status IN ('forming', 'open')`);
-  const info = stmt.run(lobbyNumber);
-  if (info.changes === 0) {
+  const safeLobbyNumber = toLobbyNumber(lobbyNumber);
+  if (safeLobbyNumber === null) {
+    return false;
+  }
+
+  const selectIds = db.prepare(`SELECT id FROM lobbies WHERE lobby_number = ? AND status IN ('forming', 'open') ORDER BY id ASC`);
+  const updateById = db.prepare(`UPDATE lobbies SET status = 'in_game' WHERE id = ? AND status IN ('forming', 'open')`);
+  const transaction = db.transaction((targetLobbyNumber) => {
+    const rows = selectIds.all(targetLobbyNumber);
+
+    if (rows.length !== 1) {
+      return false;
+    }
+
+    const info = updateById.run(rows[0].id);
+    if (info.changes !== 1) {
+      throw new Error('LOBBY_START_UPDATE_FAILED');
+    }
+
+    return true;
+  });
+
+  let started = false;
+  try {
+    started = transaction(safeLobbyNumber);
+  } catch {
+    return false;
+  }
+
+  if (!started) {
     return false;
   }
 

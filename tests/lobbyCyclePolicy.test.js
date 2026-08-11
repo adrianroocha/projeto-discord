@@ -29,13 +29,26 @@ function makeSchedulerClient(queueChannelId) {
   };
 }
 
-function makeLobbyStartInteraction(client, lobbyNumber = null) {
-  const { PermissionsBitField } = require('discord.js');
+function makeLobbyStartInteraction(client, lobbyNumber = 1) {
   return {
-    member: {
-      permissions: {
-        has: (flag) => flag === PermissionsBitField.Flags.ManageGuild,
+    inGuild: () => true,
+    guild: {
+      members: {
+        fetch: jest.fn().mockResolvedValue({
+          permissions: {
+            has: () => true,
+          },
+          roles: {
+            cache: {
+              has: () => false,
+            },
+          },
+        }),
       },
+    },
+    user: {
+      id: 'mod-lobby-start',
+      username: 'mod-lobby-start',
     },
     options: {
       getInteger: jest.fn().mockReturnValue(lobbyNumber),
@@ -144,7 +157,7 @@ describe('lobby cycle policy', () => {
       { discordId: 'cycle-user-4', username: 'Cycle 4#0001', displayName: 'Cycle 4', isSubscriber: 0, joinedAtMs: 2_002 },
     ]);
 
-    const commandInteraction = makeLobbyStartInteraction({});
+    const commandInteraction = makeLobbyStartInteraction({}, 1);
     await lobbyStartCommand.execute(commandInteraction);
 
     const secondJoin = makeJoinInteraction('cycle-user-1');
@@ -184,7 +197,7 @@ describe('lobby cycle policy', () => {
       { discordId: 'repeat-user-4', username: 'Repeat 4#0001', displayName: 'Repeat 4', isSubscriber: 0, joinedAtMs: 10_002 },
     ]);
 
-    await lobbyStartCommand.execute(makeLobbyStartInteraction({}));
+    await lobbyStartCommand.execute(makeLobbyStartInteraction({}, 1));
 
     const secondJoin = makeJoinInteraction('repeat-user-1');
     await joinQueueButton.execute(secondJoin);

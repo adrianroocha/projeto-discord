@@ -299,7 +299,11 @@ function startPanelUpdater(client) {
       return;
     }
 
-    await updatePanel(client);
+    try {
+      await updatePanel(client);
+    } catch {
+      console.warn('Painel de fila não pôde ser atualizado após mutação concluída.');
+    }
   });
 }
 

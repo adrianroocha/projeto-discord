@@ -78,6 +78,7 @@ ADMIN_AUDIT_RETENTION_DAYS=30
 
 # Roles
 SUBSCRIBER_ROLE_ID=
+BOT_OPERATOR_ROLE_IDS=
 
 # Database
 DATABASE_PATH=./data/database.sqlite
@@ -111,6 +112,7 @@ KICK_HTTP_MAX_URL_LENGTH=8192
 ### Observações importantes
 
 - `DISCORD_TOKEN` e outras credenciais nunca devem ser versionadas.
+- `BOT_OPERATOR_ROLE_IDS` é opcional e aceita IDs de cargos operacionais separados por vírgula; espaços são removidos, itens vazios são ignorados e cada item deve ser um snowflake válido.
 - `NODE_ENV=development` ativa o comportamento de desenvolvimento do scheduler.
 - `DATABASE_PATH` aponta para o banco SQLite local por padrão.
 - `QUEUE_TEST_INTERVAL_MINUTES` controla o intervalo de ciclo em desenvolvimento.
@@ -160,6 +162,9 @@ SUB_ROLE_RECONCILIATION_INTERVAL_MINUTES=15
 SUB_ROLE_RECONCILIATION_STARTUP_DELAY_SECONDS=30
 SUB_ROLE_RECONCILIATION_DISCOVERY_TIMEOUT_MS=20000
 SUB_ROLE_RECONCILIATION_USER_SYNC_TIMEOUT_MS=12000
+
+# Autorização operacional opcional por cargo
+BOT_OPERATOR_ROLE_IDS=
 
 # Backup SQLite
 SQLITE_BACKUP_ENABLED=true
@@ -221,20 +226,29 @@ Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COM
 - `/scheduler-open` - abre a fila manualmente e reinicia o ciclo atual.
 - `/scheduler-close` - fecha a fila manualmente sem limpar os dados do ciclo atual.
 - `/scheduler-status` - mostra o estado atual do scheduler.
-- `/lobby-start` - inicia uma lobby pelo número.
+- `/lobby-start` - inicia uma lobby pelo número informado obrigatoriamente.
 - `/lobby-form-force` - força a criação de uma lobby com jogadores suficientes.
 - `/kick-events-sync` - sincroniza os event subscriptions oficiais da Kick para o webhook da aplicação e aceita `force:true` para uma ressincronização manual.
 - `/kick-webhook-status` - mostra auditoria resumida do último webhook válido recebido pela integração Kick.
 
+### Autorização operacional centralizada
+
+- A regra operacional consulta o membro real no servidor antes de permitir a ação.
+- Um comando operacional é permitido quando o ator tiver `Administrator`, `ManageGuild` ou algum cargo listado em `BOT_OPERATOR_ROLE_IDS`.
+- Se `BOT_OPERATOR_ROLE_IDS` estiver ausente ou vazio, o comportamento permanece limitado a `Administrator` e `ManageGuild`.
+- A lista de IDs nunca é exposta em respostas ou logs do bot.
+
 ### Auditoria administrativa de fila e lobbies
 
 - Fonte oficial: SQLite (`admin_command_audit_logs`).
-- Escopo atual auditado: `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start`.
-- Comandos administrativos de consulta não entram nesta etapa: `/scheduler-status`, `/fila-status`, `/lobby-status`.
+- Escopo atual auditado: `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start` e consultas administrativas de `/kick-status usuario:@Membro` para terceiros.
+- Consultas próprias continuam fora da auditoria administrativa.
+- Comandos administrativos de consulta ainda fora desta etapa: `/scheduler-status`, `/fila-status`, `/lobby-status`.
 - Para cada tentativa, o bot registra início (`pending`) e finaliza como `success`, `failed` ou `denied`.
 - Campos persistidos são apenas metadados seguros: `interaction_id`, `guild_id`, `channel_id`, ator, comando, parâmetros saneados, `queue_cycle_id`, estados operacionais seguros, código seguro e timestamps.
 - Dados proibidos no log: token, secret, payload completo do Discord, OAuth/Kick sensível, stack trace e mensagens internas de exceção.
 - Se a criação do registro obrigatório no SQLite falhar antes da mutação, a ação administrativa mutável é recusada.
+- Na consulta administrativa de `/kick-status`, o log persiste apenas ator, alvo por Discord ID, comando, resultado seguro e timestamps.
 - Se a ação principal concluir e a finalização da auditoria falhar, a ação não é revertida; o bot gera apenas warning seguro.
 - Idempotência por `interaction_id`: a mesma interação não gera duas execuções auditadas.
 

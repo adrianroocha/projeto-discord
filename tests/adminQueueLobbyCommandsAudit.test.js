@@ -1,4 +1,4 @@
-const { MessageFlags, PermissionFlagsBits, PermissionsBitField } = require('discord.js');
+const { MessageFlags, PermissionFlagsBits } = require('discord.js');
 
 function loadCommand(modulePath, moduleMocks = {}) {
   jest.resetModules();
@@ -21,6 +21,25 @@ function createAuditServiceMock() {
   };
 }
 
+function createOperationalAuthorizationServiceMock(result = {}) {
+  return {
+    codes: {
+      OK: 'OK',
+      MISSING_PERMISSION: 'MISSING_PERMISSION',
+      MEMBER_UNAVAILABLE: 'MEMBER_UNAVAILABLE',
+      GUILD_UNAVAILABLE: 'GUILD_UNAVAILABLE',
+    },
+    authorize: jest.fn().mockResolvedValue({
+      allowed: true,
+      code: 'OK',
+      reason: null,
+      via: 'manage_guild',
+      member: null,
+      ...result,
+    }),
+  };
+}
+
 function allowSchedulerManagePermissions() {
   return {
     has: (permission) =>
@@ -30,20 +49,6 @@ function allowSchedulerManagePermissions() {
 }
 
 function denySchedulerManagePermissions() {
-  return {
-    has: () => false,
-  };
-}
-
-function allowLobbyManagePermissions() {
-  return {
-    has: (permission) =>
-      permission === PermissionsBitField.Flags.Administrator ||
-      permission === PermissionsBitField.Flags.ManageGuild,
-  };
-}
-
-function denyLobbyManagePermissions() {
   return {
     has: () => false,
   };
@@ -152,16 +157,13 @@ describe('admin queue/lobby commands audit integration', () => {
       }),
     };
 
-    const queueMessageServiceMock = {
-      updatePanel: jest.fn().mockResolvedValue(undefined),
-    };
-
     const auditMock = createAuditServiceMock();
+    const authorizationMock = createOperationalAuthorizationServiceMock();
 
     const command = loadCommand('../src/commands/lobbyFormForce', {
       '../src/services/queueService': queueServiceMock,
-      '../src/services/queueMessageService': queueMessageServiceMock,
       '../src/services/adminCommandAuditService': auditMock,
+      '../src/services/operationalAuthorizationService': authorizationMock,
     });
 
     const interaction = {
@@ -170,7 +172,6 @@ describe('admin queue/lobby commands audit integration', () => {
       guildId: 'guild-1',
       channelId: 'channel-1',
       user: { id: 'mod-3', username: 'mod3' },
-      member: { permissions: allowLobbyManagePermissions() },
       options: { getInteger: jest.fn().mockReturnValue(4) },
       client: {},
       reply: jest.fn().mockResolvedValue(undefined),
@@ -190,16 +191,13 @@ describe('admin queue/lobby commands audit integration', () => {
       startLobbyByNumber: jest.fn().mockReturnValue(true),
     };
 
-    const queueMessageServiceMock = {
-      updatePanel: jest.fn().mockResolvedValue(undefined),
-    };
-
     const auditMock = createAuditServiceMock();
+    const authorizationMock = createOperationalAuthorizationServiceMock();
 
     const command = loadCommand('../src/commands/lobbyStart', {
       '../src/services/queueService': queueServiceMock,
-      '../src/services/queueMessageService': queueMessageServiceMock,
       '../src/services/adminCommandAuditService': auditMock,
+      '../src/services/operationalAuthorizationService': authorizationMock,
     });
 
     const interaction = {
@@ -208,7 +206,6 @@ describe('admin queue/lobby commands audit integration', () => {
       guildId: 'guild-1',
       channelId: 'channel-1',
       user: { id: 'mod-4', username: 'mod4' },
-      member: { permissions: allowLobbyManagePermissions() },
       options: { getInteger: jest.fn().mockReturnValue(9) },
       client: {},
       reply: jest.fn().mockResolvedValue(undefined),
@@ -236,16 +233,18 @@ describe('admin queue/lobby commands audit integration', () => {
       startLobbyByNumber: jest.fn(),
     };
 
-    const queueMessageServiceMock = {
-      updatePanel: jest.fn().mockResolvedValue(undefined),
-    };
-
     const auditMock = createAuditServiceMock();
+    const authorizationMock = createOperationalAuthorizationServiceMock({
+      allowed: false,
+      code: 'MISSING_PERMISSION',
+      reason: 'missing_permission',
+      via: null,
+    });
 
     const command = loadCommand('../src/commands/lobbyStart', {
       '../src/services/queueService': queueServiceMock,
-      '../src/services/queueMessageService': queueMessageServiceMock,
       '../src/services/adminCommandAuditService': auditMock,
+      '../src/services/operationalAuthorizationService': authorizationMock,
     });
 
     const interaction = {
@@ -254,7 +253,6 @@ describe('admin queue/lobby commands audit integration', () => {
       guildId: 'guild-1',
       channelId: 'channel-1',
       user: { id: 'mod-5', username: 'mod5' },
-      member: { permissions: denyLobbyManagePermissions() },
       options: { getInteger: jest.fn().mockReturnValue(null) },
       client: {},
       reply: jest.fn().mockResolvedValue(undefined),
@@ -262,7 +260,7 @@ describe('admin queue/lobby commands audit integration', () => {
 
     await command.execute(interaction);
 
-    expect(auditMock.beginBestEffort).toHaveBeenCalled();
+    expect(auditMock.beginRequired).toHaveBeenCalled();
     expect(auditMock.finishDenied).toHaveBeenCalledWith(
       expect.any(Object),
       expect.objectContaining({ errorCode: 'MISSING_PERMISSION' }),
@@ -283,16 +281,13 @@ describe('admin queue/lobby commands audit integration', () => {
       startLobbyByNumber: jest.fn(),
     };
 
-    const queueMessageServiceMock = {
-      updatePanel: jest.fn().mockResolvedValue(undefined),
-    };
-
     const auditMock = createAuditServiceMock();
+    const authorizationMock = createOperationalAuthorizationServiceMock();
 
     const command = loadCommand('../src/commands/lobbyStart', {
       '../src/services/queueService': queueServiceMock,
-      '../src/services/queueMessageService': queueMessageServiceMock,
       '../src/services/adminCommandAuditService': auditMock,
+      '../src/services/operationalAuthorizationService': authorizationMock,
     });
 
     const interaction = {
@@ -301,7 +296,6 @@ describe('admin queue/lobby commands audit integration', () => {
       guildId: 'guild-1',
       channelId: 'channel-1',
       user: { id: 'mod-6', username: 'mod6' },
-      member: { permissions: allowLobbyManagePermissions() },
       options: { getInteger: jest.fn().mockReturnValue(null) },
       client: {},
       reply: jest.fn().mockResolvedValue(undefined),
@@ -312,7 +306,7 @@ describe('admin queue/lobby commands audit integration', () => {
     expect(auditMock.finishFailed).toHaveBeenCalledWith(
       expect.any(Object),
       expect.objectContaining({
-        errorCode: 'INVALID_INPUT',
+        errorCode: 'LOBBY_NUMBER_REQUIRED',
       }),
     );
   });
@@ -325,16 +319,13 @@ describe('admin queue/lobby commands audit integration', () => {
       forceCreateLobby: jest.fn().mockReturnValue({ success: false, available: 1 }),
     };
 
-    const queueMessageServiceMock = {
-      updatePanel: jest.fn().mockResolvedValue(undefined),
-    };
-
     const auditMock = createAuditServiceMock();
+    const authorizationMock = createOperationalAuthorizationServiceMock();
 
     const command = loadCommand('../src/commands/lobbyFormForce', {
       '../src/services/queueService': queueServiceMock,
-      '../src/services/queueMessageService': queueMessageServiceMock,
       '../src/services/adminCommandAuditService': auditMock,
+      '../src/services/operationalAuthorizationService': authorizationMock,
     });
 
     const interaction = {
@@ -343,7 +334,6 @@ describe('admin queue/lobby commands audit integration', () => {
       guildId: 'guild-1',
       channelId: 'channel-1',
       user: { id: 'mod-7', username: 'mod7' },
-      member: { permissions: allowLobbyManagePermissions() },
       options: { getInteger: jest.fn().mockReturnValue(4) },
       client: {},
       reply: jest.fn().mockResolvedValue(undefined),
@@ -354,6 +344,166 @@ describe('admin queue/lobby commands audit integration', () => {
     expect(auditMock.finishFailed).toHaveBeenCalledWith(
       expect.any(Object),
       expect.objectContaining({ errorCode: 'INSUFFICIENT_PLAYERS' }),
+    );
+  });
+
+  test('lobby-form-force permite cargo operacional configurado', async () => {
+    const queueServiceMock = {
+      getCurrentQueueCycleId: jest.fn().mockReturnValue(11),
+      getQueue: jest.fn().mockReturnValue([]),
+      getActiveLobbies: jest.fn().mockReturnValue([]),
+      forceCreateLobby: jest.fn().mockReturnValue({
+        success: true,
+        entries: [{ display_name: 'A', username: 'a' }],
+        lobbyId: 44,
+        lobbyNumber: 9,
+      }),
+    };
+    const auditMock = createAuditServiceMock();
+    const authorizationMock = createOperationalAuthorizationServiceMock({
+      allowed: true,
+      via: 'operator_role',
+    });
+
+    const command = loadCommand('../src/commands/lobbyFormForce', {
+      '../src/services/queueService': queueServiceMock,
+      '../src/services/adminCommandAuditService': auditMock,
+      '../src/services/operationalAuthorizationService': authorizationMock,
+    });
+
+    const interaction = {
+      id: 'i-force-operator-role',
+      commandName: 'lobby-form-force',
+      guildId: 'guild-1',
+      channelId: 'channel-1',
+      user: { id: 'mod-operator', username: 'modOperator' },
+      options: { getInteger: jest.fn().mockReturnValue(1) },
+      client: {},
+      reply: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await command.execute(interaction);
+
+    expect(queueServiceMock.forceCreateLobby).toHaveBeenCalledWith(1);
+    expect(auditMock.finishSuccess).toHaveBeenCalled();
+  });
+
+  test('lobby-form-force recusa usuário comum e audita denied', async () => {
+    const queueServiceMock = {
+      getCurrentQueueCycleId: jest.fn().mockReturnValue(12),
+      getQueue: jest.fn().mockReturnValue([]),
+      getActiveLobbies: jest.fn().mockReturnValue([]),
+      forceCreateLobby: jest.fn(),
+    };
+    const auditMock = createAuditServiceMock();
+    const authorizationMock = createOperationalAuthorizationServiceMock({
+      allowed: false,
+      code: 'MISSING_PERMISSION',
+      reason: 'missing_permission',
+      via: null,
+    });
+
+    const command = loadCommand('../src/commands/lobbyFormForce', {
+      '../src/services/queueService': queueServiceMock,
+      '../src/services/adminCommandAuditService': auditMock,
+      '../src/services/operationalAuthorizationService': authorizationMock,
+    });
+
+    const interaction = {
+      id: 'i-force-denied',
+      commandName: 'lobby-form-force',
+      guildId: 'guild-1',
+      channelId: 'channel-1',
+      user: { id: 'user-common', username: 'userCommon' },
+      options: { getInteger: jest.fn().mockReturnValue(1) },
+      client: {},
+      reply: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await command.execute(interaction);
+
+    expect(queueServiceMock.forceCreateLobby).not.toHaveBeenCalled();
+    expect(auditMock.finishDenied).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({ errorCode: 'MISSING_PERMISSION' }),
+    );
+  });
+
+  test('falha de auditoria inicial bloqueia mutação em lobby-start', async () => {
+    const queueServiceMock = {
+      getCurrentQueueCycleId: jest.fn().mockReturnValue(13),
+      getQueue: jest.fn().mockReturnValue([]),
+      getActiveLobbies: jest.fn().mockReturnValue([{ id: 1, lobbyNumber: 1, status: 'forming', players: [] }]),
+      startLobbyByNumber: jest.fn(),
+    };
+    const auditMock = createAuditServiceMock();
+    auditMock.beginRequired.mockRejectedValue(new Error('sqlite down'));
+    const authorizationMock = createOperationalAuthorizationServiceMock();
+
+    const command = loadCommand('../src/commands/lobbyStart', {
+      '../src/services/queueService': queueServiceMock,
+      '../src/services/adminCommandAuditService': auditMock,
+      '../src/services/operationalAuthorizationService': authorizationMock,
+    });
+
+    const interaction = {
+      id: 'i-start-audit-fail',
+      commandName: 'lobby-start',
+      guildId: 'guild-1',
+      channelId: 'channel-1',
+      user: { id: 'mod-audit-fail', username: 'modAuditFail' },
+      options: { getInteger: jest.fn().mockReturnValue(1) },
+      client: {},
+      reply: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await command.execute(interaction);
+
+    expect(queueServiceMock.startLobbyByNumber).not.toHaveBeenCalled();
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'Não foi possível registrar a auditoria obrigatória desta ação. Operação recusada.',
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+  });
+
+  test('falha de auditoria inicial bloqueia mutação em lobby-form-force', async () => {
+    const queueServiceMock = {
+      getCurrentQueueCycleId: jest.fn().mockReturnValue(14),
+      getQueue: jest.fn().mockReturnValue([]),
+      getActiveLobbies: jest.fn().mockReturnValue([]),
+      forceCreateLobby: jest.fn(),
+    };
+    const auditMock = createAuditServiceMock();
+    auditMock.beginRequired.mockRejectedValue(new Error('sqlite down'));
+    const authorizationMock = createOperationalAuthorizationServiceMock();
+
+    const command = loadCommand('../src/commands/lobbyFormForce', {
+      '../src/services/queueService': queueServiceMock,
+      '../src/services/adminCommandAuditService': auditMock,
+      '../src/services/operationalAuthorizationService': authorizationMock,
+    });
+
+    const interaction = {
+      id: 'i-force-audit-fail',
+      commandName: 'lobby-form-force',
+      guildId: 'guild-1',
+      channelId: 'channel-1',
+      user: { id: 'mod-force-audit-fail', username: 'modForceAuditFail' },
+      options: { getInteger: jest.fn().mockReturnValue(1) },
+      client: {},
+      reply: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await command.execute(interaction);
+
+    expect(queueServiceMock.forceCreateLobby).not.toHaveBeenCalled();
+    expect(interaction.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: 'Não foi possível registrar a auditoria obrigatória desta ação. Operação recusada.',
+        flags: MessageFlags.Ephemeral,
+      }),
     );
   });
 
@@ -477,5 +627,18 @@ describe('admin queue/lobby commands audit integration', () => {
 
     expect(auditMock.finishDenied).toHaveBeenCalled();
     expect(schedulerServiceMock.openQueue).not.toHaveBeenCalled();
+  });
+
+  test('lobby-start builder exige numero com mínimo 1', () => {
+    const authorizationMock = createOperationalAuthorizationServiceMock();
+    const command = loadCommand('../src/commands/lobbyStart', {
+      '../src/services/operationalAuthorizationService': authorizationMock,
+    });
+
+    const json = command.data.toJSON();
+    const option = json.options.find((entry) => entry.name === 'numero');
+
+    expect(option.required).toBe(true);
+    expect(option.min_value).toBe(1);
   });
 });

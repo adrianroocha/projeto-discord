@@ -87,6 +87,7 @@ describe('lobby behavior', () => {
   });
 
   test('inicia lobby por lobby_number e impede reinício', () => {
+    const emitSpy = jest.spyOn(context.queueEvents, 'emit');
     insertLobby(db, {
       id: 7,
       lobbyNumber: 17,
@@ -104,12 +105,125 @@ describe('lobby behavior', () => {
       originalJoinedAtMs: 40_000,
       isSubscriber: 0,
     });
+    insertLobby(db, {
+      id: 8,
+      lobbyNumber: 18,
+      status: 'forming',
+      creationType: 'automatic',
+      createdAtMs: 41_000,
+    });
+    insertLobbyPlayer(db, {
+      id: 2,
+      lobbyId: 8,
+      discordId: 'starter-2',
+      username: 'Starter 2#0001',
+      displayName: 'Starter 2',
+      position: 1,
+      originalJoinedAtMs: 41_000,
+      isSubscriber: 0,
+    });
 
     const started = context.queueService.startLobbyByNumber(17);
     expect(started).toBe(true);
     expect(db.prepare(`SELECT status FROM lobbies WHERE lobby_number = ?`).get(17).status).toBe('in_game');
+    expect(db.prepare(`SELECT status FROM lobbies WHERE lobby_number = ?`).get(18).status).toBe('forming');
+    expect(emitSpy).toHaveBeenCalledTimes(1);
+    expect(emitSpy).toHaveBeenLastCalledWith('queueUpdated');
     expect(context.queueService.startLobbyByNumber(17)).toBe(false);
     expect(context.queueService.startLobbyByNumber(999)).toBe(false);
+    expect(emitSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test('falhas em startLobbyByNumber não alteram estado nem emitem queueUpdated', () => {
+    const emitSpy = jest.spyOn(context.queueEvents, 'emit');
+    insertLobby(db, {
+      id: 70,
+      lobbyNumber: 70,
+      status: 'in_game',
+      creationType: 'automatic',
+      createdAtMs: 70_000,
+    });
+    insertLobbyPlayer(db, {
+      id: 70,
+      lobbyId: 70,
+      discordId: 'ingame-70',
+      username: 'InGame 70#0001',
+      displayName: 'InGame 70',
+      position: 1,
+      originalJoinedAtMs: 70_000,
+      isSubscriber: 0,
+    });
+
+    expect(context.queueService.startLobbyByNumber(999)).toBe(false);
+    expect(context.queueService.startLobbyByNumber(70)).toBe(false);
+    expect(context.queueService.startLobbyByNumber(0)).toBe(false);
+    expect(context.queueService.startLobbyByNumber(-1)).toBe(false);
+    expect(context.queueService.startLobbyByNumber('invalid')).toBe(false);
+    expect(db.prepare(`SELECT status FROM lobbies WHERE lobby_number = ?`).get(70).status).toBe('in_game');
+    expect(emitSpy).not.toHaveBeenCalled();
+  });
+
+  test('índice único de lobby_number rejeita duplicidade no schema normal', () => {
+    insertLobby(db, {
+      id: 80,
+      lobbyNumber: 80,
+      status: 'forming',
+      creationType: 'automatic',
+      createdAtMs: 80_000,
+    });
+
+    expect(() => {
+      insertLobby(db, {
+        id: 81,
+        lobbyNumber: 80,
+        status: 'forming',
+        creationType: 'automatic',
+        createdAtMs: 81_000,
+      });
+    }).toThrow();
+  });
+
+  test('rollback preserva estado e não emite evento quando update falha após mutação dentro da transação', () => {
+    const emitSpy = jest.spyOn(context.queueEvents, 'emit');
+    insertLobby(db, {
+      id: 90,
+      lobbyNumber: 90,
+      status: 'forming',
+      creationType: 'automatic',
+      createdAtMs: 90_000,
+    });
+    insertLobbyPlayer(db, {
+      id: 90,
+      lobbyId: 90,
+      discordId: 'starter-90',
+      username: 'Starter 90#0001',
+      displayName: 'Starter 90',
+      position: 1,
+      originalJoinedAtMs: 90_000,
+      isSubscriber: 0,
+    });
+
+    const originalPrepare = db.prepare.bind(db);
+    const prepareSpy = jest.spyOn(db, 'prepare').mockImplementation((sql) => {
+      const statement = originalPrepare(sql);
+      if (String(sql).includes("UPDATE lobbies SET status = 'in_game' WHERE id = ? AND status IN ('forming', 'open')")) {
+        return {
+          ...statement,
+          run(...args) {
+            statement.run(...args);
+            throw new Error('forced rollback');
+          },
+        };
+      }
+
+      return statement;
+    });
+
+    expect(context.queueService.startLobbyByNumber(90)).toBe(false);
+    expect(db.prepare(`SELECT status FROM lobbies WHERE lobby_number = ?`).get(90).status).toBe('forming');
+    expect(emitSpy).not.toHaveBeenCalled();
+
+    prepareSpy.mockRestore();
   });
 
   test('bloqueia reentrada em lobby forming e permite em lobby in_game', () => {

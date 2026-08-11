@@ -1,7 +1,39 @@
-const { SlashCommandBuilder, PermissionsBitField, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const queueService = require('../services/queueService');
-const queueMessageService = require('../services/queueMessageService');
 const adminCommandAuditService = require('../services/adminCommandAuditService');
+const operationalAuthorizationService = require('../services/operationalAuthorizationService');
+
+const STARTABLE_LOBBY_STATUSES = new Set(['forming', 'open']);
+
+function buildAuthorizationReplyContent(code) {
+  if (code === operationalAuthorizationService.codes.MEMBER_UNAVAILABLE) {
+    return 'Não foi possível validar sua autorização operacional neste servidor. Operação recusada.';
+  }
+
+  return 'Você precisa de autorização operacional para executar este comando.';
+}
+
+function validateLobbyNumber(value) {
+  if (value === null || value === undefined) {
+    return {
+      ok: false,
+      errorCode: 'LOBBY_NUMBER_REQUIRED',
+      replyContent: 'O número da lobby é obrigatório.',
+      reason: 'lobby_number_required',
+    };
+  }
+
+  if (!Number.isInteger(value) || value < 1) {
+    return {
+      ok: false,
+      errorCode: 'INVALID_LOBBY_NUMBER',
+      replyContent: 'O número da lobby deve ser um inteiro maior ou igual a 1.',
+      reason: 'invalid_lobby_number',
+    };
+  }
+
+  return { ok: true };
+}
 
 function getSafeQueueCycleId() {
   try {
@@ -30,37 +62,45 @@ module.exports = {
       option
         .setName('numero')
         .setDescription('Número público da lobby para iniciar')
-        .setRequired(false),
+        .setRequired(true)
+        .setMinValue(1),
     ),
   async execute(interaction) {
     const lobbyNumberOption = interaction.options.getInteger('numero');
     const previousState = getSafeOperationalState();
     const cycleId = getSafeQueueCycleId();
 
-    const member = interaction.member;
-    if (!member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-      const deniedAudit = await adminCommandAuditService.beginBestEffort(interaction, {
-        commandName: 'lobby-start',
-        parameters: { numero: lobbyNumberOption },
-        queueCycleId: cycleId,
-        previousState,
-      });
-
-      if (deniedAudit) {
-        await adminCommandAuditService.finishDenied(deniedAudit, {
-          errorCode: 'MISSING_PERMISSION',
+    const authorization = await operationalAuthorizationService.authorize(interaction);
+    if (!authorization.allowed) {
+      let deniedAudit;
+      try {
+        deniedAudit = await adminCommandAuditService.beginRequired(interaction, {
+          commandName: 'lobby-start',
+          parameters: { numero: lobbyNumberOption },
           queueCycleId: cycleId,
           previousState,
-          nextState: {
-            denied: true,
-            reason: 'missing_permission',
-          },
-          client: interaction.client,
         });
+      } catch {
+        await interaction.reply({
+          content: 'Não foi possível registrar a auditoria obrigatória desta ação. Operação recusada.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
       }
 
+      await adminCommandAuditService.finishDenied(deniedAudit, {
+        errorCode: authorization.code,
+        queueCycleId: cycleId,
+        previousState,
+        nextState: {
+          denied: true,
+          reason: authorization.reason,
+        },
+        client: interaction.client,
+      });
+
       await interaction.reply({
-        content: 'Você precisa de permissão de Gerenciar Servidor para executar este comando.',
+        content: buildAuthorizationReplyContent(authorization.code),
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -82,56 +122,53 @@ module.exports = {
       return;
     }
 
-    const formingLobbies = queueService.getActiveLobbies('forming');
-    if (!formingLobbies.length) {
+    const validation = validateLobbyNumber(lobbyNumberOption);
+    if (!validation.ok) {
+      await adminCommandAuditService.finishFailed(auditContext, {
+        errorCode: validation.errorCode,
+        queueCycleId: cycleId,
+        previousState,
+        nextState: {
+          failed: true,
+          reason: validation.reason,
+        },
+        client: interaction.client,
+      });
+
+      await interaction.reply({
+        content: validation.replyContent,
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const activeLobbies = queueService.getActiveLobbies();
+    const targetLobby = activeLobbies.find(
+      (lobby) =>
+        Number(lobby.lobbyNumber) === Number(lobbyNumberOption) && STARTABLE_LOBBY_STATUSES.has(lobby.status),
+    ) || null;
+
+    if (!targetLobby) {
       await adminCommandAuditService.finishFailed(auditContext, {
         errorCode: 'LOBBY_NOT_FOUND',
         queueCycleId: cycleId,
         previousState,
         nextState: {
           failed: true,
-          reason: 'no_forming_lobbies',
+          reason: 'lobby_not_startable',
+          lobbyNumber: lobbyNumberOption,
         },
         client: interaction.client,
       });
 
       await interaction.reply({
-        content: 'Não há lobbies em formação no momento.',
+        content: 'Não foi possível iniciar essa lobby. Verifique se ela está disponível para início.',
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
 
-    let lobbyNumber = lobbyNumberOption;
-
-    if (!lobbyNumber) {
-      if (formingLobbies.length === 1) {
-        lobbyNumber = formingLobbies[0].lobbyNumber;
-      } else {
-        await adminCommandAuditService.finishFailed(auditContext, {
-          errorCode: 'INVALID_INPUT',
-          queueCycleId: cycleId,
-          previousState,
-          nextState: {
-            failed: true,
-            reason: 'missing_lobby_number_with_multiple_forming',
-            formingCount: formingLobbies.length,
-          },
-          client: interaction.client,
-        });
-
-        const lobbyList = formingLobbies.map((lobby) => `• Lobby #${lobby.lobbyNumber}`).join('\n');
-        await interaction.reply({
-          content: `Lobbies em formação:\n${lobbyList}\n\nUse /lobby-start numero:<NÚMERO> para iniciar uma lobby.`,
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-    }
-
-    const targetLobby = formingLobbies.find((lobby) => Number(lobby.lobbyNumber) === Number(lobbyNumber)) || null;
-
-    const started = queueService.startLobbyByNumber(lobbyNumber);
+    const started = queueService.startLobbyByNumber(lobbyNumberOption);
     if (!started) {
       await adminCommandAuditService.finishFailed(auditContext, {
         errorCode: 'LOBBY_NOT_FOUND',
@@ -139,35 +176,33 @@ module.exports = {
         previousState,
         nextState: {
           failed: true,
-          reason: 'lobby_not_in_forming_state',
-          lobbyNumber,
+          reason: 'lobby_start_failed',
+          lobbyNumber: lobbyNumberOption,
         },
         client: interaction.client,
       });
 
       await interaction.reply({
-        content: 'Não foi possível iniciar essa lobby. Verifique se ela ainda está em formação.',
+        content: 'Não foi possível iniciar essa lobby. Verifique se ela está disponível para início.',
         flags: MessageFlags.Ephemeral,
       });
       return;
     }
-
-    await queueMessageService.updatePanel(interaction.client);
 
     await adminCommandAuditService.finishSuccess(auditContext, {
       queueCycleId: getSafeQueueCycleId(),
       previousState,
       nextState: {
         lobbyId: targetLobby ? targetLobby.id : null,
-        lobbyNumber,
-        previousLobbyState: targetLobby ? targetLobby.status : 'forming',
+        lobbyNumber: lobbyNumberOption,
+        previousLobbyState: targetLobby ? targetLobby.status : null,
         nextLobbyState: 'in_game',
       },
       client: interaction.client,
     });
 
     await interaction.reply({
-      content: `Lobby #${lobbyNumber} iniciada com sucesso.`,
+      content: `Lobby #${lobbyNumberOption} iniciada com sucesso.`,
       flags: MessageFlags.Ephemeral,
     });
   },

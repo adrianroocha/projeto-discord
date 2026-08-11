@@ -15,6 +15,7 @@ function loadConfig(overrides = {}) {
       key === 'DATABASE_PATH' ||
       key === 'SQLITE_BACKUP_DIRECTORY' ||
       key === 'ADMIN_AUDIT_RETENTION_DAYS' ||
+      key === 'BOT_OPERATOR_ROLE_IDS' ||
       key === 'DISCORD_TOKEN' ||
       key === 'GUILD_ID'
     ) {
@@ -27,15 +28,14 @@ function loadConfig(overrides = {}) {
 }
 
 describe('config Railway host/port and data paths', () => {
+  let originalEnv;
+
+  beforeEach(() => {
+    originalEnv = { ...process.env };
+  });
+
   afterEach(() => {
-    delete process.env.PORT;
-    delete process.env.KICK_PORT;
-    delete process.env.KICK_HOST;
-    delete process.env.DATABASE_PATH;
-    delete process.env.SQLITE_BACKUP_DIRECTORY;
-    delete process.env.ADMIN_AUDIT_RETENTION_DAYS;
-    delete process.env.DISCORD_TOKEN;
-    delete process.env.GUILD_ID;
+    process.env = originalEnv;
     jest.resetModules();
   });
 
@@ -82,6 +82,40 @@ describe('config Railway host/port and data paths', () => {
   test('retenção de auditoria administrativa aceita valor válido', () => {
     const config = loadConfig({ ADMIN_AUDIT_RETENTION_DAYS: '3650' });
     expect(config.adminAuditRetentionDays).toBe(3650);
+  });
+
+  test('BOT_OPERATOR_ROLE_IDS ausente não bloqueia startup', () => {
+    const config = loadConfig({});
+    expect(config.botOperatorRoleIds).toEqual([]);
+  });
+
+  test('BOT_OPERATOR_ROLE_IDS vazia resulta em lista vazia', () => {
+    const config = loadConfig({ BOT_OPERATOR_ROLE_IDS: '' });
+    expect(config.botOperatorRoleIds).toEqual([]);
+  });
+
+  test('BOT_OPERATOR_ROLE_IDS com apenas espaços e vírgulas resulta em lista vazia', () => {
+    const config = loadConfig({ BOT_OPERATOR_ROLE_IDS: ' ,   , ' });
+    expect(config.botOperatorRoleIds).toEqual([]);
+  });
+
+  test('BOT_OPERATOR_ROLE_IDS remove espaços, ignora vazios e deduplica', () => {
+    const config = loadConfig({
+      BOT_OPERATOR_ROLE_IDS: ' 123456789012345678 , , 234567890123456789,123456789012345678 ',
+    });
+
+    expect(config.botOperatorRoleIds).toEqual([
+      '123456789012345678',
+      '234567890123456789',
+    ]);
+  });
+
+  test.each([
+    ['abc'],
+    ['123'],
+    ['123456789012345678,invalid'],
+  ])('BOT_OPERATOR_ROLE_IDS inválido (%s) falha startup de configuração', (value) => {
+    expect(() => loadConfig({ BOT_OPERATOR_ROLE_IDS: value })).toThrow('BOT_OPERATOR_ROLE_IDS inválido.');
   });
 
   test.each([

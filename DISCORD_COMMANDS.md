@@ -18,11 +18,14 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 ## Auditoria administrativa de fila e lobbies
 - Fonte oficial: tabela SQLite `admin_command_audit_logs`.
 - Escopo auditado nesta etapa (comandos mutáveis): `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start`.
-- Comandos administrativos de consulta não auditados nesta etapa: `/scheduler-status`, `/fila-status`, `/lobby-status`.
+- Consulta administrativa auditada nesta etapa: `/kick-status usuario:@Membro` quando o alvo é terceiro.
+- Consultas próprias continuam fora da auditoria administrativa.
+- Comandos administrativos de consulta ainda não auditados nesta etapa: `/scheduler-status`, `/fila-status`, `/lobby-status`.
 - Cada tentativa registra início (`pending`) e resultado final (`success`, `failed` ou `denied`) com código seguro.
 - Metadados permitidos: `interaction_id`, `guild_id`, `channel_id`, ator, comando, parâmetros saneados, `queue_cycle_id`, estado operacional seguro antes/depois, `error_code` e timestamps.
 - Dados proibidos: tokens, secrets, payload completo de interação/Discord, stack trace, mensagem interna de exceção, dados sensíveis de OAuth/Kick.
 - Se a auditoria obrigatória falhar antes da mutação, a ação administrativa mutável é recusada.
+- Em `/kick-status` administrativo, apenas ator, alvo por Discord ID, comando, horário e resultado seguro são persistidos.
 - Falha de publicação opcional no Discord não desfaz operação concluída e gera apenas warning seguro.
 - Canal opcional de resumo: `ADMIN_AUDIT_CHANNEL_ID` (com validação de guild e `allowedMentions` sem menções).
 - Retenção automática: `ADMIN_AUDIT_RETENTION_DAYS` (padrão 30 dias; inteiro seguro entre 1 e 3650).
@@ -30,6 +33,13 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Fronteira: registro exatamente no cutoff é preservado.
 - Resultados antigos elegíveis para limpeza: `pending`, `success`, `failed` e `denied`.
 - Escopo da limpeza: somente `admin_command_audit_logs`; sem `VACUUM` automático.
+
+## Autorização operacional centralizada
+- Regra: o bot busca o membro real no servidor antes de autorizar a ação.
+- Permite quando o ator tiver `Administrator`, `Manage Guild` ou algum cargo listado em `BOT_OPERATOR_ROLE_IDS`.
+- `BOT_OPERATOR_ROLE_IDS` é opcional, aceita IDs de cargos separados por vírgula, remove espaços, ignora itens vazios e valida cada snowflake.
+- Sem `BOT_OPERATOR_ROLE_IDS`, o comportamento permanece restrito a `Administrator` e `Manage Guild`.
+- A lista de IDs nunca aparece em respostas ou logs.
 
 ## /dev-clear-test-data
 - Nome: /dev-clear-test-data
@@ -99,8 +109,9 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Regras de acesso:
 - Sem `usuario`, o comando consulta o próprio autor.
 - Com `usuario` apontando para o próprio autor, a consulta é permitida normalmente.
-- Com `usuario` apontando para outro membro, exige `Administrator` ou `Manage Guild`.
+- Com `usuario` apontando para outro membro, exige autorização operacional centralizada (`Administrator`, `Manage Guild` ou cargo em `BOT_OPERATOR_ROLE_IDS`).
 - Consulta de terceiro é recusada quando o membro alvo não estiver disponível no servidor.
+- Consulta de terceiro é auditada sem persistir username Kick, Kick ID, estado detalhado de assinatura, motivo manual ou resposta completa.
 - Limitações: depende de eventos webhook para observar assinatura Kick; reflete apenas estado local já persistido; não força atualização na API da Kick, não sincroniza cargo automaticamente e não recalcula snapshot de prioridade para usuários já na fila no ciclo atual.
 
 ## /kick-unlink
@@ -132,7 +143,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 ## /lobby-form-force
 - Nome: /lobby-form-force
 - Finalidade: forçar criação manual de lobby em formação com N jogadores.
-- Quem pode usar: Administrator ou Manage Guild.
+- Quem pode usar: autorização operacional centralizada (`Administrator`, `Manage Guild` ou cargo em `BOT_OPERATOR_ROLE_IDS`).
 - Onde usar: servidor Discord.
 - Parâmetros: quantidade (integer 1-4, obrigatório).
 - Resposta: ephemeral.
@@ -146,19 +157,20 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 ## /lobby-start
 - Nome: /lobby-start
 - Finalidade: iniciar lobby que está em formação.
-- Quem pode usar: Manage Guild.
+- Quem pode usar: autorização operacional centralizada (`Administrator`, `Manage Guild` ou cargo em `BOT_OPERATOR_ROLE_IDS`).
 - Onde usar: servidor Discord.
-- Parâmetros: numero (integer, opcional).
+- Parâmetros: numero (integer, obrigatório, mínimo 1).
 - Resposta: ephemeral.
 - Exemplo: /lobby-start numero:3
 - Efeitos no banco: altera estado da lobby para iniciada.
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: atualiza painel.
-- Limitações: se houver várias lobbies em formação e numero não for informado, apenas lista opções.
+- Limitações: recusa ausência, zero, negativo e valor não inteiro; nunca escolhe lobby automaticamente.
 - Estado final operacional: após iniciar, a lobby passa para `in_game` e permanece assim até o reset do ciclo.
+- Estado iniciável canônico preservado do domínio: `forming` e `open`; `in_game` não pode ser reiniciada.
 - Reentrada de jogadores: usuários da lobby iniciada (`in_game`) podem entrar novamente na fila no mesmo ciclo.
 - Histórico: os registros anteriores em `lobby_players` permanecem preservados até o próximo `resetQueueCycle`.
-- Auditoria administrativa: registra tentativa, lobby alvo (ID/número seguro), estado anterior/seguinte (`in_game`) quando aplicável, ciclo e resultado seguro (`success`, `failed` ou `denied`).
+- Auditoria administrativa: registra tentativa, número solicitado, lobby alvo (ID/número seguro), estado anterior/seguinte (`in_game`) quando aplicável, ciclo e resultado seguro (`success`, `failed` ou `denied`).
 
 ## /lobby-status
 - Nome: /lobby-status

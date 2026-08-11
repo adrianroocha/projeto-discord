@@ -1,7 +1,15 @@
-const { SlashCommandBuilder, PermissionsBitField, MessageFlags } = require('discord.js');
+const { SlashCommandBuilder, MessageFlags } = require('discord.js');
 const queueService = require('../services/queueService');
-const queueMessageService = require('../services/queueMessageService');
 const adminCommandAuditService = require('../services/adminCommandAuditService');
+const operationalAuthorizationService = require('../services/operationalAuthorizationService');
+
+function buildAuthorizationReplyContent(code) {
+  if (code === operationalAuthorizationService.codes.MEMBER_UNAVAILABLE) {
+    return 'Não foi possível validar sua autorização operacional neste servidor. Operação recusada.';
+  }
+
+  return 'Você precisa de autorização operacional para usar este comando.';
+}
 
 function getSafeQueueCycleId() {
   try {
@@ -40,30 +48,37 @@ module.exports = {
     const previousState = getSafeOperationalState();
     const cycleId = getSafeQueueCycleId();
 
-    const member = interaction.member;
-    if (!member.permissions.has(PermissionsBitField.Flags.Administrator) && !member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-      const deniedAudit = await adminCommandAuditService.beginBestEffort(interaction, {
-        commandName: 'lobby-form-force',
-        parameters: { quantidade },
-        queueCycleId: cycleId,
-        previousState,
-      });
-
-      if (deniedAudit) {
-        await adminCommandAuditService.finishDenied(deniedAudit, {
-          errorCode: 'MISSING_PERMISSION',
+    const authorization = await operationalAuthorizationService.authorize(interaction);
+    if (!authorization.allowed) {
+      let deniedAudit;
+      try {
+        deniedAudit = await adminCommandAuditService.beginRequired(interaction, {
+          commandName: 'lobby-form-force',
+          parameters: { quantidade },
           queueCycleId: cycleId,
           previousState,
-          nextState: {
-            denied: true,
-            reason: 'missing_permission',
-          },
-          client: interaction.client,
         });
+      } catch {
+        await interaction.reply({
+          content: 'Não foi possível registrar a auditoria obrigatória desta ação. Operação recusada.',
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
       }
 
+      await adminCommandAuditService.finishDenied(deniedAudit, {
+        errorCode: authorization.code,
+        queueCycleId: cycleId,
+        previousState,
+        nextState: {
+          denied: true,
+          reason: authorization.reason,
+        },
+        client: interaction.client,
+      });
+
       await interaction.reply({
-        content: 'Você precisa ser Administrador ou ter permissão de Gerenciar Servidor para usar este comando.',
+        content: buildAuthorizationReplyContent(authorization.code),
         flags: MessageFlags.Ephemeral,
       });
       return;
@@ -135,8 +150,6 @@ module.exports = {
       const name = entry.display_name?.trim() ? entry.display_name : entry.username;
       return `${position}. ${name}`;
     });
-
-    await queueMessageService.updatePanel(interaction.client);
 
     await adminCommandAuditService.finishSuccess(auditContext, {
       queueCycleId: getSafeQueueCycleId(),

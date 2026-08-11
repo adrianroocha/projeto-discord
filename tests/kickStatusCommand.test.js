@@ -3,6 +3,7 @@ const { MessageFlags, PermissionFlagsBits } = require('discord.js');
 process.env.DISCORD_TOKEN = process.env.DISCORD_TOKEN || 'test-token';
 process.env.GUILD_ID = process.env.GUILD_ID || 'guild-1';
 process.env.SUBSCRIBER_ROLE_ID = process.env.SUBSCRIBER_ROLE_ID || 'sub-role-1';
+delete process.env.BOT_OPERATOR_ROLE_IDS;
 
 jest.mock('../src/database/kickAccountsRepository', () => ({
   findByDiscordId: jest.fn(),
@@ -15,7 +16,15 @@ jest.mock('../src/services/subscriberEligibilityService', () => ({
   getEligibility: jest.fn(),
 }));
 
+jest.mock('../src/services/adminCommandAuditService', () => ({
+  beginRequired: jest.fn().mockResolvedValue({ auditId: 1 }),
+  finishSuccess: jest.fn().mockResolvedValue({ auditSaved: true }),
+  finishFailed: jest.fn().mockResolvedValue({ auditSaved: true }),
+  finishDenied: jest.fn().mockResolvedValue({ auditSaved: true }),
+}));
+
 const kickAccountsRepository = require('../src/database/kickAccountsRepository');
+const adminCommandAuditService = require('../src/services/adminCommandAuditService');
 const subscriberEligibilityService = require('../src/services/subscriberEligibilityService');
 const command = require('../src/commands/kickStatus');
 
@@ -125,7 +134,12 @@ function makeInteraction(options = {}) {
 describe('/kick-status command', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    delete process.env.BOT_OPERATOR_ROLE_IDS;
 
+    adminCommandAuditService.beginRequired.mockResolvedValue({ auditId: 1 });
+    adminCommandAuditService.finishSuccess.mockResolvedValue({ auditSaved: true });
+    adminCommandAuditService.finishFailed.mockResolvedValue({ auditSaved: true });
+    adminCommandAuditService.finishDenied.mockResolvedValue({ auditSaved: true });
     subscriberEligibilityService.getEligibility.mockReturnValue(makeEligibility());
     kickAccountsRepository.findByDiscordId.mockReturnValue(null);
   });
@@ -191,6 +205,40 @@ describe('/kick-status command', () => {
     expect(interaction.reply).toHaveBeenCalledWith(expect.objectContaining({ flags: MessageFlags.Ephemeral }));
   });
 
+  test('cargo operacional configurado pode consultar outro membro', async () => {
+    process.env.BOT_OPERATOR_ROLE_IDS = '900000000000000123';
+    jest.resetModules();
+    const reloadedCommand = require('../src/commands/kickStatus');
+    const reloadedAuditService = require('../src/services/adminCommandAuditService');
+    const reloadedSubscriberEligibilityService = require('../src/services/subscriberEligibilityService');
+    reloadedSubscriberEligibilityService.getEligibility.mockReturnValue(makeEligibility());
+    const interaction = makeInteraction({
+      actorId: 'mod-role-1',
+      requestedUser: { id: 'target-role-1' },
+      fetchMember: async (discordId) => {
+        if (discordId === 'mod-role-1') {
+          return {
+            manageable: true,
+            permissions: makePermissions([]),
+            roles: { cache: { has: (roleId) => roleId === '900000000000000123' } },
+          };
+        }
+
+        if (discordId === 'target-role-1') {
+          return makeGuildMember({ id: 'target-role-1' });
+        }
+
+        return null;
+      },
+    });
+
+    await reloadedCommand.execute(interaction);
+
+    expect(reloadedSubscriberEligibilityService.getEligibility).toHaveBeenCalledWith('target-role-1');
+    expect(reloadedAuditService.finishSuccess).toHaveBeenCalled();
+    delete process.env.BOT_OPERATOR_ROLE_IDS;
+  });
+
   test('usuário comum não consulta terceiro e resposta negada é privada', async () => {
     const interaction = makeInteraction({
       actorId: 'user-1',
@@ -203,10 +251,11 @@ describe('/kick-status command', () => {
     expect(subscriberEligibilityService.getEligibility).not.toHaveBeenCalled();
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
-        content: expect.stringContaining('Administrator ou Manage Guild'),
+        content: expect.stringContaining('autorização operacional'),
         flags: MessageFlags.Ephemeral,
       }),
     );
+    expect(adminCommandAuditService.finishDenied).toHaveBeenCalled();
   });
 
   test('não confia apenas no payload e valida permissões reais no guild member', async () => {
@@ -222,6 +271,45 @@ describe('/kick-status command', () => {
 
     expect(interaction.guild.members.fetch).toHaveBeenCalledWith('payload-admin');
     expect(subscriberEligibilityService.getEligibility).not.toHaveBeenCalled();
+  });
+
+  test('consulta de terceiro usa auditoria obrigatória com alvo seguro', async () => {
+    const interaction = makeInteraction({
+      actorId: 'admin-audit-1',
+      requestedUser: { id: 'target-audit-1' },
+      actorAllowedFlags: [PermissionFlagsBits.Administrator],
+    });
+
+    await command.execute(interaction);
+
+    expect(adminCommandAuditService.beginRequired).toHaveBeenCalledWith(
+      interaction,
+      expect.objectContaining({
+        commandName: 'kick-status',
+        parameters: {
+          targetDiscordId: 'target-audit-1',
+          queryScope: 'third_party',
+        },
+      }),
+    );
+    expect(adminCommandAuditService.finishSuccess).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        nextState: {
+          targetDiscordId: 'target-audit-1',
+          queryScope: 'third_party',
+        },
+      }),
+    );
+  });
+
+  test('consulta própria não entra na auditoria administrativa', async () => {
+    const interaction = makeInteraction({ actorId: 'discord-self-3' });
+
+    await command.execute(interaction);
+
+    expect(adminCommandAuditService.beginRequired).not.toHaveBeenCalled();
+    expect(adminCommandAuditService.finishSuccess).not.toHaveBeenCalled();
   });
 
   test('usuário vinculado com assinatura ativa', async () => {
