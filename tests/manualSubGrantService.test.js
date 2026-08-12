@@ -4,6 +4,7 @@ jest.mock('../src/database/manualSubGrantsRepository', () => ({
   findHistoryByDiscordId: jest.fn(),
   revokeActiveByDiscordId: jest.fn(),
   hasActiveGrant: jest.fn(),
+  extendLatestGrantByDiscordId: jest.fn(),
 }));
 
 const repository = require('../src/database/manualSubGrantsRepository');
@@ -125,5 +126,77 @@ describe('manualSubGrantService', () => {
     });
 
     expect(result).toEqual({ revoked: false, reason: 'not_found' });
+  });
+
+  test('extendGrant retorna sucesso com status anterior e datas', () => {
+    repository.extendLatestGrantByDiscordId.mockReturnValue({
+      extended: true,
+      statusBefore: 'active',
+      previousExpiresAtMs: 5_000,
+      newExpiresAtMs: 7_000,
+      grant: {
+        id: 77,
+        discord_id: 'discord-extend-1',
+        granted_by_discord_id: 'admin-1',
+        reason: 'Pix',
+        granted_at_ms: 1_000,
+        expires_at_ms: 7_000,
+        revoked_at_ms: null,
+        revoked_by_discord_id: null,
+        revoke_reason: null,
+      },
+    });
+
+    const result = service.extendGrant({
+      discordId: 'discord-extend-1',
+      extendedByDiscordId: 'admin-2',
+      reason: 'Renovacao',
+      days: 20,
+      nowMs: 2_000,
+    });
+
+    expect(result.extended).toBe(true);
+    expect(result.statusBefore).toBe('active');
+    expect(result.previousExpiresAtMs).toBe(5_000);
+    expect(result.newExpiresAtMs).toBe(7_000);
+    expect(repository.extendLatestGrantByDiscordId).toHaveBeenCalledWith(
+      expect.objectContaining({
+        discordId: 'discord-extend-1',
+        nowMs: 2_000,
+        days: 20,
+      }),
+    );
+  });
+
+  test('extendGrant rejeita motivo com mais de 200 caracteres', () => {
+    expect(() => {
+      service.extendGrant({
+        discordId: 'discord-extend-2',
+        extendedByDiscordId: 'admin-2',
+        reason: 'a'.repeat(201),
+        days: 20,
+      });
+    }).toThrow(/motivo deve ter no máximo 200 caracteres/);
+  });
+
+  test('extendGrant traduz falha transacional segura', () => {
+    const err = new Error('mismatch');
+    err.code = 'MANUAL_SUB_GRANT_EXTEND_UPDATE_MISMATCH';
+    repository.extendLatestGrantByDiscordId.mockImplementation(() => {
+      throw err;
+    });
+
+    const result = service.extendGrant({
+      discordId: 'discord-extend-3',
+      extendedByDiscordId: 'admin-2',
+      reason: 'Renovacao',
+      days: 20,
+      nowMs: 3_000,
+    });
+
+    expect(result).toEqual({
+      extended: false,
+      reason: 'extend_transaction_failed',
+    });
   });
 });

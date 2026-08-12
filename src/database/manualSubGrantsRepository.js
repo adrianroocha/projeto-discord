@@ -205,6 +205,96 @@ function hasActiveGrant(discordId, nowMs) {
   return Boolean(findActiveByDiscordId(discordId, nowMs));
 }
 
+function extendLatestGrantByDiscordId(data) {
+  if (!data || typeof data !== 'object') {
+    throw new Error('Parâmetro inválido: data é obrigatório.');
+  }
+
+  const db = getDatabase();
+  const discordId = toNonEmptyString(data.discordId, 'discordId');
+  const nowMs = toTimestampMs(data.nowMs, 'nowMs');
+
+  const parsedDays = Number(data.days);
+  if (!Number.isInteger(parsedDays) || parsedDays < 1) {
+    throw new Error('Campo inválido: days deve ser inteiro maior ou igual a 1.');
+  }
+
+  const findLatestStmt = db.prepare(
+    `SELECT id, discord_id, granted_by_discord_id, reason, granted_at_ms, expires_at_ms, revoked_at_ms, revoked_by_discord_id, revoke_reason
+     FROM manual_sub_grants
+     WHERE discord_id = ?
+     ORDER BY granted_at_ms DESC, id DESC
+     LIMIT 1`,
+  );
+
+  const updateExpiresStmt = db.prepare(
+    `UPDATE manual_sub_grants
+     SET expires_at_ms = ?
+     WHERE id = ?`,
+  );
+
+  const selectByIdStmt = db.prepare(
+    `SELECT id, discord_id, granted_by_discord_id, reason, granted_at_ms, expires_at_ms, revoked_at_ms, revoked_by_discord_id, revoke_reason
+     FROM manual_sub_grants
+     WHERE id = ?
+     LIMIT 1`,
+  );
+
+  const transaction = db.transaction((payload) => {
+    const latest = findLatestStmt.get(payload.discordId);
+    if (!latest) {
+      return {
+        extended: false,
+        reason: 'not_found',
+      };
+    }
+
+    if (latest.revoked_at_ms !== null) {
+      return {
+        extended: false,
+        reason: 'revoked',
+        grant: latest,
+      };
+    }
+
+    if (latest.expires_at_ms === null) {
+      return {
+        extended: false,
+        reason: 'not_extendable',
+        grant: latest,
+      };
+    }
+
+    const previousExpiresAtMs = toTimestampMs(latest.expires_at_ms, 'expires_at_ms');
+    const statusBefore = previousExpiresAtMs > payload.nowMs ? 'active' : 'expired';
+    const baseMs = statusBefore === 'active' ? previousExpiresAtMs : payload.nowMs;
+    const newExpiresAtMs = baseMs + payload.days * 24 * 60 * 60 * 1000;
+
+    const updateResult = updateExpiresStmt.run(newExpiresAtMs, latest.id);
+    if (Number(updateResult && updateResult.changes) !== 1) {
+      const error = new Error('Falha ao atualizar concessão manual para extensão.');
+      error.code = 'MANUAL_SUB_GRANT_EXTEND_UPDATE_MISMATCH';
+      throw error;
+    }
+
+    const updatedGrant = selectByIdStmt.get(latest.id);
+
+    return {
+      extended: true,
+      grant: updatedGrant,
+      previousExpiresAtMs,
+      newExpiresAtMs,
+      statusBefore,
+    };
+  });
+
+  return transaction({
+    discordId,
+    nowMs,
+    days: parsedDays,
+  });
+}
+
 module.exports = {
   createGrant,
   findActiveByDiscordId,
@@ -212,4 +302,5 @@ module.exports = {
   listDistinctDiscordIds,
   revokeActiveByDiscordId,
   hasActiveGrant,
+  extendLatestGrantByDiscordId,
 };

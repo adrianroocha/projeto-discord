@@ -2,6 +2,7 @@ const subscriberRoleSyncService = require('./subscriberRoleSyncService');
 
 const ALLOWED_TRIGGER_TYPES = new Set([
   'manual_grant',
+  'manual_grant_extend',
   'manual_revoke',
   'kick_link',
   'kick_unlink',

@@ -474,10 +474,14 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 
 ## Concessão manual de benefício SUB (etapa atual)
 
-- Comandos administrativos: `/sub-grant`, `/sub-revoke` e `/sub-status`.
+- Comandos administrativos: `/sub-grant`, `/sub-grant-extend`, `/sub-revoke` e `/sub-status`.
 - A concessão manual é registrada separadamente para auditoria e não representa assinatura Kick.
 - Os registros de concessão e revogação são preservados no histórico.
-- `/sub-grant` e `/sub-revoke` recalculam elegibilidade e tentam sincronizar automaticamente o cargo SUB.
+- `/sub-grant`, `/sub-grant-extend` e `/sub-revoke` recalculam elegibilidade e tentam sincronizar automaticamente o cargo SUB.
+- `/sub-grant-extend` é privado (`ephemeral`), auditado e idempotente por `interaction_id`.
+- Regra de extensão: concessão ativa soma ao vencimento atual; concessão expirada naturalmente soma a partir de agora.
+- Concessão revogada ou inexistente não é reativada/criada por `/sub-grant-extend`; nesses casos, o fluxo correto é registrar nova concessão com `/sub-grant`.
+- Concessão manual sem vencimento não é convertida em temporária por `/sub-grant-extend`.
 - Em caso de falha de sincronização de cargo, a alteração de banco permanece e a reconciliação manual pode ser feita via `/sub-sync`.
 - A reconciliação em massa também pode ser executada manualmente via `/sub-reconcile` e periodicamente por scheduler dedicado.
 - Esses comandos não alteram snapshot de prioridade de quem já está aguardando na fila no ciclo atual.

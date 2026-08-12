@@ -353,6 +353,25 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos na fila: não altera snapshot de prioridade de usuários já aguardando no ciclo atual.
 - Limitações: não permite bots; bloqueia concessão duplicada ativa.
 
+## /sub-grant-extend
+- Nome: /sub-grant-extend
+- Finalidade: estender administrativamente uma concessão manual existente de benefício SUB sem criar concessão paralela.
+- Quem pode usar: Administrator.
+- Onde usar: servidor Discord.
+- Parâmetros: usuario (user, obrigatório), dias (integer 1-365, obrigatório), motivo (string 3-200, obrigatório).
+- Resposta: ephemeral.
+- Exemplo: /sub-grant-extend usuario:@Membro dias:20 motivo:Renovação via PIX
+- Efeitos no banco: atualiza apenas `expires_at_ms` do registro manual mais recente e elegível para extensão, em transação única.
+- Efeitos em cargo: após persistir a extensão, recalcula elegibilidade e sincroniza automaticamente o cargo SUB.
+- Efeitos na fila: não altera snapshot de prioridade de usuários já aguardando no ciclo atual.
+- Regra para concessão ativa: soma os dias ao vencimento atual (`novo_vencimento = vencimento_atual + dias`).
+- Regra para concessão expirada naturalmente (não revogada): reativa a partir de agora (`novo_vencimento = agora + dias`).
+- Concessão revogada: não é reativada por este comando; deve usar novo `/sub-grant`.
+- Concessão inexistente: o comando não cria concessão implícita; orienta uso de `/sub-grant`.
+- Concessão sem vencimento: não é convertida para temporária e retorna falha segura de não extensível.
+- Auditoria administrativa obrigatória: registra tentativa e finalização (`success`, `failed` ou `denied`) com código seguro e saneamento de payload.
+- Idempotência: mesma `interaction_id` não aplica extensão duas vezes e retorna resposta segura de interação já processada.
+
 ## /sub-revoke
 - Nome: /sub-revoke
 - Finalidade: revogar concessão manual SUB ativa.

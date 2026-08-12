@@ -3,6 +3,7 @@ const manualSubGrantsRepository = require('../database/manualSubGrantsRepository
 const MIN_DAYS = 1;
 const MAX_DAYS = 365;
 const MAX_REASON_LENGTH = 280;
+const MAX_EXTEND_REASON_LENGTH = 200;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 function getNowMs(nowMs) {
@@ -38,6 +39,16 @@ function normalizeReason(value) {
 
   if (normalized.length > MAX_REASON_LENGTH) {
     throw new Error(`Campo inválido: motivo deve ter no máximo ${MAX_REASON_LENGTH} caracteres.`);
+  }
+
+  return normalized;
+}
+
+function normalizeReasonWithLimit(value, maxLength) {
+  const normalized = normalizeReason(value);
+
+  if (normalized.length > maxLength) {
+    throw new Error(`Campo inválido: motivo deve ter no máximo ${maxLength} caracteres.`);
   }
 
   return normalized;
@@ -151,6 +162,59 @@ function revokeGrant(input) {
   };
 }
 
+function extendGrant(input) {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Parâmetro inválido: input é obrigatório.');
+  }
+
+  const nowMs = getNowMs(input.nowMs);
+  const discordId = normalizeDiscordId(input.discordId, 'discordId');
+  const extendedByDiscordId = normalizeDiscordId(input.extendedByDiscordId, 'extendedByDiscordId');
+  const reason = normalizeReasonWithLimit(input.reason, MAX_EXTEND_REASON_LENGTH);
+  const days = normalizeDurationDays(input.days);
+
+  if (days === null) {
+    throw new Error('Campo inválido: dias deve ser um inteiro entre 1 e 365.');
+  }
+
+  let result;
+  try {
+    result = manualSubGrantsRepository.extendLatestGrantByDiscordId({
+      discordId,
+      nowMs,
+      days,
+    });
+  } catch (error) {
+    if (error?.code === 'MANUAL_SUB_GRANT_EXTEND_UPDATE_MISMATCH') {
+      return {
+        extended: false,
+        reason: 'extend_transaction_failed',
+      };
+    }
+
+    throw error;
+  }
+
+  if (!result.extended) {
+    return {
+      extended: false,
+      reason: result.reason,
+      grant: result.grant ? toGrantResult(result.grant) : null,
+    };
+  }
+
+  return {
+    extended: true,
+    grant: toGrantResult(result.grant),
+    previousExpiresAtMs: result.previousExpiresAtMs,
+    newExpiresAtMs: result.newExpiresAtMs,
+    statusBefore: result.statusBefore,
+    days,
+    reason,
+    extendedByDiscordId,
+  };
+}
+
 function getStatus(discordId, nowMs) {
   const targetDiscordId = normalizeDiscordId(discordId, 'discordId');
   const referenceNow = getNowMs(nowMs);
@@ -184,6 +248,7 @@ function hasActiveGrant(discordId, nowMs) {
 module.exports = {
   createGrant,
   revokeGrant,
+  extendGrant,
   getStatus,
   getHistory,
   hasActiveGrant,
@@ -191,6 +256,7 @@ module.exports = {
     MIN_DAYS,
     MAX_DAYS,
     MAX_REASON_LENGTH,
+    MAX_EXTEND_REASON_LENGTH,
     DAY_MS,
   },
 };
