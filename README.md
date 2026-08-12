@@ -228,7 +228,7 @@ Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COM
 - `/scheduler-status` - mostra o estado atual do scheduler.
 - `/lobby-start` - inicia uma lobby pelo número informado obrigatoriamente.
 - `/lobby-form-force` - força a criação de uma lobby com jogadores suficientes.
-- `/lobby-swap` - troca administrativamente um jogador em lobby em formação por um jogador da fila mantendo posição operacional.
+- `/lobby-swap` - troca administrativamente dois participantes mutáveis do ciclo atual (`queue` e/ou `forming`) mantendo posição operacional.
 - `/lobby-remove` - remove administrativamente um jogador ausente de uma lobby em formação sem retorná-lo para a fila.
 - `/kick-events-sync` - sincroniza os event subscriptions oficiais da Kick para o webhook da aplicação e aceita `force:true` para uma ressincronização manual.
 - `/kick-webhook-status` - mostra auditoria resumida do último webhook válido recebido pela integração Kick.
@@ -239,6 +239,14 @@ Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COM
 - Um comando operacional é permitido quando o ator tiver `Administrator`, `ManageGuild` ou algum cargo listado em `BOT_OPERATOR_ROLE_IDS`.
 - Se `BOT_OPERATOR_ROLE_IDS` estiver ausente ou vazio, o comportamento permanece limitado a `Administrator` e `ManageGuild`.
 - A lista de IDs nunca é exposta em respostas ou logs do bot.
+
+#### Orientação rápida para moderadores sobre /lobby-swap
+
+- Use `/lobby-swap usuario_a:@A usuario_b:@B motivo:Troca combinada`.
+- Cenários permitidos: fila↔fila, fila↔lobby `forming`, lobby `forming`↔fila, lobby `forming`↔lobby `forming` e dois slots da mesma lobby `forming`.
+- Cenário proibido: qualquer participante em lobby `in_game` bloqueia a operação completa.
+- A ação não altera cargo, elegibilidade SUB, vínculo Kick nem snapshot real de prioridade.
+- A ação é auditada com retenção padrão de 30 dias.
 
 ### Auditoria administrativa de fila e lobbies
 

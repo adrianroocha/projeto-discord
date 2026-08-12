@@ -69,16 +69,97 @@ function seedSwapScenario(db) {
   });
 }
 
+function seedQueueOnlyScenario(db) {
+  seedQueueEntry(db, {
+    id: 1,
+    discordId: 'user-a',
+    username: 'User A#0001',
+    displayName: 'User A',
+    isSubscriber: 0,
+    joinedAtMs: 15_000,
+    queueOrderKey: 110,
+  });
+  seedQueueEntry(db, {
+    id: 2,
+    discordId: 'user-b',
+    username: 'User B#0001',
+    displayName: 'User B',
+    isSubscriber: 1,
+    joinedAtMs: 16_000,
+    queueOrderKey: 220,
+  });
+}
+
+function seedFormingVsFormingScenario(db) {
+  insertLobby(db, {
+    id: 10,
+    lobbyNumber: 1,
+    status: 'forming',
+    creationType: 'automatic',
+    createdAtMs: 20_000,
+  });
+  insertLobby(db, {
+    id: 11,
+    lobbyNumber: 2,
+    status: 'forming',
+    creationType: 'automatic',
+    createdAtMs: 20_500,
+  });
+
+  insertLobbyPlayer(db, {
+    id: 100,
+    lobbyId: 10,
+    discordId: 'user-a',
+    username: 'User A#0001',
+    displayName: 'User A',
+    position: 1,
+    originalJoinedAtMs: 10_000,
+    isSubscriber: 0,
+  });
+  insertLobbyPlayer(db, {
+    id: 110,
+    lobbyId: 10,
+    discordId: 'user-c',
+    username: 'User C#0001',
+    displayName: 'User C',
+    position: 2,
+    originalJoinedAtMs: 10_500,
+    isSubscriber: 1,
+  });
+
+  insertLobbyPlayer(db, {
+    id: 200,
+    lobbyId: 11,
+    discordId: 'user-b',
+    username: 'User B#0001',
+    displayName: 'User B',
+    position: 2,
+    originalJoinedAtMs: 11_000,
+    isSubscriber: 0,
+  });
+  insertLobbyPlayer(db, {
+    id: 210,
+    lobbyId: 11,
+    discordId: 'user-d',
+    username: 'User D#0001',
+    displayName: 'User D',
+    position: 1,
+    originalJoinedAtMs: 11_500,
+    isSubscriber: 0,
+  });
+}
+
 function makeInteraction({
   id = 'interaction-swap-1',
   actorId = 'moderator-1',
   actorFlags = [PermissionFlagsBits.ManageGuild],
   actorRoleIds = [],
   unavailableIds = [],
-  lobbyUserId = 'user-a',
-  queueUserId = 'user-b',
+  userAId = 'user-a',
+  userBId = 'user-b',
   reason = 'troca validada',
   client = {},
+  useLegacyOptionNames = false,
 }) {
   const unavailableSet = new Set(unavailableIds);
 
@@ -125,12 +206,24 @@ function makeInteraction({
     },
     options: {
       getUser: jest.fn().mockImplementation((name) => {
-        if (name === 'usuario_lobby') {
-          return { id: lobbyUserId };
+        if (useLegacyOptionNames) {
+          if (name === 'usuario_lobby') {
+            return { id: userAId };
+          }
+
+          if (name === 'usuario_fila') {
+            return { id: userBId };
+          }
+
+          return null;
         }
 
-        if (name === 'usuario_fila') {
-          return { id: queueUserId };
+        if (name === 'usuario_a') {
+          return { id: userAId };
+        }
+
+        if (name === 'usuario_b') {
+          return { id: userBId };
         }
 
         return null;
@@ -193,8 +286,8 @@ describe('/lobby-swap audit integration', () => {
     expect(latest.commandName).toBe('lobby-swap');
     expect(latest.result).toBe('success');
     expect(latest.errorCode).toBe('OK');
-    expect(latest.parametersJson).toContain('"usuario_lobby":"user-a"');
-    expect(latest.parametersJson).toContain('"usuario_fila":"user-b"');
+    expect(latest.parametersJson).toContain('"usuario_a":"user-a"');
+    expect(latest.parametersJson).toContain('"usuario_b":"user-b"');
     expect(latest.parametersJson).not.toMatch(/token|payload|stack|exception/i);
 
     expect(emitSpy).toHaveBeenCalledTimes(1);
@@ -273,8 +366,8 @@ describe('/lobby-swap audit integration', () => {
     const interaction = makeInteraction({
       id: 'interaction-failed',
       actorFlags: [PermissionFlagsBits.Administrator],
-      lobbyUserId: 'user-a',
-      queueUserId: 'user-a',
+      userAId: 'user-a',
+      userBId: 'user-a',
       reason: 'troca invalida',
     });
 
@@ -409,5 +502,111 @@ describe('/lobby-swap audit integration', () => {
         flags: MessageFlags.Ephemeral,
       }),
     );
+  });
+
+  test('success: fila <-> fila mantém auditoria success com código OK', async () => {
+    seedQueueOnlyScenario(db);
+
+    const interaction = makeInteraction({
+      id: 'interaction-success-queue-queue',
+      actorFlags: [PermissionFlagsBits.ManageGuild],
+    });
+
+    await command.execute(interaction);
+
+    const latest = auditRepository.findLatest();
+    expect(latest.result).toBe('success');
+    expect(latest.errorCode).toBe('OK');
+    expect(latest.nextStateJson).toContain('"origemA":"queue"');
+    expect(latest.nextStateJson).toContain('"origemB":"queue"');
+  });
+
+  test('success: forming <-> forming audita lobbies envolvidas', async () => {
+    seedFormingVsFormingScenario(db);
+
+    const interaction = makeInteraction({
+      id: 'interaction-success-forming-forming',
+      actorFlags: [PermissionFlagsBits.Administrator],
+    });
+
+    await command.execute(interaction);
+
+    const slotA = db.prepare('SELECT discord_id FROM lobby_players WHERE lobby_id = ? AND position = ?').get(10, 1);
+    const slotB = db.prepare('SELECT discord_id FROM lobby_players WHERE lobby_id = ? AND position = ?').get(11, 2);
+    expect(slotA.discord_id).toBe('user-b');
+    expect(slotB.discord_id).toBe('user-a');
+
+    const latest = auditRepository.findLatest();
+    expect(latest.result).toBe('success');
+    expect(latest.errorCode).toBe('OK');
+    expect(latest.nextStateJson).toContain('"lobbiesEnvolvidas"');
+  });
+
+  test('failed: participante ausente retorna PARTICIPANT_NOT_FOUND sem mutação', async () => {
+    seedQueueOnlyScenario(db);
+
+    const beforeQueue = db.prepare('SELECT discord_id, queue_order_key FROM queue_entries ORDER BY queue_order_key').all();
+    const interaction = makeInteraction({
+      id: 'interaction-failed-not-found',
+      actorFlags: [PermissionFlagsBits.ManageGuild],
+      userBId: 'missing-user',
+    });
+
+    await command.execute(interaction);
+
+    const afterQueue = db.prepare('SELECT discord_id, queue_order_key FROM queue_entries ORDER BY queue_order_key').all();
+    expect(afterQueue).toEqual(beforeQueue);
+
+    const latest = auditRepository.findLatest();
+    expect(latest.result).toBe('failed');
+    expect(latest.errorCode).toBe('PARTICIPANT_NOT_FOUND');
+  });
+
+  test('failed: participante em in_game retorna LOBBY_IMMUTABLE sem mutação parcial', async () => {
+    seedQueueOnlyScenario(db);
+    insertLobby(db, {
+      id: 77,
+      lobbyNumber: 7,
+      status: 'in_game',
+      creationType: 'automatic',
+      createdAtMs: 50_000,
+    });
+    insertLobbyPlayer(db, {
+      id: 700,
+      lobbyId: 77,
+      discordId: 'user-b',
+      username: 'User B#0001',
+      displayName: 'User B',
+      position: 1,
+      originalJoinedAtMs: 49_000,
+      isSubscriber: 1,
+    });
+
+    const interaction = makeInteraction({
+      id: 'interaction-failed-immutable',
+      actorFlags: [PermissionFlagsBits.ManageGuild],
+    });
+
+    await command.execute(interaction);
+
+    const latest = auditRepository.findLatest();
+    expect(latest.result).toBe('failed');
+    expect(latest.errorCode).toBe('LOBBY_IMMUTABLE');
+  });
+
+  test('compatibilidade defensiva registra flag de nomes legados quando interação antiga chega', async () => {
+    seedSwapScenario(db);
+
+    const interaction = makeInteraction({
+      id: 'interaction-legacy-options',
+      actorFlags: [PermissionFlagsBits.ManageGuild],
+      useLegacyOptionNames: true,
+    });
+
+    await command.execute(interaction);
+
+    const latest = auditRepository.findLatest();
+    expect(latest.result).toBe('success');
+    expect(latest.parametersJson).toContain('"compat_legacy_option_names":true');
   });
 });

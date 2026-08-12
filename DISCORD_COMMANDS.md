@@ -174,16 +174,19 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 
 ## /lobby-swap
 - Nome: /lobby-swap
-- Finalidade: trocar administrativamente um jogador em lobby `forming` por um jogador que está aguardando na fila.
+- Finalidade: trocar administrativamente dois participantes mutáveis do ciclo atual.
 - Quem pode usar: autorização operacional centralizada (`Administrator`, `Manage Guild` ou cargo em `BOT_OPERATOR_ROLE_IDS`).
 - Onde usar: servidor Discord.
-- Parâmetros: usuario_lobby (user, obrigatório), usuario_fila (user, obrigatório), motivo (string 3-200, obrigatório).
+- Parâmetros: usuario_a (user, obrigatório), usuario_b (user, obrigatório), motivo (string 3-200, obrigatório).
 - Resposta: ephemeral.
-- Exemplo: /lobby-swap usuario_lobby:@JogadorLobby usuario_fila:@JogadorFila motivo:Troca administrativa validada
-- Efeitos no banco: executa troca transacional entre `lobby_players` e `queue_entries`, preservando `queue_order_key`, prioridade real (`is_subscriber`) e aplicando `admin_sort_priority_override` temporário para manter posição operacional.
+- Exemplo: /lobby-swap usuario_a:@A usuario_b:@B motivo:Troca combinada
+- Efeitos no banco: executa troca transacional única entre os estados permitidos (`queue` e `forming_lobby`) preservando identidade, snapshot de prioridade real e `joined_at_ms` quando aplicável.
 - Efeitos em cargo: nenhum.
-- Efeitos na fila: remove usuário B da fila, insere usuário A na fila na posição absoluta de B e fixa lobby alvo como `rebuild_locked=1` até saída/remoção do jogador inserido.
-- Limitações: recusado para lobby `in_game`, para usuários ausentes, para conflito de posição e para inconsistências de dupla presença em lobby/fila.
+- Efeitos na fila: suporta fila↔fila, fila↔`forming`, `forming`↔fila e `forming`↔`forming` (inclusive dois slots da mesma lobby `forming`) sem criar mutações parciais.
+- Regras de imutabilidade: qualquer participante em lobby `in_game` bloqueia toda a operação com `LOBBY_IMMUTABLE`.
+- Locks e rebuild: quando há lobby `forming` envolvida, a(s) lobby(s) afetada(s) recebem `rebuild_locked=1` para o rebuild automático não desfazer a troca; o lock é reconciliado no fluxo normal de saída/remoção.
+- Overrides temporários: `admin_sort_priority_override` é aplicado apenas quando necessário para manter posição absoluta após trocas entre categorias diferentes e some quando a entrada termina.
+- Limitações: usuário fora da fila e fora de lobby `forming` retorna falha segura; conflitos de estado/slot/ordem também retornam falha segura sem mutação.
 - Auditoria administrativa obrigatória: registra tentativa com parâmetros saneados (incluindo motivo), resultado seguro (`success`, `failed` ou `denied`), código seguro e resumo de estado operacional antes/depois.
 
 ## /lobby-remove

@@ -43,7 +43,13 @@ function createOperationalAuthorizationMock(overrides = {}) {
   };
 }
 
-function createInteraction({ lobbyId = 'user-a', queueId = 'user-b', reason = 'motivo valido', memberFetchImpl }) {
+function createInteraction({
+  userAId = 'user-a',
+  userBId = 'user-b',
+  reason = 'motivo valido',
+  memberFetchImpl,
+  useLegacyOptionNames = false,
+}) {
   const fetchImpl = memberFetchImpl || (async () => ({}));
 
   return {
@@ -60,9 +66,29 @@ function createInteraction({ lobbyId = 'user-a', queueId = 'user-b', reason = 'm
       },
     },
     options: {
-      getUser: jest
-        .fn()
-        .mockImplementation((name) => (name === 'usuario_lobby' ? { id: lobbyId } : { id: queueId })),
+      getUser: jest.fn().mockImplementation((name) => {
+        if (useLegacyOptionNames) {
+          if (name === 'usuario_lobby') {
+            return { id: userAId };
+          }
+
+          if (name === 'usuario_fila') {
+            return { id: userBId };
+          }
+
+          return null;
+        }
+
+        if (name === 'usuario_a') {
+          return { id: userAId };
+        }
+
+        if (name === 'usuario_b') {
+          return { id: userBId };
+        }
+
+        return null;
+      }),
       getString: jest.fn().mockImplementation((name) => (name === 'motivo' ? reason : null)),
     },
     client: {},
@@ -71,20 +97,30 @@ function createInteraction({ lobbyId = 'user-a', queueId = 'user-b', reason = 'm
 }
 
 describe('lobby-swap command', () => {
-  test('builder não define default_member_permissions restritivo', () => {
+  test('builder usa usuario_a e usuario_b obrigatórios, motivo 3..200 e sem default_member_permissions', () => {
     const command = loadCommand({
       '../src/services/queueService': {
         getCurrentQueueCycleId: jest.fn(),
         getQueue: jest.fn(),
         getActiveLobbies: jest.fn(),
-        swapLobbyPlayerWithQueuePlayer: jest.fn(),
+        swapParticipantsInCurrentCycle: jest.fn(),
       },
       '../src/services/adminCommandAuditService': createAuditServiceMock(),
       '../src/services/operationalAuthorizationService': createOperationalAuthorizationMock(),
     });
     const json = command.data.toJSON();
+    const userA = json.options.find((option) => option.name === 'usuario_a');
+    const userB = json.options.find((option) => option.name === 'usuario_b');
+    const reason = json.options.find((option) => option.name === 'motivo');
 
     expect(json.default_member_permissions == null).toBe(true);
+    expect(userA.required).toBe(true);
+    expect(userB.required).toBe(true);
+    expect(reason.required).toBe(true);
+    expect(reason.min_length).toBe(3);
+    expect(reason.max_length).toBe(200);
+    expect(json.options.some((option) => option.name === 'usuario_lobby')).toBe(false);
+    expect(json.options.some((option) => option.name === 'usuario_fila')).toBe(false);
   });
 
   test('sucesso com autorização centralizada registra auditoria e resposta ephemeral', async () => {
@@ -92,15 +128,18 @@ describe('lobby-swap command', () => {
       getCurrentQueueCycleId: jest.fn().mockReturnValue(12),
       getQueue: jest.fn().mockReturnValue([{ id: 1 }]),
       getActiveLobbies: jest.fn().mockReturnValue([{ id: 10, status: 'forming' }]),
-      swapLobbyPlayerWithQueuePlayer: jest.fn().mockReturnValue({
+      swapParticipantsInCurrentCycle: jest.fn().mockReturnValue({
         success: true,
-        lobbyId: 10,
-        lobbyNumber: 3,
-        slot: 2,
-        movedOutQueuePosition: 1,
-        movedOutQueueOrderKey: 200,
-        movedOutEffectiveSortPriority: 1,
-        lobbyLockedForRebuild: true,
+        userA: {
+          origin: { state: 'queue', queuePosition: 2 },
+          destination: { state: 'forming_lobby', lobbyId: 10, lobbyNumber: 3, slot: 2 },
+        },
+        userB: {
+          origin: { state: 'forming_lobby', lobbyId: 10, lobbyNumber: 3, slot: 2 },
+          destination: { state: 'queue', queuePosition: 2 },
+        },
+        affectedLobbyNumbers: [3],
+        lockedLobbyNumbers: [3],
       }),
     };
 
@@ -120,18 +159,17 @@ describe('lobby-swap command', () => {
     await command.execute(interaction);
 
     expect(authorizationMock.authorize).toHaveBeenCalledWith(interaction);
-    expect(queueServiceMock.swapLobbyPlayerWithQueuePlayer).toHaveBeenCalledWith({
-      lobbyDiscordId: 'user-a',
-      queueDiscordId: 'user-b',
+    expect(queueServiceMock.swapParticipantsInCurrentCycle).toHaveBeenCalledWith({
+      discordIdA: 'user-a',
+      discordIdB: 'user-b',
       reason: 'motivo valido',
     });
     expect(auditMock.finishSuccess).toHaveBeenCalledWith(
       expect.any(Object),
       expect.objectContaining({
         nextState: expect.objectContaining({
-          usuario_lobby: 'user-a',
-          usuario_fila: 'user-b',
-          rebuildLocked: true,
+          usuarioADiscordId: 'user-a',
+          usuarioBDiscordId: 'user-b',
         }),
       }),
     );
@@ -147,7 +185,7 @@ describe('lobby-swap command', () => {
       getCurrentQueueCycleId: jest.fn().mockReturnValue(12),
       getQueue: jest.fn().mockReturnValue([{ id: 1 }]),
       getActiveLobbies: jest.fn().mockReturnValue([{ id: 10, status: 'forming' }]),
-      swapLobbyPlayerWithQueuePlayer: jest.fn(),
+      swapParticipantsInCurrentCycle: jest.fn(),
     };
 
     const auditMock = createAuditServiceMock();
@@ -179,7 +217,7 @@ describe('lobby-swap command', () => {
         flags: MessageFlags.Ephemeral,
       }),
     );
-    expect(queueServiceMock.swapLobbyPlayerWithQueuePlayer).not.toHaveBeenCalled();
+    expect(queueServiceMock.swapParticipantsInCurrentCycle).not.toHaveBeenCalled();
   });
 
   test('nega quando membro do ator está indisponível e não vaza IDs de cargo', async () => {
@@ -187,7 +225,7 @@ describe('lobby-swap command', () => {
       getCurrentQueueCycleId: jest.fn().mockReturnValue(12),
       getQueue: jest.fn().mockReturnValue([{ id: 1 }]),
       getActiveLobbies: jest.fn().mockReturnValue([{ id: 10, status: 'forming' }]),
-      swapLobbyPlayerWithQueuePlayer: jest.fn(),
+      swapParticipantsInCurrentCycle: jest.fn(),
     };
 
     const auditMock = createAuditServiceMock();
@@ -219,7 +257,7 @@ describe('lobby-swap command', () => {
       }),
     );
     expect(interaction.reply.mock.calls[0][0].content).not.toContain('1304992476536508516');
-    expect(queueServiceMock.swapLobbyPlayerWithQueuePlayer).not.toHaveBeenCalled();
+    expect(queueServiceMock.swapParticipantsInCurrentCycle).not.toHaveBeenCalled();
   });
 
   test('falha da troca registra finishFailed com código seguro', async () => {
@@ -227,7 +265,7 @@ describe('lobby-swap command', () => {
       getCurrentQueueCycleId: jest.fn().mockReturnValue(12),
       getQueue: jest.fn().mockReturnValue([{ id: 1 }]),
       getActiveLobbies: jest.fn().mockReturnValue([{ id: 10, status: 'forming' }]),
-      swapLobbyPlayerWithQueuePlayer: jest.fn().mockReturnValue({
+      swapParticipantsInCurrentCycle: jest.fn().mockReturnValue({
         success: false,
         reason: 'QUEUE_POSITION_CONFLICT',
       }),
@@ -263,9 +301,9 @@ describe('lobby-swap command', () => {
       getCurrentQueueCycleId: jest.fn().mockReturnValue(12),
       getQueue: jest.fn().mockReturnValue([{ id: 1 }]),
       getActiveLobbies: jest.fn().mockReturnValue([{ id: 10, status: 'forming' }]),
-      swapLobbyPlayerWithQueuePlayer: jest.fn().mockReturnValue({
+      swapParticipantsInCurrentCycle: jest.fn().mockReturnValue({
         success: false,
-        reason: 'QUEUE_PLAYER_NOT_FOUND',
+        reason: 'PARTICIPANT_NOT_FOUND',
       }),
     };
 
@@ -292,7 +330,7 @@ describe('lobby-swap command', () => {
     expect(authorizationMock.authorize).toHaveBeenCalledTimes(1);
     expect(auditMock.finishFailed).toHaveBeenCalledWith(
       expect.any(Object),
-      expect.objectContaining({ errorCode: 'QUEUE_PLAYER_NOT_FOUND' }),
+      expect.objectContaining({ errorCode: 'PARTICIPANT_NOT_FOUND' }),
     );
   });
 
@@ -301,7 +339,7 @@ describe('lobby-swap command', () => {
       getCurrentQueueCycleId: jest.fn().mockReturnValue(12),
       getQueue: jest.fn().mockReturnValue([{ id: 1 }]),
       getActiveLobbies: jest.fn().mockReturnValue([{ id: 10, status: 'forming' }]),
-      swapLobbyPlayerWithQueuePlayer: jest.fn(),
+      swapParticipantsInCurrentCycle: jest.fn(),
     };
 
     const auditMock = createAuditServiceMock();
@@ -324,11 +362,59 @@ describe('lobby-swap command', () => {
 
     await command.execute(interaction);
 
-    expect(queueServiceMock.swapLobbyPlayerWithQueuePlayer).not.toHaveBeenCalled();
+    expect(queueServiceMock.swapParticipantsInCurrentCycle).not.toHaveBeenCalled();
     expect(interaction.reply).toHaveBeenCalledWith(
       expect.objectContaining({
         content: 'Não foi possível registrar a auditoria obrigatória desta ação. Operação recusada.',
         flags: MessageFlags.Ephemeral,
+      }),
+    );
+  });
+
+  test('compatibilidade defensiva: lê nomes legados em runtime sem manter no builder', async () => {
+    const queueServiceMock = {
+      getCurrentQueueCycleId: jest.fn().mockReturnValue(12),
+      getQueue: jest.fn().mockReturnValue([{ id: 1 }]),
+      getActiveLobbies: jest.fn().mockReturnValue([{ id: 10, status: 'forming' }]),
+      swapParticipantsInCurrentCycle: jest.fn().mockReturnValue({
+        success: true,
+        userA: {
+          origin: { state: 'forming_lobby', lobbyId: 10, lobbyNumber: 3, slot: 1 },
+          destination: { state: 'queue', queuePosition: 1 },
+        },
+        userB: {
+          origin: { state: 'queue', queuePosition: 1 },
+          destination: { state: 'forming_lobby', lobbyId: 10, lobbyNumber: 3, slot: 1 },
+        },
+        affectedLobbyNumbers: [3],
+        lockedLobbyNumbers: [3],
+      }),
+    };
+
+    const auditMock = createAuditServiceMock();
+    const authorizationMock = createOperationalAuthorizationMock();
+    const command = loadCommand({
+      '../src/services/queueService': queueServiceMock,
+      '../src/services/adminCommandAuditService': auditMock,
+      '../src/services/operationalAuthorizationService': authorizationMock,
+    });
+
+    const interaction = createInteraction({
+      useLegacyOptionNames: true,
+      memberFetchImpl: async (discordId) => ({ id: discordId }),
+    });
+
+    await command.execute(interaction);
+
+    expect(queueServiceMock.swapParticipantsInCurrentCycle).toHaveBeenCalledWith({
+      discordIdA: 'user-a',
+      discordIdB: 'user-b',
+      reason: 'motivo valido',
+    });
+    expect(auditMock.beginRequired).toHaveBeenCalledWith(
+      expect.any(Object),
+      expect.objectContaining({
+        parameters: expect.objectContaining({ compat_legacy_option_names: true }),
       }),
     );
   });

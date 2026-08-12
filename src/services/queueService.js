@@ -8,12 +8,9 @@ const CANONICAL_QUEUE_ORDER =
 const SWAP_ERROR_CODES = {
   INVALID_INPUT: 'INVALID_INPUT',
   SAME_USER: 'SAME_USER',
-  LOBBY_PLAYER_NOT_FOUND: 'LOBBY_PLAYER_NOT_FOUND',
-  QUEUE_PLAYER_NOT_FOUND: 'QUEUE_PLAYER_NOT_FOUND',
+  PARTICIPANT_NOT_FOUND: 'PARTICIPANT_NOT_FOUND',
   LOBBY_IMMUTABLE: 'LOBBY_IMMUTABLE',
-  AMBIGUOUS_LOBBY_MEMBERSHIP: 'AMBIGUOUS_LOBBY_MEMBERSHIP',
-  PLAYER_ALREADY_IN_FORMING_LOBBY: 'PLAYER_ALREADY_IN_FORMING_LOBBY',
-  PLAYER_ALREADY_IN_QUEUE: 'PLAYER_ALREADY_IN_QUEUE',
+  LOBBY_STATE_CONFLICT: 'LOBBY_STATE_CONFLICT',
   QUEUE_POSITION_CONFLICT: 'QUEUE_POSITION_CONFLICT',
   LOBBY_POSITION_CONFLICT: 'LOBBY_POSITION_CONFLICT',
   SWAP_TRANSACTION_FAILED: 'SWAP_TRANSACTION_FAILED',
@@ -695,33 +692,57 @@ function getQueue() {
   return stmt.all();
 }
 
-function getQueuePositionByDiscordId(db, discordId) {
-  const rows = db
-    .prepare(
-      `SELECT discord_id FROM queue_entries ORDER BY ${CANONICAL_QUEUE_ORDER}`,
-    )
-    .all();
-
-  const position = rows.findIndex((row) => row.discord_id === discordId);
-  return position >= 0 ? position + 1 : null;
+function getQueuePositionMap(db) {
+  const rows = db.prepare(`SELECT discord_id FROM queue_entries ORDER BY ${CANONICAL_QUEUE_ORDER}`).all();
+  const map = new Map();
+  rows.forEach((row, index) => {
+    map.set(row.discord_id, index + 1);
+  });
+  return map;
 }
 
-function swapLobbyPlayerWithQueuePlayer({ lobbyDiscordId, queueDiscordId, reason }) {
+function normalizeSortPriority(value) {
+  return value ? 1 : 0;
+}
+
+function calculateOverrideForTargetPriority(targetPriority, realPriority) {
+  const safeTarget = normalizeSortPriority(targetPriority);
+  const safeReal = normalizeSortPriority(realPriority);
+  return safeTarget === safeReal ? null : safeTarget;
+}
+
+function buildQueueLocation(position) {
+  return {
+    state: 'queue',
+    queuePosition: Number.isSafeInteger(position) ? position : null,
+  };
+}
+
+function buildFormingLocation(row) {
+  return {
+    state: 'forming_lobby',
+    lobbyId: row.lobby_id,
+    lobbyNumber: row.lobby_number,
+    slot: row.position,
+  };
+}
+
+function swapParticipantsInCurrentCycle({ discordIdA, discordIdB, reason }) {
   const db = getDatabase();
 
-  const normalizedLobbyDiscordId = String(lobbyDiscordId || '').trim();
-  const normalizedQueueDiscordId = String(queueDiscordId || '').trim();
+  const normalizedDiscordIdA = String(discordIdA || '').trim();
+  const normalizedDiscordIdB = String(discordIdB || '').trim();
   const normalizedReason = String(reason || '').trim();
 
-  if (!normalizedLobbyDiscordId || !normalizedQueueDiscordId || !normalizedReason) {
+  if (!normalizedDiscordIdA || !normalizedDiscordIdB || !normalizedReason || normalizedReason.length < 3 || normalizedReason.length > 200) {
     return { success: false, reason: SWAP_ERROR_CODES.INVALID_INPUT };
   }
 
-  if (normalizedLobbyDiscordId === normalizedQueueDiscordId) {
+  if (normalizedDiscordIdA === normalizedDiscordIdB) {
     return { success: false, reason: SWAP_ERROR_CODES.SAME_USER };
   }
 
-  const selectQueueByDiscordId = db.prepare(
+  const selectQueueRowsByDiscordId = db.prepare(
     `SELECT
       id,
       discord_id,
@@ -734,9 +755,9 @@ function swapLobbyPlayerWithQueuePlayer({ lobbyDiscordId, queueDiscordId, reason
       COALESCE(admin_sort_priority_override, is_subscriber) AS effective_sort_priority
     FROM queue_entries
     WHERE discord_id = ?
-    LIMIT 1`,
+    ORDER BY id ASC`,
   );
-  const selectFormingLobbyPlayer = db.prepare(
+  const selectFormingRowsByDiscordId = db.prepare(
     `SELECT
       lp.id AS lobby_player_id,
       lp.lobby_id AS lobby_id,
@@ -747,7 +768,6 @@ function swapLobbyPlayerWithQueuePlayer({ lobbyDiscordId, queueDiscordId, reason
       lp.original_joined_at_ms AS original_joined_at_ms,
       lp.original_queue_order_key AS original_queue_order_key,
       lp.is_subscriber AS is_subscriber,
-      l.status AS lobby_status,
       l.creation_type AS creation_type,
       l.lobby_number AS lobby_number,
       COALESCE(l.rebuild_locked, 0) AS rebuild_locked
@@ -765,18 +785,13 @@ function swapLobbyPlayerWithQueuePlayer({ lobbyDiscordId, queueDiscordId, reason
   const selectQueueByOrderKey = db.prepare(
     'SELECT COUNT(1) AS count FROM queue_entries WHERE queue_order_key = ? AND discord_id <> ?',
   );
-  const selectSlotCount = db.prepare(
-    'SELECT COUNT(1) AS count FROM lobby_players WHERE lobby_id = ? AND position = ?',
+  const selectSlotCount = db.prepare('SELECT COUNT(1) AS count FROM lobby_players WHERE lobby_id = ? AND position = ?');
+  const updateQueueOrderKeyAndOverride = db.prepare(
+    'UPDATE queue_entries SET queue_order_key = ?, admin_sort_priority_override = ? WHERE id = ?',
   );
-  const selectFormingByQueuePlayer = db.prepare(
-    `SELECT COUNT(1) AS count
-    FROM lobby_players lp
-    JOIN lobbies l ON l.id = lp.lobby_id
-    WHERE lp.discord_id = ? AND l.status = 'forming'`,
-  );
-  const selectAInQueue = db.prepare('SELECT COUNT(1) AS count FROM queue_entries WHERE discord_id = ?');
+  const updateQueueOrderKeyOnly = db.prepare('UPDATE queue_entries SET queue_order_key = ? WHERE id = ?');
   const deleteQueueById = db.prepare('DELETE FROM queue_entries WHERE id = ?');
-  const updateLobbyPlayer = db.prepare(
+  const updateLobbyPlayerIdentity = db.prepare(
     `UPDATE lobby_players
      SET discord_id = ?,
          username = ?,
@@ -797,108 +812,292 @@ function swapLobbyPlayerWithQueuePlayer({ lobbyDiscordId, queueDiscordId, reason
       admin_sort_priority_override
     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
   );
-  const lockRebuildForLobby = db.prepare(
-    'UPDATE lobbies SET rebuild_locked = 1 WHERE id = ? AND status = \'forming\'',
-  );
+  const lockRebuildForLobby = db.prepare('UPDATE lobbies SET rebuild_locked = 1 WHERE id = ? AND status = \'forming\'');
+
+  function classifyParticipant(discordId) {
+    const inGameCount = Number(selectInGameLobbyCount.get(discordId)?.count || 0);
+    const queueRows = selectQueueRowsByDiscordId.all(discordId);
+    const formingRows = selectFormingRowsByDiscordId.all(discordId);
+
+    if (inGameCount > 0) {
+      return { state: 'in_game', queueRows, formingRows, inGameCount };
+    }
+
+    if (queueRows.length === 0 && formingRows.length === 0) {
+      return { state: 'not_participating', queueRows, formingRows, inGameCount };
+    }
+
+    if (queueRows.length === 1 && formingRows.length === 0) {
+      return { state: 'queue', queueRows, formingRows, inGameCount, queueRow: queueRows[0] };
+    }
+
+    if (queueRows.length === 0 && formingRows.length === 1) {
+      return { state: 'forming_lobby', queueRows, formingRows, inGameCount, formingRow: formingRows[0] };
+    }
+
+    return { state: 'state_conflict', queueRows, formingRows, inGameCount };
+  }
+
+  function validateQueueRow(queueRow) {
+    if (!queueRow || !Number.isSafeInteger(queueRow.queue_order_key) || queueRow.queue_order_key <= 0) {
+      return { valid: false, reason: SWAP_ERROR_CODES.QUEUE_POSITION_CONFLICT };
+    }
+
+    const queueOrderConflict = selectQueueByOrderKey.get(queueRow.queue_order_key, queueRow.discord_id);
+    if (queueOrderConflict && queueOrderConflict.count > 0) {
+      return { valid: false, reason: SWAP_ERROR_CODES.QUEUE_POSITION_CONFLICT };
+    }
+
+    return { valid: true };
+  }
+
+  function validateFormingRow(formingRow) {
+    const slotCount = selectSlotCount.get(formingRow.lobby_id, formingRow.position);
+    if (!slotCount || slotCount.count !== 1) {
+      return { valid: false, reason: SWAP_ERROR_CODES.LOBBY_POSITION_CONFLICT };
+    }
+
+    return { valid: true };
+  }
 
   const transaction = db.transaction((payload) => {
-    const queuePlayer = selectQueueByDiscordId.get(payload.queueDiscordId);
-    if (!queuePlayer) {
-      return { success: false, reason: SWAP_ERROR_CODES.QUEUE_PLAYER_NOT_FOUND };
+    const stateA = classifyParticipant(payload.discordIdA);
+    const stateB = classifyParticipant(payload.discordIdB);
+
+    if (stateA.state === 'in_game' || stateB.state === 'in_game') {
+      return {
+        success: false,
+        reason: SWAP_ERROR_CODES.LOBBY_IMMUTABLE,
+        stateA: stateA.state,
+        stateB: stateB.state,
+      };
     }
 
-    if (!Number.isSafeInteger(queuePlayer.queue_order_key) || queuePlayer.queue_order_key <= 0) {
-      return { success: false, reason: SWAP_ERROR_CODES.QUEUE_POSITION_CONFLICT };
+    if (stateA.state === 'not_participating' || stateB.state === 'not_participating') {
+      return {
+        success: false,
+        reason: SWAP_ERROR_CODES.PARTICIPANT_NOT_FOUND,
+        stateA: stateA.state,
+        stateB: stateB.state,
+      };
     }
 
-    const queueOrderConflict = selectQueueByOrderKey.get(queuePlayer.queue_order_key, queuePlayer.discord_id);
-    if (queueOrderConflict && queueOrderConflict.count > 0) {
-      return { success: false, reason: SWAP_ERROR_CODES.QUEUE_POSITION_CONFLICT };
+    if (stateA.state === 'state_conflict' || stateB.state === 'state_conflict') {
+      return {
+        success: false,
+        reason: SWAP_ERROR_CODES.LOBBY_STATE_CONFLICT,
+        stateA: stateA.state,
+        stateB: stateB.state,
+      };
     }
 
-    const queuePlayerInForming = selectFormingByQueuePlayer.get(payload.queueDiscordId);
-    if (queuePlayerInForming && queuePlayerInForming.count > 0) {
-      return { success: false, reason: SWAP_ERROR_CODES.PLAYER_ALREADY_IN_FORMING_LOBBY };
+    const supportedStates = new Set(['queue', 'forming_lobby']);
+    if (!supportedStates.has(stateA.state) || !supportedStates.has(stateB.state)) {
+      return {
+        success: false,
+        reason: SWAP_ERROR_CODES.LOBBY_STATE_CONFLICT,
+        stateA: stateA.state,
+        stateB: stateB.state,
+      };
     }
 
-    const lobbyPlayerInQueue = selectAInQueue.get(payload.lobbyDiscordId);
-    if (lobbyPlayerInQueue && lobbyPlayerInQueue.count > 0) {
-      return { success: false, reason: SWAP_ERROR_CODES.PLAYER_ALREADY_IN_QUEUE };
-    }
+    const queuePositionsBefore = getQueuePositionMap(db);
+    const affectedLobbyRows = new Map();
 
-    const formingRows = selectFormingLobbyPlayer.all(payload.lobbyDiscordId);
-    if (!formingRows.length) {
-      const inGameCount = selectInGameLobbyCount.get(payload.lobbyDiscordId);
-      if (inGameCount && inGameCount.count > 0) {
-        return { success: false, reason: SWAP_ERROR_CODES.LOBBY_IMMUTABLE };
+    if (stateA.state === 'queue' && stateB.state === 'queue') {
+      const rowA = stateA.queueRow;
+      const rowB = stateB.queueRow;
+
+      const queueAValidation = validateQueueRow(rowA);
+      if (!queueAValidation.valid) {
+        return { success: false, reason: queueAValidation.reason };
       }
-      return { success: false, reason: SWAP_ERROR_CODES.LOBBY_PLAYER_NOT_FOUND };
+
+      const queueBValidation = validateQueueRow(rowB);
+      if (!queueBValidation.valid) {
+        return { success: false, reason: queueBValidation.reason };
+      }
+
+      const keyA = rowA.queue_order_key;
+      const keyB = rowB.queue_order_key;
+      const overrideA = calculateOverrideForTargetPriority(rowB.effective_sort_priority, rowA.is_subscriber);
+      const overrideB = calculateOverrideForTargetPriority(rowA.effective_sort_priority, rowB.is_subscriber);
+
+      const tempA = updateQueueOrderKeyOnly.run(null, rowA.id);
+      if (!tempA || tempA.changes !== 1) {
+        return { success: false, reason: SWAP_ERROR_CODES.QUEUE_POSITION_CONFLICT };
+      }
+
+      const updateB = updateQueueOrderKeyAndOverride.run(keyA, overrideB, rowB.id);
+      if (!updateB || updateB.changes !== 1) {
+        return { success: false, reason: SWAP_ERROR_CODES.QUEUE_POSITION_CONFLICT };
+      }
+
+      const updateA = updateQueueOrderKeyAndOverride.run(keyB, overrideA, rowA.id);
+      if (!updateA || updateA.changes !== 1) {
+        return { success: false, reason: SWAP_ERROR_CODES.QUEUE_POSITION_CONFLICT };
+      }
+    } else if (stateA.state === 'forming_lobby' && stateB.state === 'forming_lobby') {
+      const rowA = stateA.formingRow;
+      const rowB = stateB.formingRow;
+
+      const formingAValidation = validateFormingRow(rowA);
+      if (!formingAValidation.valid) {
+        return { success: false, reason: formingAValidation.reason };
+      }
+
+      const formingBValidation = validateFormingRow(rowB);
+      if (!formingBValidation.valid) {
+        return { success: false, reason: formingBValidation.reason };
+      }
+
+      const updateA = updateLobbyPlayerIdentity.run(
+        rowB.discord_id,
+        rowB.username,
+        rowB.display_name,
+        rowB.original_joined_at_ms,
+        rowB.original_queue_order_key,
+        rowB.is_subscriber ? 1 : 0,
+        rowA.lobby_player_id,
+      );
+      if (!updateA || updateA.changes !== 1) {
+        return { success: false, reason: SWAP_ERROR_CODES.LOBBY_POSITION_CONFLICT };
+      }
+
+      const updateB = updateLobbyPlayerIdentity.run(
+        rowA.discord_id,
+        rowA.username,
+        rowA.display_name,
+        rowA.original_joined_at_ms,
+        rowA.original_queue_order_key,
+        rowA.is_subscriber ? 1 : 0,
+        rowB.lobby_player_id,
+      );
+      if (!updateB || updateB.changes !== 1) {
+        return { success: false, reason: SWAP_ERROR_CODES.LOBBY_POSITION_CONFLICT };
+      }
+
+      affectedLobbyRows.set(rowA.lobby_id, rowA);
+      affectedLobbyRows.set(rowB.lobby_id, rowB);
+    } else {
+      const formingState = stateA.state === 'forming_lobby' ? stateA : stateB;
+      const queueState = stateA.state === 'queue' ? stateA : stateB;
+
+      const lobbyPlayer = formingState.formingRow;
+      const queuePlayer = queueState.queueRow;
+
+      const queueValidation = validateQueueRow(queuePlayer);
+      if (!queueValidation.valid) {
+        return { success: false, reason: queueValidation.reason };
+      }
+
+      const formingValidation = validateFormingRow(lobbyPlayer);
+      if (!formingValidation.valid) {
+        return { success: false, reason: formingValidation.reason };
+      }
+
+      const removedQueueRow = deleteQueueById.run(queuePlayer.id);
+      if (!removedQueueRow || removedQueueRow.changes !== 1) {
+        return { success: false, reason: SWAP_ERROR_CODES.QUEUE_POSITION_CONFLICT };
+      }
+
+      const updatedLobbyPlayer = updateLobbyPlayerIdentity.run(
+        queuePlayer.discord_id,
+        queuePlayer.username,
+        queuePlayer.display_name,
+        queuePlayer.joined_at_ms,
+        queuePlayer.queue_order_key,
+        queuePlayer.is_subscriber ? 1 : 0,
+        lobbyPlayer.lobby_player_id,
+      );
+      if (!updatedLobbyPlayer || updatedLobbyPlayer.changes !== 1) {
+        return { success: false, reason: SWAP_ERROR_CODES.LOBBY_POSITION_CONFLICT };
+      }
+
+      const queueOverride = calculateOverrideForTargetPriority(
+        queuePlayer.effective_sort_priority,
+        lobbyPlayer.is_subscriber,
+      );
+      const insertedQueuePlayer = insertQueueEntry.run(
+        lobbyPlayer.discord_id,
+        lobbyPlayer.username,
+        lobbyPlayer.display_name,
+        lobbyPlayer.is_subscriber ? 1 : 0,
+        lobbyPlayer.original_joined_at_ms,
+        queuePlayer.queue_order_key,
+        queueOverride,
+      );
+      if (!insertedQueuePlayer || insertedQueuePlayer.changes !== 1) {
+        return { success: false, reason: SWAP_ERROR_CODES.QUEUE_POSITION_CONFLICT };
+      }
+
+      affectedLobbyRows.set(lobbyPlayer.lobby_id, lobbyPlayer);
     }
 
-    if (formingRows.length > 1) {
-      return { success: false, reason: SWAP_ERROR_CODES.AMBIGUOUS_LOBBY_MEMBERSHIP };
+    const lockedLobbyIds = [];
+    const lockedLobbyNumbers = [];
+    for (const [lobbyId, lobbyRow] of affectedLobbyRows.entries()) {
+      lockRebuildForLobby.run(lobbyId);
+      lockedLobbyIds.push(lobbyId);
+      lockedLobbyNumbers.push(lobbyRow.lobby_number);
     }
 
-    const lobbyPlayer = formingRows[0];
-    const slotCount = selectSlotCount.get(lobbyPlayer.lobby_id, lobbyPlayer.position);
-    if (!slotCount || slotCount.count !== 1) {
-      return { success: false, reason: SWAP_ERROR_CODES.LOBBY_POSITION_CONFLICT };
+    const finalStateA = classifyParticipant(payload.discordIdA);
+    const finalStateB = classifyParticipant(payload.discordIdB);
+
+    if (finalStateA.state === 'state_conflict' || finalStateB.state === 'state_conflict') {
+      return { success: false, reason: SWAP_ERROR_CODES.LOBBY_STATE_CONFLICT };
     }
 
-    const removedQueueRow = deleteQueueById.run(queuePlayer.id);
-    if (!removedQueueRow || removedQueueRow.changes !== 1) {
-      return { success: false, reason: SWAP_ERROR_CODES.QUEUE_PLAYER_NOT_FOUND };
+    if (finalStateA.state === 'not_participating' || finalStateB.state === 'not_participating') {
+      return { success: false, reason: SWAP_ERROR_CODES.SWAP_TRANSACTION_FAILED };
     }
 
-    const updatedLobbyPlayer = updateLobbyPlayer.run(
-      queuePlayer.discord_id,
-      queuePlayer.username,
-      queuePlayer.display_name,
-      queuePlayer.joined_at_ms,
-      queuePlayer.queue_order_key,
-      queuePlayer.is_subscriber ? 1 : 0,
-      lobbyPlayer.lobby_player_id,
-    );
-    if (!updatedLobbyPlayer || updatedLobbyPlayer.changes !== 1) {
-      return { success: false, reason: SWAP_ERROR_CODES.LOBBY_POSITION_CONFLICT };
-    }
+    const queuePositionsAfter = getQueuePositionMap(db);
 
-    const insertedQueuePlayer = insertQueueEntry.run(
-      lobbyPlayer.discord_id,
-      lobbyPlayer.username,
-      lobbyPlayer.display_name,
-      lobbyPlayer.is_subscriber ? 1 : 0,
-      lobbyPlayer.original_joined_at_ms,
-      queuePlayer.queue_order_key,
-      queuePlayer.effective_sort_priority ? 1 : 0,
-    );
-    if (!insertedQueuePlayer || insertedQueuePlayer.changes !== 1) {
-      return { success: false, reason: SWAP_ERROR_CODES.QUEUE_POSITION_CONFLICT };
-    }
+    const originA =
+      stateA.state === 'queue'
+        ? buildQueueLocation(queuePositionsBefore.get(payload.discordIdA))
+        : buildFormingLocation(stateA.formingRow);
+    const originB =
+      stateB.state === 'queue'
+        ? buildQueueLocation(queuePositionsBefore.get(payload.discordIdB))
+        : buildFormingLocation(stateB.formingRow);
 
-    lockRebuildForLobby.run(lobbyPlayer.lobby_id);
-
-    const updatedQueuePosition = getQueuePositionByDiscordId(db, lobbyPlayer.discord_id);
+    const destinationA =
+      finalStateA.state === 'queue'
+        ? buildQueueLocation(queuePositionsAfter.get(payload.discordIdA))
+        : buildFormingLocation(finalStateA.formingRow);
+    const destinationB =
+      finalStateB.state === 'queue'
+        ? buildQueueLocation(queuePositionsAfter.get(payload.discordIdB))
+        : buildFormingLocation(finalStateB.formingRow);
 
     return {
       success: true,
-      lobbyId: lobbyPlayer.lobby_id,
-      lobbyNumber: lobbyPlayer.lobby_number,
-      slot: lobbyPlayer.position,
-      lobbyLockedForRebuild: true,
-      movedOutDiscordId: lobbyPlayer.discord_id,
-      movedInDiscordId: queuePlayer.discord_id,
-      movedOutQueuePosition: updatedQueuePosition,
-      movedOutQueueOrderKey: queuePlayer.queue_order_key,
-      movedOutEffectiveSortPriority: queuePlayer.effective_sort_priority ? 1 : 0,
-      reason: payload.reason,
+      reason: 'OK',
+      userA: {
+        discordId: payload.discordIdA,
+        origin: originA,
+        destination: destinationA,
+      },
+      userB: {
+        discordId: payload.discordIdB,
+        origin: originB,
+        destination: destinationB,
+      },
+      lockedLobbyIds,
+      lockedLobbyNumbers,
+      affectedLobbyIds: Array.from(affectedLobbyRows.keys()),
+      affectedLobbyNumbers: Array.from(new Set(Array.from(affectedLobbyRows.values()).map((row) => row.lobby_number))),
+      reasonDetail: payload.reason,
     };
   });
 
   try {
     const result = transaction({
-      lobbyDiscordId: normalizedLobbyDiscordId,
-      queueDiscordId: normalizedQueueDiscordId,
+      discordIdA: normalizedDiscordIdA,
+      discordIdB: normalizedDiscordIdB,
       reason: normalizedReason,
     });
 
@@ -911,6 +1110,14 @@ function swapLobbyPlayerWithQueuePlayer({ lobbyDiscordId, queueDiscordId, reason
   } catch {
     return { success: false, reason: SWAP_ERROR_CODES.SWAP_TRANSACTION_FAILED };
   }
+}
+
+function swapLobbyPlayerWithQueuePlayer({ lobbyDiscordId, queueDiscordId, reason }) {
+  return swapParticipantsInCurrentCycle({
+    discordIdA: lobbyDiscordId,
+    discordIdB: queueDiscordId,
+    reason,
+  });
 }
 
 function removePlayerFromLobbyByDiscordId({ lobbyDiscordId, reason }) {
@@ -1228,6 +1435,7 @@ module.exports = {
   resetQueueCycle,
   clearTestData,
   getCurrentQueueCycleId,
+  swapParticipantsInCurrentCycle,
   swapLobbyPlayerWithQueuePlayer,
   removePlayerFromLobbyByDiscordId,
 };

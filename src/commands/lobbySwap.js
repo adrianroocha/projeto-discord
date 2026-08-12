@@ -9,12 +9,9 @@ const SAFE_CODES = {
   MEMBER_UNAVAILABLE: 'MEMBER_UNAVAILABLE',
   INVALID_INPUT: 'INVALID_INPUT',
   SAME_USER: 'SAME_USER',
-  LOBBY_PLAYER_NOT_FOUND: 'LOBBY_PLAYER_NOT_FOUND',
-  QUEUE_PLAYER_NOT_FOUND: 'QUEUE_PLAYER_NOT_FOUND',
+  PARTICIPANT_NOT_FOUND: 'PARTICIPANT_NOT_FOUND',
   LOBBY_IMMUTABLE: 'LOBBY_IMMUTABLE',
-  AMBIGUOUS_LOBBY_MEMBERSHIP: 'AMBIGUOUS_LOBBY_MEMBERSHIP',
-  PLAYER_ALREADY_IN_FORMING_LOBBY: 'PLAYER_ALREADY_IN_FORMING_LOBBY',
-  PLAYER_ALREADY_IN_QUEUE: 'PLAYER_ALREADY_IN_QUEUE',
+  LOBBY_STATE_CONFLICT: 'LOBBY_STATE_CONFLICT',
   DUPLICATE_INTERACTION: 'DUPLICATE_INTERACTION',
   QUEUE_POSITION_CONFLICT: 'QUEUE_POSITION_CONFLICT',
   LOBBY_POSITION_CONFLICT: 'LOBBY_POSITION_CONFLICT',
@@ -52,21 +49,15 @@ function buildAuthorizationReplyContent(code) {
 function buildFailureMessage(code) {
   switch (code) {
     case SAFE_CODES.SAME_USER:
-      return 'Os usuários de lobby e fila devem ser diferentes.';
+      return 'Os usuários informados devem ser diferentes.';
     case SAFE_CODES.MEMBER_UNAVAILABLE:
       return 'Não foi possível localizar um dos usuários no servidor.';
-    case SAFE_CODES.LOBBY_PLAYER_NOT_FOUND:
-      return 'O usuário da lobby não está em uma lobby em formação.';
-    case SAFE_CODES.QUEUE_PLAYER_NOT_FOUND:
-      return 'O usuário da fila não está aguardando na fila.';
+    case SAFE_CODES.PARTICIPANT_NOT_FOUND:
+      return 'Um dos usuários informados não está na fila nem em lobby em formação no ciclo atual.';
     case SAFE_CODES.LOBBY_IMMUTABLE:
       return 'Não é permitido trocar jogador de lobby em andamento.';
-    case SAFE_CODES.AMBIGUOUS_LOBBY_MEMBERSHIP:
-      return 'Não foi possível determinar de forma única a lobby em formação desse usuário.';
-    case SAFE_CODES.PLAYER_ALREADY_IN_FORMING_LOBBY:
-      return 'O usuário da fila já está em outra lobby em formação.';
-    case SAFE_CODES.PLAYER_ALREADY_IN_QUEUE:
-      return 'O usuário da lobby já está simultaneamente na fila. Corrija a inconsistência antes da troca.';
+    case SAFE_CODES.LOBBY_STATE_CONFLICT:
+      return 'Conflito de estado detectado para um dos participantes. Nenhuma alteração foi aplicada.';
     case SAFE_CODES.QUEUE_POSITION_CONFLICT:
       return 'Conflito de posição na fila detectado. Tente novamente.';
     case SAFE_CODES.LOBBY_POSITION_CONFLICT:
@@ -82,20 +73,64 @@ function buildFailureMessage(code) {
   }
 }
 
+function readUserOption(options, currentName, legacyName) {
+  const currentValue = options.getUser(currentName);
+  if (currentValue) {
+    return {
+      user: currentValue,
+      source: currentName,
+      usedLegacy: false,
+    };
+  }
+
+  const legacyValue = legacyName ? options.getUser(legacyName) : null;
+  return {
+    user: legacyValue,
+    source: legacyValue ? legacyName : null,
+    usedLegacy: Boolean(legacyValue),
+  };
+}
+
+function formatLocation(location) {
+  if (!location || typeof location !== 'object') {
+    return 'posição indisponível';
+  }
+
+  if (location.state === 'queue') {
+    if (Number.isSafeInteger(location.queuePosition) && location.queuePosition > 0) {
+      return `fila (posição ${location.queuePosition})`;
+    }
+    return 'fila';
+  }
+
+  if (location.state === 'forming_lobby') {
+    const lobbyLabel = Number.isSafeInteger(location.lobbyNumber)
+      ? `Lobby #${location.lobbyNumber}`
+      : 'Lobby em formação';
+
+    if (Number.isSafeInteger(location.slot) && location.slot > 0) {
+      return `${lobbyLabel} (slot ${location.slot})`;
+    }
+    return lobbyLabel;
+  }
+
+  return 'posição indisponível';
+}
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName('lobby-swap')
-    .setDescription('Troca administrativamente um jogador da lobby em formação por um jogador da fila.')
+    .setDescription('Troca administrativamente dois participantes mutáveis do ciclo atual.')
     .addUserOption((option) =>
       option
-        .setName('usuario_lobby')
-        .setDescription('Jogador atualmente na lobby em formação')
+        .setName('usuario_a')
+        .setDescription('Primeiro participante da troca')
         .setRequired(true),
     )
     .addUserOption((option) =>
       option
-        .setName('usuario_fila')
-        .setDescription('Jogador atualmente aguardando na fila')
+        .setName('usuario_b')
+        .setDescription('Segundo participante da troca')
         .setRequired(true),
     )
     .addStringOption((option) =>
@@ -111,8 +146,11 @@ module.exports = {
     const queueCycleId = getSafeQueueCycleId();
     const previousState = getSafeOperationalState();
 
-    const lobbyUser = interaction.options.getUser('usuario_lobby');
-    const queueUser = interaction.options.getUser('usuario_fila');
+    const usuarioAOption = readUserOption(interaction.options, 'usuario_a', 'usuario_lobby');
+    const usuarioBOption = readUserOption(interaction.options, 'usuario_b', 'usuario_fila');
+    const userA = usuarioAOption.user;
+    const userB = usuarioBOption.user;
+    const usedLegacyOptionNames = usuarioAOption.usedLegacy || usuarioBOption.usedLegacy;
     const reason = String(interaction.options.getString('motivo') || '').trim();
 
     const authorization = await operationalAuthorizationService.authorize(interaction);
@@ -122,9 +160,10 @@ module.exports = {
         deniedAudit = await adminCommandAuditService.beginRequired(interaction, {
           commandName: 'lobby-swap',
           parameters: {
-            usuario_lobby: lobbyUser?.id || null,
-            usuario_fila: queueUser?.id || null,
+            usuario_a: userA?.id || null,
+            usuario_b: userB?.id || null,
             motivo: reason,
+            compat_legacy_option_names: usedLegacyOptionNames,
           },
           queueCycleId,
           previousState,
@@ -160,9 +199,10 @@ module.exports = {
       auditContext = await adminCommandAuditService.beginRequired(interaction, {
         commandName: 'lobby-swap',
         parameters: {
-          usuario_lobby: lobbyUser?.id || null,
-          usuario_fila: queueUser?.id || null,
+          usuario_a: userA?.id || null,
+          usuario_b: userB?.id || null,
           motivo: reason,
+          compat_legacy_option_names: usedLegacyOptionNames,
         },
         queueCycleId,
         previousState,
@@ -189,10 +229,11 @@ module.exports = {
       });
     };
 
-    if (!lobbyUser || !queueUser || !reason || reason.length < 3 || reason.length > 200) {
+    if (!userA || !userB || !reason || reason.length < 3 || reason.length > 200) {
       await finishFailure(SAFE_CODES.INVALID_INPUT, {
         failed: true,
         reason: 'invalid_input',
+        compatLegacyOptionNames: usedLegacyOptionNames,
       });
 
       await interaction.reply({
@@ -202,10 +243,12 @@ module.exports = {
       return;
     }
 
-    if (lobbyUser.id === queueUser.id) {
+    if (userA.id === userB.id) {
       await finishFailure(SAFE_CODES.SAME_USER, {
         failed: true,
         reason: 'same_user',
+        usuarioADiscordId: userA.id,
+        usuarioBDiscordId: userB.id,
       });
 
       await interaction.reply({
@@ -216,12 +259,14 @@ module.exports = {
     }
 
     try {
-      await interaction.guild.members.fetch(lobbyUser.id);
-      await interaction.guild.members.fetch(queueUser.id);
+      await interaction.guild.members.fetch(userA.id);
+      await interaction.guild.members.fetch(userB.id);
     } catch {
       await finishFailure(SAFE_CODES.MEMBER_UNAVAILABLE, {
         failed: true,
         reason: 'member_unavailable',
+        usuarioADiscordId: userA?.id || null,
+        usuarioBDiscordId: userB?.id || null,
       });
 
       await interaction.reply({
@@ -231,11 +276,18 @@ module.exports = {
       return;
     }
 
-    const swapResult = queueService.swapLobbyPlayerWithQueuePlayer({
-      lobbyDiscordId: lobbyUser.id,
-      queueDiscordId: queueUser.id,
-      reason,
-    });
+    const swapResult =
+      typeof queueService.swapParticipantsInCurrentCycle === 'function'
+        ? queueService.swapParticipantsInCurrentCycle({
+            discordIdA: userA.id,
+            discordIdB: userB.id,
+            reason,
+          })
+        : queueService.swapLobbyPlayerWithQueuePlayer({
+            lobbyDiscordId: userA.id,
+            queueDiscordId: userB.id,
+            reason,
+          });
 
     if (!swapResult || swapResult.success !== true) {
       const safeCode = adminCommandAuditService.normalizeErrorCode(
@@ -246,8 +298,11 @@ module.exports = {
       await finishFailure(safeCode, {
         failed: true,
         reason: safeCode,
-        usuario_lobby: lobbyUser.id,
-        usuario_fila: queueUser.id,
+        usuarioADiscordId: userA.id,
+        usuarioBDiscordId: userB.id,
+        compatLegacyOptionNames: usedLegacyOptionNames,
+        stateA: swapResult?.stateA || null,
+        stateB: swapResult?.stateB || null,
       });
 
       await interaction.reply({
@@ -261,29 +316,47 @@ module.exports = {
       queueCycleId: getSafeQueueCycleId(),
       previousState,
       nextState: {
-        usuario_lobby: lobbyUser.id,
-        usuario_fila: queueUser.id,
-        lobbyId: swapResult.lobbyId,
-        lobbyNumber: swapResult.lobbyNumber,
-        slot: swapResult.slot,
-        queuePositionAfter: swapResult.movedOutQueuePosition,
-        movedOutQueueOrderKey: swapResult.movedOutQueueOrderKey,
-        movedOutEffectiveSortPriority: swapResult.movedOutEffectiveSortPriority,
-        rebuildLocked: swapResult.lobbyLockedForRebuild === true,
+        usuarioADiscordId: userA.id,
+        usuarioBDiscordId: userB.id,
+        origemA: swapResult.userA?.origin?.state || null,
+        origemB: swapResult.userB?.origin?.state || null,
+        destinoA: swapResult.userA?.destination?.state || null,
+        destinoB: swapResult.userB?.destination?.state || null,
+        origemADetalhe: formatLocation(swapResult.userA?.origin),
+        origemBDetalhe: formatLocation(swapResult.userB?.origin),
+        destinoADetalhe: formatLocation(swapResult.userA?.destination),
+        destinoBDetalhe: formatLocation(swapResult.userB?.destination),
+        lobbiesEnvolvidas: swapResult.affectedLobbyNumbers || [],
+        lobbiesTravadas: swapResult.lockedLobbyNumbers || [],
+        compatLegacyOptionNames: usedLegacyOptionNames,
       },
       client: interaction.client,
     });
 
+    const sameLobbySwap =
+      swapResult.userA?.origin?.state === 'forming_lobby' &&
+      swapResult.userB?.origin?.state === 'forming_lobby' &&
+      swapResult.userA?.origin?.lobbyId &&
+      swapResult.userA.origin.lobbyId === swapResult.userB?.origin?.lobbyId;
+
+    const lobbiesLine =
+      Array.isArray(swapResult.affectedLobbyNumbers) && swapResult.affectedLobbyNumbers.length
+        ? `Lobbies envolvidas: ${swapResult.affectedLobbyNumbers.map((value) => `#${value}`).join(', ')}`
+        : 'Lobbies envolvidas: nenhuma';
+
+    const scenarioLine = sameLobbySwap
+      ? 'Cenário: dois slots da mesma lobby em formação.'
+      : 'Cenário: troca entre participantes mutáveis do ciclo atual.';
+
     await interaction.reply({
       content:
         `Troca administrativa concluída.\n\n` +
-        `Saiu da lobby: <@${lobbyUser.id}>\n` +
-        `Entrou na lobby: <@${queueUser.id}>\n` +
-        `Lobby: ${swapResult.lobbyNumber}\n` +
-        `Slot preservado: ${swapResult.slot}\n` +
-        `Nova posição de <@${lobbyUser.id}> na fila: ${swapResult.movedOutQueuePosition}\n` +
+        `<@${userA.id}>: ${formatLocation(swapResult.userA?.origin)} -> ${formatLocation(swapResult.userA?.destination)}\n` +
+        `<@${userB.id}>: ${formatLocation(swapResult.userB?.origin)} -> ${formatLocation(swapResult.userB?.destination)}\n` +
+        `${lobbiesLine}\n` +
+        `${scenarioLine}\n` +
         `Motivo: ${reason}\n\n` +
-        'A troca altera somente as posições atuais. Cargos, elegibilidade, cooldown e prioridade permanente não foram modificados.',
+        'A troca altera somente as posições atuais. Cargos, elegibilidade e snapshots não foram modificados.',
       flags: MessageFlags.Ephemeral,
     });
   },
