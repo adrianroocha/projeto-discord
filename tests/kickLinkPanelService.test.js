@@ -147,7 +147,7 @@ describe('kickLinkPanelService', () => {
     );
   });
 
-  test('criação do painel com botão único Vincular conta Kick', async () => {
+  test('criação do painel com botões Vincular conta Kick e Consultar meu vínculo', async () => {
     const logger = { info: jest.fn(), warn: jest.fn() };
     const service = createKickLinkPanelService({
       config: { kickLinkChannelId: 'channel-1', guildId: 'guild-1' },
@@ -166,9 +166,12 @@ describe('kickLinkPanelService', () => {
     expect(payload.content).toContain('Vincule sua conta Kick');
 
     const components = payload.components[0].toJSON().components;
-    expect(components).toHaveLength(1);
+    expect(components).toHaveLength(2);
     expect(components[0].custom_id).toBe('kick-link-start');
     expect(components[0].label).toBe('Vincular conta Kick');
+    expect(components[1].custom_id).toBe('kick_link_status');
+    expect(components[1].label).toBe('Consultar meu vínculo');
+    expect(components.filter((component) => component.custom_id === 'kick_link_status')).toHaveLength(1);
     expect(payload.content).not.toContain('desvincular');
     expect(channel.permissionOverwrites.edit).not.toHaveBeenCalled();
     expect(channel.permissionOverwrites.set).not.toHaveBeenCalled();
@@ -212,6 +215,12 @@ describe('kickLinkPanelService', () => {
     expect(result.created).toBe(false);
     expect(client.kickLinkPanelMessageId).toBe('msg-existing');
     expect(existingMessage.edit).toHaveBeenCalledTimes(1);
+    const payload = existingMessage.edit.mock.calls[0][0];
+    const components = payload.components[0].toJSON().components;
+    expect(components).toHaveLength(2);
+    expect(components[0].custom_id).toBe('kick-link-start');
+    expect(components[1].custom_id).toBe('kick_link_status');
+    expect(components.filter((component) => component.custom_id === 'kick_link_status')).toHaveLength(1);
     expect(channel.send).not.toHaveBeenCalled();
     expect(channel.permissionOverwrites.edit).not.toHaveBeenCalled();
     expect(channel.permissionOverwrites.set).not.toHaveBeenCalled();

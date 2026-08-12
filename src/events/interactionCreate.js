@@ -2,6 +2,7 @@ const { MessageFlags } = require('discord.js');
 const joinQueueButton = require('../buttons/joinQueue');
 const leaveQueueButton = require('../buttons/leaveQueue');
 const kickLinkStartButton = require('../buttons/kickLinkStart');
+const kickLinkStatusButton = require('../buttons/kickLinkStatus');
 const kickUnlinkConfirmButton = require('../buttons/kickUnlinkConfirm');
 const kickUnlinkCancelButton = require('../buttons/kickUnlinkCancel');
 const applicationLifecycleService = require('../services/applicationLifecycleService');
@@ -10,6 +11,7 @@ const buttonHandlers = {
   [joinQueueButton.customId]: joinQueueButton,
   [leaveQueueButton.customId]: leaveQueueButton,
   [kickLinkStartButton.customId]: kickLinkStartButton,
+  [kickLinkStatusButton.customId]: kickLinkStatusButton,
 };
 
 const prefixButtonHandlers = [kickUnlinkConfirmButton, kickUnlinkCancelButton];

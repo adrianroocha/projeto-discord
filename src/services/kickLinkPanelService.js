@@ -20,6 +20,11 @@ function buildPanelActionRow() {
       .setCustomId('kick-link-start')
       .setStyle(ButtonStyle.Primary)
       .setLabel('Vincular conta Kick'),
+    new ButtonBuilder()
+      .setCustomId('kick_link_status')
+      .setStyle(ButtonStyle.Secondary)
+      .setEmoji('💚')
+      .setLabel('Consultar meu vínculo'),
   );
 }
 

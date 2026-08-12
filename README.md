@@ -455,11 +455,13 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 
 ## Kick (etapa atual)
 
-- Painel permanente de vínculo: mensagem única com botão `Vincular conta Kick` no canal configurado por `KICK_LINK_CHANNEL_ID`.
+- Painel permanente de vínculo: mensagem única com os botões `Vincular conta Kick` e `💚 Consultar meu vínculo` no canal configurado por `KICK_LINK_CHANNEL_ID`.
 - O comando `/kick-link` permanece disponível como alternativa ao painel.
 - `/kick-status` aceita consulta própria (`/kick-status`) e consulta opcional de terceiro (`/kick-status usuario:@Membro`) para quem possui `Administrator` ou `Manage Guild`.
 - A resposta de `/kick-status` é sempre privada (`ephemeral`) e usa apenas estado local persistido (SQLite + services existentes), sem chamada extra à API da Kick por consulta.
 - `/kick-status` não sincroniza cargo automaticamente, não altera banco e não recalcula snapshot de prioridade de quem já entrou na fila no ciclo atual.
+- O botão `💚 Consultar meu vínculo` sempre responde de forma privada (`ephemeral`), consulta somente o autor do clique e não permite informar outro alvo.
+- A consulta via botão usa apenas estado local conhecido pelo bot e não executa OAuth, webhooks, chamadas extras à API Kick, mutação de cargo, mutação de banco ou auditoria administrativa.
 - Em `/kick-status`, elegibilidade de negócio e estado real do cargo Discord são exibidos separadamente (cargo presente/ausente/indisponível e membro gerenciável/não gerenciável/indisponível).
 - Prioridade da fila: definida por snapshot na primeira entrada do usuário em cada ciclo.
 - `/kick-unlink` é administrativo e desvincula um usuário alvo com confirmação explícita por botões.

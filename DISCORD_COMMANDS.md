@@ -445,7 +445,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Quem pode usar: qualquer usuário que visualize o canal.
 - Onde usar: canal configurado em KICK_LINK_CHANNEL_ID (mesmo servidor de GUILD_ID).
 - Parâmetros: nenhum.
-- Resposta: mensagem fixa do bot com um único botão.
+- Resposta: mensagem fixa do bot com dois botões (`Vincular conta Kick` e `💚 Consultar meu vínculo`).
 - Exemplo: mensagem iniciando com "Vincule sua conta Kick".
 - Efeitos no banco: nenhum direto no painel.
 - Efeitos em cargo: o callback OAuth iniciado pelo painel pode sincronizar automaticamente o cargo SUB se houver fonte ativa.
@@ -465,6 +465,19 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos em cargo: após persistência do vínculo no callback, pode adicionar/manter/remover cargo SUB conforme elegibilidade final.
 - Efeitos na fila: nenhum.
 - Limitações: bloqueado em guild diferente do configurado; reutiliza o mesmo fluxo de /kick-link.
+
+## Botão kick_link_status
+- Nome: kick_link_status
+- Finalidade: consultar o diagnóstico de vínculo/benefício Kick do próprio usuário a partir do painel.
+- Quem pode usar: qualquer usuário no servidor correto.
+- Onde usar: painel permanente Vincular conta Kick.
+- Parâmetros: nenhum.
+- Resposta: sempre ephemeral; consulta apenas o autor do clique e não aceita alvo de terceiro.
+- Exemplo: clique em "💚 Consultar meu vínculo".
+- Efeitos no banco: nenhum (somente leitura local).
+- Efeitos em cargo: nenhum (não adiciona/remove/sincroniza cargo SUB).
+- Efeitos na fila: nenhum.
+- Limitações: não executa OAuth, não chama API externa da Kick e não substitui a consulta administrativa de terceiros via `/kick-status usuario:@Membro`.
 
 ## Botão kick-unlink-confirm:{token}
 - Nome: kick-unlink-confirm:{token}

@@ -45,4 +45,9 @@ describe('documentação de comandos Discord', () => {
     const doc = fs.readFileSync(discordCommandsDocPath, 'utf8');
     expect(doc).toContain('kick-link-start');
   });
+
+  test('documentação inclui botão kick_link_status', () => {
+    const doc = fs.readFileSync(discordCommandsDocPath, 'utf8');
+    expect(doc).toContain('kick_link_status');
+  });
 });

@@ -14,6 +14,11 @@ jest.mock('../src/buttons/kickLinkStart', () => ({
   execute: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../src/buttons/kickLinkStatus', () => ({
+  customId: 'kick_link_status',
+  execute: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('../src/buttons/kickUnlinkConfirm', () => ({
   customIdPrefix: 'kick-unlink-confirm:',
   execute: jest.fn().mockResolvedValue(undefined),
@@ -27,6 +32,7 @@ jest.mock('../src/buttons/kickUnlinkCancel', () => ({
 const joinQueueButton = require('../src/buttons/joinQueue');
 const leaveQueueButton = require('../src/buttons/leaveQueue');
 const kickLinkStartButton = require('../src/buttons/kickLinkStart');
+const kickLinkStatusButton = require('../src/buttons/kickLinkStatus');
 const kickUnlinkConfirmButton = require('../src/buttons/kickUnlinkConfirm');
 const kickUnlinkCancelButton = require('../src/buttons/kickUnlinkCancel');
 const interactionCreateEvent = require('../src/events/interactionCreate');
@@ -110,6 +116,26 @@ describe('interactionCreate event', () => {
     await interactionCreateEvent.execute(interaction);
 
     expect(kickLinkStartButton.execute).toHaveBeenCalledWith(interaction);
+    expect(kickLinkStatusButton.execute).not.toHaveBeenCalled();
+    expect(joinQueueButton.execute).not.toHaveBeenCalled();
+    expect(leaveQueueButton.execute).not.toHaveBeenCalled();
+    expect(kickUnlinkConfirmButton.execute).not.toHaveBeenCalled();
+    expect(kickUnlinkCancelButton.execute).not.toHaveBeenCalled();
+  });
+
+  test('encaminha botão kick_link_status por custom id exato', async () => {
+    const interaction = {
+      isButton: () => true,
+      isChatInputCommand: () => false,
+      customId: 'kick_link_status',
+      reply: jest.fn().mockResolvedValue(undefined),
+      followUp: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await interactionCreateEvent.execute(interaction);
+
+    expect(kickLinkStatusButton.execute).toHaveBeenCalledWith(interaction);
+    expect(kickLinkStartButton.execute).not.toHaveBeenCalled();
     expect(joinQueueButton.execute).not.toHaveBeenCalled();
     expect(leaveQueueButton.execute).not.toHaveBeenCalled();
     expect(kickUnlinkConfirmButton.execute).not.toHaveBeenCalled();

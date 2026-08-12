@@ -535,7 +535,7 @@ describe('/kick-status command', () => {
 
     const payload = interaction.reply.mock.calls[0][0];
     expect(payload.content).toContain('Conta Kick: não vinculada');
-    expect(payload.content).toContain('Cargo SUB: membro indisponível');
+    expect(payload.content).toContain('Cargo SUB: indisponível');
     expect(payload.content).toContain('Membro gerenciável pelo bot: indisponível');
   });
 
