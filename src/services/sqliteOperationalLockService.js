@@ -28,7 +28,7 @@ function safeReadJson(filePath) {
   try {
     const content = fs.readFileSync(filePath, 'utf8');
     return JSON.parse(content);
-  } catch (_error) {
+  } catch {
     return null;
   }
 }
@@ -49,7 +49,7 @@ function isPidProbablyRunning(pid) {
   try {
     process.kill(pid, 0);
     return true;
-  } catch (_error) {
+  } catch {
     return false;
   }
 }
@@ -200,7 +200,7 @@ function startHeartbeat(databasePath, options = {}) {
   const timer = setInterval(() => {
     try {
       refreshLock(absoluteDbPath);
-    } catch (_error) {
+    } catch {
       // best-effort: lock freshness update must not crash the app.
     }
   }, Math.max(1000, intervalMs));

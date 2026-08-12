@@ -103,14 +103,14 @@ module.exports = {
 
         finalMessage = lines.join('\n');
       }
-    } catch (_error) {
+    } catch {
       finalMessage =
         'Reconciliação não pôde ser concluída no momento. Nenhuma alteração fora da sincronização segura foi aplicada.';
     }
 
     try {
       await interaction.editReply(finalMessage);
-    } catch (_error) {
+    } catch {
       // best-effort: avoid command crash if Discord edit fails
     }
   },

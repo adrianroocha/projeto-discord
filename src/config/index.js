@@ -156,7 +156,7 @@ function parseIanaTimeZone(value, fallback) {
   try {
     Intl.DateTimeFormat('en-US', { timeZone: normalized }).format(new Date());
     return normalized;
-  } catch (_error) {
+  } catch {
     return fallback;
   }
 }

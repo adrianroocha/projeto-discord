@@ -15,7 +15,7 @@ function createSubscriberRoleService(options = {}) {
         return { ok: false, result: 'guild_not_found' };
       }
       return { ok: true, guild };
-    } catch (_error) {
+    } catch {
       return { ok: false, result: 'guild_not_found' };
     }
   }
@@ -31,7 +31,7 @@ function createSubscriberRoleService(options = {}) {
         return { ok: false, result: 'role_not_found' };
       }
       return { ok: true, role };
-    } catch (_error) {
+    } catch {
       return { ok: false, result: 'role_not_found' };
     }
   }
@@ -65,7 +65,7 @@ function createSubscriberRoleService(options = {}) {
         return { ok: false, result: 'member_not_found' };
       }
       return { ok: true, member };
-    } catch (_error) {
+    } catch {
       return { ok: false, result: 'member_not_found' };
     }
   }
@@ -121,7 +121,7 @@ function createSubscriberRoleService(options = {}) {
       try {
         await member.roles.add(role.id);
         return { result: 'role_added', roleName: role.name };
-      } catch (_error) {
+      } catch {
         return { result: 'discord_api_error', roleName: role.name };
       }
     }
@@ -129,7 +129,7 @@ function createSubscriberRoleService(options = {}) {
     try {
       await member.roles.remove(role.id);
       return { result: 'role_removed', roleName: role.name };
-    } catch (_error) {
+    } catch {
       return { result: 'discord_api_error', roleName: role.name };
     }
   }

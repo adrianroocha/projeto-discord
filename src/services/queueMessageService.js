@@ -134,7 +134,7 @@ async function fetchPanelMessage(channel) {
       if (message && isPanelMessage(message, channelClient)) {
         return message;
       }
-    } catch (error) {
+    } catch {
       // continue to fallback search
     }
   }

@@ -49,7 +49,7 @@ function createKickWebhookPublicKeyService(options = {}) {
           Accept: 'application/json',
         },
       });
-    } catch (_error) {
+    } catch {
       throw new KickWebhookPublicKeyError('PUBLIC_KEY_FETCH_FAILED', 'Falha de rede ao obter chave pública da Kick.');
     }
 
@@ -63,7 +63,7 @@ function createKickWebhookPublicKeyService(options = {}) {
     let body;
     try {
       body = await response.json();
-    } catch (_error) {
+    } catch {
       throw new KickWebhookPublicKeyError(
         'PUBLIC_KEY_INVALID_RESPONSE',
         'Resposta JSON inválida ao obter chave pública da Kick.',

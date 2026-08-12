@@ -150,7 +150,7 @@ async function listDiscordIdsWithSubscriberRole(client, cfg, logger, timeoutMs) 
     }
 
     return { ids, warnings: [], complete: true };
-  } catch (_error) {
+  } catch {
     if (typeof logger?.warn === 'function') {
       logger.warn('Reconciliação SUB: falha ao listar membros com cargo SUB.');
     }
@@ -268,7 +268,7 @@ function createSubscriberRoleReconciliationService(options = {}) {
           reason,
           startedAtMs,
         });
-      } catch (_error) {
+      } catch {
         summary.warnings.push('reconciliation_run_audit_unavailable');
       }
 
@@ -344,7 +344,7 @@ function createSubscriberRoleReconciliationService(options = {}) {
         if (summary.failed > 0) {
           summary.status = 'completed_with_failures';
         }
-      } catch (_error) {
+      } catch {
         summary.status = 'failed';
         summary.failed += 1;
         summary.failures.push({
@@ -367,7 +367,7 @@ function createSubscriberRoleReconciliationService(options = {}) {
               failed: summary.failed,
               status: summary.status,
             });
-          } catch (_error) {
+          } catch {
             summary.warnings.push('reconciliation_run_audit_finalize_unavailable');
           }
         }

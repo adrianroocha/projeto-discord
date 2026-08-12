@@ -195,7 +195,7 @@ function createKickApiService(options = {}) {
       if (rawBody) {
         try {
           parsedBody = JSON.parse(rawBody);
-        } catch (error) {
+        } catch {
           parsedBody = null;
         }
       }

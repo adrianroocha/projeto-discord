@@ -114,7 +114,7 @@ describe('queue cycle reset', () => {
       if (sql === 'DELETE FROM lobbies') {
         return {
           run: (...args) => {
-            const result = statement.run(...args);
+            statement.run(...args);
             throw new Error('forced reset failure');
           },
         };

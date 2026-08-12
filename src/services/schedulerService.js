@@ -431,7 +431,7 @@ async function openQueue(client, options = {}) {
   return true;
 }
 
-async function closeQueue(client, options = {}) {
+async function closeQueue(client, _options = {}) {
   if (schedulerStopped || lifecycleService.isShuttingDown()) {
     return false;
   }

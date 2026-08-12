@@ -122,7 +122,7 @@ async function createPreRestoreBackup(databasePath, backupDirectory) {
     if (fs.existsSync(preTempPath)) {
       try {
         fs.unlinkSync(preTempPath);
-      } catch (_cleanupError) {
+      } catch {
         // no-op
       }
     }
@@ -172,7 +172,7 @@ function restoreAtomically(options) {
         if (fs.existsSync(databasePath)) {
           fs.renameSync(databasePath, failedRestoredPath);
         }
-      } catch (_renameFailed) {
+      } catch {
         // no-op
       }
     }
@@ -182,7 +182,7 @@ function restoreAtomically(options) {
         if (!fs.existsSync(databasePath) && fs.existsSync(previousDbPath)) {
           fs.renameSync(previousDbPath, databasePath);
         }
-      } catch (_rollbackError) {
+      } catch {
         // no-op
       }
     }
@@ -190,7 +190,7 @@ function restoreAtomically(options) {
     if (fs.existsSync(restoreTempPath)) {
       try {
         fs.unlinkSync(restoreTempPath);
-      } catch (_cleanupError) {
+      } catch {
         // no-op
       }
     }
@@ -256,7 +256,7 @@ async function main() {
           fs.renameSync(restoreResult.previousDbPath, resolvedDatabasePath);
           sqliteBackupService.validateBackup(resolvedDatabasePath);
         }
-      } catch (_rollbackError) {
+      } catch {
         throw Object.assign(new Error('Validação final falhou e rollback não pôde ser concluído.'), {
           code: 'RESTORE_FINAL_VALIDATION_AND_ROLLBACK_FAILED',
         });

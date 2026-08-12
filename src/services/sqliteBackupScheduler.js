@@ -247,7 +247,7 @@ function createSqliteBackupScheduler(options = {}) {
     }
   }
 
-  async function runCycle(reason) {
+  async function runCycle(_reason) {
     if (stopped || lifecycle.isShuttingDown()) {
       return;
     }

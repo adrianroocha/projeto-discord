@@ -488,7 +488,7 @@ function createRequestHandler(dependencies = {}) {
       let eventPayload;
       try {
         eventPayload = JSON.parse(rawBody.toString('utf8'));
-      } catch (_error) {
+      } catch {
         const diagnostic = buildSafeWebhookDiagnostic({
           eventType: signatureValidation?.headers?.eventType,
           eventVersion: signatureValidation?.headers?.eventVersion,
@@ -543,7 +543,7 @@ function createRequestHandler(dependencies = {}) {
                     `Webhook ${eventType}: sincronização pendente para discordId=${discordId}; usar /sub-sync para reconciliação.`,
                   );
                 }
-              } catch (_error) {
+              } catch {
                 if (typeof logger?.warn === 'function') {
                   logger.warn(
                     `Webhook ${eventType}: falha inesperada na sincronização para discordId=${discordId}; usar /sub-sync para reconciliação.`,
@@ -718,7 +718,7 @@ function stopKickHttpServer() {
       for (const socket of activeSockets) {
         try {
           socket.destroy();
-        } catch (_error) {
+        } catch {
           // best-effort
         }
       }

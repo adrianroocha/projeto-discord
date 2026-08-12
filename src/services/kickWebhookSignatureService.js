@@ -57,7 +57,7 @@ function createKickWebhookSignatureService(options = {}) {
   function decodeSignature(signatureBase64) {
     try {
       return Buffer.from(signatureBase64, 'base64');
-    } catch (_error) {
+    } catch {
       return null;
     }
   }

@@ -140,7 +140,7 @@ function createSubscriberRoleAutoSyncService(options = {}) {
         resultCode: outcome.resultCode,
         action: outcome.action,
       };
-    } catch (_error) {
+    } catch {
       if (typeof logger?.warn === 'function') {
         logger.warn(
           `SUB auto sync falhou sem comprometer fluxo principal: trigger=${triggerType} discordId=${discordId}`,

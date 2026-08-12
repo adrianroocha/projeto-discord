@@ -142,7 +142,7 @@ function resolveSubscriberForSnapshot(discordId, resolvePrioritySnapshot, fallba
       source: resolved?.source || 'eligibility',
       reliable: resolved?.reliable !== false,
     };
-  } catch (_error) {
+  } catch {
     return {
       isSubscriber: 0,
       source: 'eligibility_error',
@@ -188,15 +188,6 @@ function createLobbyWithEntries(entries, creationType = 'automatic', lobbyNumber
   });
 
   return { lobbyId, lobbyNumber: assignedLobbyNumber };
-}
-
-function assignLobbies() {
-  let entries = selectWaitingEntries(4);
-
-  while (entries.length === 4) {
-    createLobbyWithEntries(entries, 'automatic');
-    entries = selectWaitingEntries(4);
-  }
 }
 
 function getNextLobbyNumber(reservedNumbers = []) {

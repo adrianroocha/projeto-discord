@@ -39,7 +39,7 @@ function resolveQueuePriority(discordId) {
       priorityMessage: 'Entrada como participante comum.',
       reliable: true,
     };
-  } catch (_error) {
+  } catch {
     return {
       isSubscriber: 0,
       source: 'eligibility_error',

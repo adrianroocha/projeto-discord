@@ -47,7 +47,7 @@ function createSubscriberRoleSyncService(options = {}) {
     let eligibility;
     try {
       eligibility = eligibilityService.getEligibility(targetDiscordId, now());
-    } catch (_error) {
+    } catch {
       response.result = 'eligibility_error';
       return response;
     }
@@ -114,7 +114,7 @@ function createSubscriberRoleSyncService(options = {}) {
         createdAtMs: now(),
       });
       response.auditSaved = true;
-    } catch (_error) {
+    } catch {
       response.auditSaved = false;
       response.auditWarning = 'audit_failed';
     }

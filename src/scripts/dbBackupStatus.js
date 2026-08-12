@@ -62,7 +62,7 @@ async function main() {
   } finally {
     try {
       await sqliteClient.closeConnection();
-    } catch (_error) {
+    } catch {
       exitCode = 1;
     }
 

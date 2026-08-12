@@ -1,12 +1,12 @@
 // TODO: implementar a lógica de lobby do bot
 module.exports = {
-  createLobby(options) {
+  createLobby(_options) {
     // montar lobby
   },
-  removePlayer(userId) {
+  removePlayer(_userId) {
     // remover jogador do lobby
   },
-  publishEmbed(channel, embed) {
+  publishEmbed(_channel, _embed) {
     // publicar embed no canal
   },
 };

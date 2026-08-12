@@ -39,7 +39,7 @@ async function rejectIfShuttingDown(interaction) {
         flags: MessageFlags.Ephemeral,
       });
     }
-  } catch (_error) {
+  } catch {
     // best-effort: a interação pode já não aceitar resposta durante shutdown.
   }
 

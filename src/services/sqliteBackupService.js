@@ -303,7 +303,7 @@ function createSqliteBackupService(options = {}) {
         if (tempBackupPath && fs.existsSync(tempBackupPath)) {
           try {
             fs.unlinkSync(tempBackupPath);
-          } catch (_cleanupError) {
+          } catch {
             // no-op
           }
         }

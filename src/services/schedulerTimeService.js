@@ -35,7 +35,7 @@ function assertValidTimeZone(timeZone) {
 
   try {
     Intl.DateTimeFormat('en-US', { timeZone }).format(new Date());
-  } catch (_error) {
+  } catch {
     throw new Error(`QUEUE_TIMEZONE inválido: ${timeZone}.`);
   }
 }

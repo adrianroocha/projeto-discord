@@ -103,7 +103,7 @@ function createKickLinkPanelService(options = {}) {
         if (knownMessage && knownMessage.author.id === channel.client.user.id) {
           return knownMessage;
         }
-      } catch (_error) {
+      } catch {
         // fallback to history scan
       }
     }

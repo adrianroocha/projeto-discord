@@ -225,7 +225,7 @@ function createKickAuthService(options = {}) {
         triggeredByDiscordId: saved.discord_id,
         client: payload.discordClient,
       });
-    } catch (_error) {
+    } catch {
       if (typeof logger?.warn === 'function') {
         logger.warn(`Kick OAuth: sincronização de cargo pendente para discordId=${saved.discord_id}`);
       }

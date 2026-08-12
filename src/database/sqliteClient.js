@@ -46,7 +46,7 @@ function openConnection() {
       if (lockHeld) {
         try {
           sqliteOperationalLockService.releaseLock(databasePath);
-        } catch (_releaseError) {
+        } catch {
           // no-op: lock cleanup best effort during failed open
         }
       }

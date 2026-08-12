@@ -1,9 +1,9 @@
 // TODO: implementar a lógica de kick do bot
 module.exports = {
-  checkKick(userId) {
+  checkKick(_userId) {
     // consultar status de kick
   },
-  updateRoles(userId, roles) {
+  updateRoles(_userId, _roles) {
     // atualizar cargos do usuário
   },
 };

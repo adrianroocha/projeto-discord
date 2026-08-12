@@ -7,7 +7,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon --watch src --exec \"node src/index.js\"",
-    "lint": "eslint src tests --ext .js",
+    "lint": "eslint src tests --ext .js --max-warnings=0",
     "format": "prettier --write \"src/**/*.js\" \"tests/**/*.js\"",
     "test": "jest --runInBand",
     "test:watch": "jest --watch",
