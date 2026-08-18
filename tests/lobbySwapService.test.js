@@ -748,4 +748,423 @@ describe('lobby swap service', () => {
     const afterQueue = db.prepare('SELECT discord_id, queue_order_key FROM queue_entries ORDER BY queue_order_key').all();
     expect(afterQueue).toEqual(beforeQueue);
   });
+
+  describe('reentrada após in_game não bloqueia participação mutável atual', () => {
+    function seedInGameHistory(discordId, { lobbyId, lobbyNumber, position, joinedAtMs }) {
+      insertLobby(db, {
+        id: lobbyId,
+        lobbyNumber,
+        status: 'in_game',
+        creationType: 'automatic',
+        createdAtMs: joinedAtMs - 1_000,
+      });
+      insertLobbyPlayer(db, {
+        id: lobbyId * 10 + position,
+        lobbyId,
+        discordId,
+        username: `${discordId}#0001`,
+        displayName: discordId,
+        position,
+        originalJoinedAtMs: joinedAtMs,
+        isSubscriber: 0,
+      });
+    }
+
+    test('A em in_game, reentra e fica na fila; swap com C na fila funciona', () => {
+      seedInGameHistory('user-a', { lobbyId: 50, lobbyNumber: 50, position: 1, joinedAtMs: 5_000 });
+
+      seedQueueEntry(db, {
+        id: 1,
+        discordId: 'user-a',
+        username: 'User A#0001',
+        displayName: 'User A',
+        isSubscriber: 0,
+        joinedAtMs: 20_000,
+        queueOrderKey: 110,
+      });
+      seedQueueEntry(db, {
+        id: 2,
+        discordId: 'user-c',
+        username: 'User C#0001',
+        displayName: 'User C',
+        isSubscriber: 0,
+        joinedAtMs: 21_000,
+        queueOrderKey: 220,
+      });
+
+      const beforeInGame = db
+        .prepare('SELECT discord_id, lobby_id, position FROM lobby_players WHERE lobby_id = 50')
+        .all();
+
+      const result = context.queueService.swapParticipantsInCurrentCycle({
+        discordIdA: 'user-a',
+        discordIdB: 'user-c',
+        reason: 'swap após reentrada na fila',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.userA.origin.state).toBe('queue');
+      expect(result.userB.origin.state).toBe('queue');
+
+      const afterInGame = db
+        .prepare('SELECT discord_id, lobby_id, position FROM lobby_players WHERE lobby_id = 50')
+        .all();
+      expect(afterInGame).toEqual(beforeInGame);
+
+      const rowA = db.prepare('SELECT queue_order_key FROM queue_entries WHERE discord_id = ?').get('user-a');
+      expect(rowA.queue_order_key).toBe(220);
+    });
+
+    test('A em in_game, reentra e vai para forming; swap com B na fila funciona', () => {
+      seedInGameHistory('user-a', { lobbyId: 51, lobbyNumber: 51, position: 1, joinedAtMs: 5_000 });
+
+      insertLobby(db, {
+        id: 10,
+        lobbyNumber: 3,
+        status: 'forming',
+        creationType: 'automatic',
+        createdAtMs: 20_000,
+      });
+      insertLobbyPlayer(db, {
+        id: 100,
+        lobbyId: 10,
+        discordId: 'user-a',
+        username: 'User A#0001',
+        displayName: 'User A',
+        position: 2,
+        originalJoinedAtMs: 22_000,
+        originalQueueOrderKey: 500,
+        isSubscriber: 0,
+      });
+      seedQueueEntry(db, {
+        id: 1,
+        discordId: 'user-b',
+        username: 'User B#0001',
+        displayName: 'User B',
+        isSubscriber: 0,
+        joinedAtMs: 16_000,
+        queueOrderKey: 200,
+      });
+
+      const beforeInGame = db
+        .prepare('SELECT discord_id, lobby_id, position FROM lobby_players WHERE lobby_id = 51')
+        .all();
+
+      const result = context.queueService.swapParticipantsInCurrentCycle({
+        discordIdA: 'user-a',
+        discordIdB: 'user-b',
+        reason: 'swap após reentrada em forming',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.userA.origin.state).toBe('forming_lobby');
+      expect(result.userB.origin.state).toBe('queue');
+
+      const afterInGame = db
+        .prepare('SELECT discord_id, lobby_id, position FROM lobby_players WHERE lobby_id = 51')
+        .all();
+      expect(afterInGame).toEqual(beforeInGame);
+
+      const slot = db
+        .prepare('SELECT discord_id FROM lobby_players WHERE lobby_id = ? AND position = ?')
+        .get(10, 2);
+      expect(slot.discord_id).toBe('user-b');
+    });
+
+    test('cenário real: A permanece em in_game e também está em forming #3; B aguardando; swap A<->B preserva lobby ativa e move slot/fila exatos', () => {
+      seedInGameHistory('user-a', { lobbyId: 3, lobbyNumber: 1, position: 1, joinedAtMs: 5_000 });
+
+      insertLobby(db, {
+        id: 10,
+        lobbyNumber: 3,
+        status: 'forming',
+        creationType: 'automatic',
+        createdAtMs: 20_000,
+      });
+      insertLobbyPlayer(db, {
+        id: 100,
+        lobbyId: 10,
+        discordId: 'user-a',
+        username: 'User A#0001',
+        displayName: 'User A',
+        position: 2,
+        originalJoinedAtMs: 22_000,
+        originalQueueOrderKey: 500,
+        isSubscriber: 0,
+      });
+      insertLobbyPlayer(db, {
+        id: 101,
+        lobbyId: 10,
+        discordId: 'user-c',
+        username: 'User C#0001',
+        displayName: 'User C',
+        position: 1,
+        originalJoinedAtMs: 9_000,
+        isSubscriber: 0,
+      });
+      seedQueueEntry(db, {
+        id: 1,
+        discordId: 'user-b',
+        username: 'User B#0001',
+        displayName: 'User B',
+        isSubscriber: 0,
+        joinedAtMs: 16_000,
+        queueOrderKey: 200,
+      });
+
+      const activeLobbyBefore = db.prepare('SELECT * FROM lobbies WHERE id = 3').get();
+      const activeLobbyPlayersBefore = db
+        .prepare('SELECT * FROM lobby_players WHERE lobby_id = 3 ORDER BY position')
+        .all();
+
+      const emitSpy = jest.spyOn(context.queueEvents, 'emit');
+      const result = context.queueService.swapParticipantsInCurrentCycle({
+        discordIdA: 'user-a',
+        discordIdB: 'user-b',
+        reason: 'swap cenario real',
+      });
+
+      expect(result.success).toBe(true);
+
+      const activeLobbyAfter = db.prepare('SELECT * FROM lobbies WHERE id = 3').get();
+      const activeLobbyPlayersAfter = db
+        .prepare('SELECT * FROM lobby_players WHERE lobby_id = 3 ORDER BY position')
+        .all();
+      expect(activeLobbyAfter).toEqual(activeLobbyBefore);
+      expect(activeLobbyPlayersAfter).toEqual(activeLobbyPlayersBefore);
+
+      const formingSlot = db
+        .prepare('SELECT discord_id FROM lobby_players WHERE lobby_id = ? AND position = ?')
+        .get(10, 2);
+      expect(formingSlot.discord_id).toBe('user-b');
+
+      const queueRowA = db.prepare('SELECT queue_order_key FROM queue_entries WHERE discord_id = ?').get('user-a');
+      expect(queueRowA.queue_order_key).toBe(200);
+
+      expect(emitSpy).toHaveBeenCalledTimes(1);
+      expect(emitSpy).toHaveBeenLastCalledWith('queueUpdated');
+    });
+
+    test('A com uma forming e múltiplos registros in_game continua elegível', () => {
+      seedInGameHistory('user-a', { lobbyId: 60, lobbyNumber: 60, position: 1, joinedAtMs: 5_000 });
+      seedInGameHistory('user-a', { lobbyId: 61, lobbyNumber: 61, position: 1, joinedAtMs: 6_000 });
+
+      insertLobby(db, {
+        id: 10,
+        lobbyNumber: 3,
+        status: 'forming',
+        creationType: 'automatic',
+        createdAtMs: 20_000,
+      });
+      insertLobbyPlayer(db, {
+        id: 100,
+        lobbyId: 10,
+        discordId: 'user-a',
+        username: 'User A#0001',
+        displayName: 'User A',
+        position: 1,
+        originalJoinedAtMs: 22_000,
+        originalQueueOrderKey: 500,
+        isSubscriber: 0,
+      });
+      seedQueueEntry(db, {
+        id: 1,
+        discordId: 'user-b',
+        username: 'User B#0001',
+        displayName: 'User B',
+        isSubscriber: 0,
+        joinedAtMs: 16_000,
+        queueOrderKey: 200,
+      });
+
+      const result = context.queueService.swapParticipantsInCurrentCycle({
+        discordIdA: 'user-a',
+        discordIdB: 'user-b',
+        reason: 'swap com multiplos in_game',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.userA.origin.state).toBe('forming_lobby');
+    });
+
+    test('usuário somente em in_game continua retornando LOBBY_IMMUTABLE mesmo com histórico único', () => {
+      seedInGameHistory('user-a', { lobbyId: 70, lobbyNumber: 70, position: 1, joinedAtMs: 5_000 });
+      seedQueueEntry(db, {
+        id: 1,
+        discordId: 'user-b',
+        username: 'User B#0001',
+        displayName: 'User B',
+        isSubscriber: 0,
+        joinedAtMs: 16_000,
+        queueOrderKey: 200,
+      });
+
+      const emitSpy = jest.spyOn(context.queueEvents, 'emit');
+      const result = context.queueService.swapParticipantsInCurrentCycle({
+        discordIdA: 'user-a',
+        discordIdB: 'user-b',
+        reason: 'swap bloqueado',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.reason).toBe('LOBBY_IMMUTABLE');
+      expect(emitSpy).not.toHaveBeenCalled();
+    });
+
+    test('fila + forming simultâneos no mesmo usuário retornam LOBBY_STATE_CONFLICT mesmo com histórico in_game', () => {
+      seedInGameHistory('user-a', { lobbyId: 80, lobbyNumber: 80, position: 1, joinedAtMs: 5_000 });
+
+      insertLobby(db, {
+        id: 10,
+        lobbyNumber: 3,
+        status: 'forming',
+        creationType: 'automatic',
+        createdAtMs: 20_000,
+      });
+      insertLobbyPlayer(db, {
+        id: 100,
+        lobbyId: 10,
+        discordId: 'user-a',
+        username: 'User A#0001',
+        displayName: 'User A',
+        position: 1,
+        originalJoinedAtMs: 22_000,
+        isSubscriber: 0,
+      });
+      seedQueueEntry(db, {
+        id: 1,
+        discordId: 'user-a',
+        username: 'User A#0001',
+        displayName: 'User A',
+        isSubscriber: 0,
+        joinedAtMs: 23_000,
+        queueOrderKey: 350,
+      });
+      seedQueueEntry(db, {
+        id: 2,
+        discordId: 'user-b',
+        username: 'User B#0001',
+        displayName: 'User B',
+        isSubscriber: 0,
+        joinedAtMs: 16_000,
+        queueOrderKey: 200,
+      });
+
+      const beforeQueue = db.prepare('SELECT discord_id, queue_order_key FROM queue_entries ORDER BY queue_order_key').all();
+
+      const result = context.queueService.swapParticipantsInCurrentCycle({
+        discordIdA: 'user-a',
+        discordIdB: 'user-b',
+        reason: 'swap conflito',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.reason).toBe('LOBBY_STATE_CONFLICT');
+
+      const afterQueue = db.prepare('SELECT discord_id, queue_order_key FROM queue_entries ORDER BY queue_order_key').all();
+      expect(afterQueue).toEqual(beforeQueue);
+    });
+
+    test('múltiplas lobbies forming para o mesmo usuário retornam LOBBY_STATE_CONFLICT mesmo com histórico in_game', () => {
+      seedInGameHistory('user-a', { lobbyId: 90, lobbyNumber: 90, position: 1, joinedAtMs: 5_000 });
+
+      insertLobby(db, {
+        id: 10,
+        lobbyNumber: 3,
+        status: 'forming',
+        creationType: 'automatic',
+        createdAtMs: 20_000,
+      });
+      insertLobby(db, {
+        id: 11,
+        lobbyNumber: 4,
+        status: 'forming',
+        creationType: 'automatic',
+        createdAtMs: 20_100,
+      });
+      insertLobbyPlayer(db, {
+        id: 100,
+        lobbyId: 10,
+        discordId: 'user-a',
+        username: 'User A#0001',
+        displayName: 'User A',
+        position: 1,
+        originalJoinedAtMs: 22_000,
+        isSubscriber: 0,
+      });
+      insertLobbyPlayer(db, {
+        id: 110,
+        lobbyId: 11,
+        discordId: 'user-a',
+        username: 'User A#0001',
+        displayName: 'User A',
+        position: 1,
+        originalJoinedAtMs: 22_100,
+        isSubscriber: 0,
+      });
+      seedQueueEntry(db, {
+        id: 1,
+        discordId: 'user-b',
+        username: 'User B#0001',
+        displayName: 'User B',
+        isSubscriber: 0,
+        joinedAtMs: 16_000,
+        queueOrderKey: 200,
+      });
+
+      const result = context.queueService.swapParticipantsInCurrentCycle({
+        discordIdA: 'user-a',
+        discordIdB: 'user-b',
+        reason: 'swap conflito multiplo forming',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.reason).toBe('LOBBY_STATE_CONFLICT');
+    });
+
+    test('saída e reentrada posteriores continuam funcionando após histórico in_game', () => {
+      seedInGameHistory('user-a', { lobbyId: 95, lobbyNumber: 95, position: 1, joinedAtMs: 5_000 });
+
+      seedQueueEntry(db, {
+        id: 1,
+        discordId: 'user-a',
+        username: 'User A#0001',
+        displayName: 'User A',
+        isSubscriber: 0,
+        joinedAtMs: 20_000,
+        queueOrderKey: 110,
+      });
+      seedQueueEntry(db, {
+        id: 2,
+        discordId: 'user-c',
+        username: 'User C#0001',
+        displayName: 'User C',
+        isSubscriber: 0,
+        joinedAtMs: 21_000,
+        queueOrderKey: 220,
+      });
+
+      const swapped = context.queueService.swapParticipantsInCurrentCycle({
+        discordIdA: 'user-a',
+        discordIdB: 'user-c',
+        reason: 'swap antes da reentrada',
+      });
+      expect(swapped.success).toBe(true);
+
+      jest.setSystemTime(new Date('2026-08-10T10:10:00.000Z'));
+      const removed = context.queueService.removeFromQueue('user-a');
+      expect(removed.success).toBe(true);
+
+      const rejoin = context.queueService.addToQueue({
+        discordId: 'user-a',
+        username: 'User A#0001',
+        displayName: 'User A',
+        isSubscriber: 0,
+      });
+      expect(rejoin.success).toBe(true);
+
+      const rejoinedRow = db.prepare('SELECT queue_order_key FROM queue_entries WHERE discord_id = ?').get('user-a');
+      expect(Number.isSafeInteger(rejoinedRow.queue_order_key)).toBe(true);
+    });
+  });
 });

@@ -244,7 +244,7 @@ Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COM
 
 - Use `/lobby-swap usuario_a:@A usuario_b:@B motivo:Troca combinada`.
 - Cenários permitidos: fila↔fila, fila↔lobby `forming`, lobby `forming`↔fila, lobby `forming`↔lobby `forming` e dois slots da mesma lobby `forming`.
-- Cenário proibido: qualquer participante em lobby `in_game` bloqueia a operação completa.
+- Cenário proibido: participante sem nenhuma participação mutável atual (fila ou lobby `forming`), mesmo que tenha histórico em lobby(s) `in_game`, bloqueia a operação completa; registros `in_game` nunca são alterados.
 - A ação não altera cargo, elegibilidade SUB, vínculo Kick nem snapshot real de prioridade.
 - A ação é auditada com retenção padrão de 30 dias.
 

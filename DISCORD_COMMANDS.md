@@ -183,7 +183,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos no banco: executa troca transacional única entre os estados permitidos (`queue` e `forming_lobby`) preservando identidade, snapshot de prioridade real e `joined_at_ms` quando aplicável.
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: suporta fila↔fila, fila↔`forming`, `forming`↔fila e `forming`↔`forming` (inclusive dois slots da mesma lobby `forming`) sem criar mutações parciais.
-- Regras de imutabilidade: qualquer participante em lobby `in_game` bloqueia toda a operação com `LOBBY_IMMUTABLE`.
+- Regras de imutabilidade: um participante só bloqueia a operação com `LOBBY_IMMUTABLE` quando não possui participação mutável atual (fila ou lobby `forming`); registros históricos em lobby `in_game` não impedem a troca de uma participação mutável posterior e a lobby `in_game` permanece intocada.
 - Locks e rebuild: quando há lobby `forming` envolvida, a(s) lobby(s) afetada(s) recebem `rebuild_locked=1` para o rebuild automático não desfazer a troca; o lock é reconciliado no fluxo normal de saída/remoção.
 - Overrides temporários: `admin_sort_priority_override` é aplicado apenas quando necessário para manter posição absoluta após trocas entre categorias diferentes e some quando a entrada termina.
 - Limitações: usuário fora da fila e fora de lobby `forming` retorna falha segura; conflitos de estado/slot/ordem também retornam falha segura sem mutação.

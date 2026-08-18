@@ -810,20 +810,21 @@ function swapParticipantsInCurrentCycle({ discordIdA, discordIdB, reason }) {
     const queueRows = selectQueueRowsByDiscordId.all(discordId);
     const formingRows = selectFormingRowsByDiscordId.all(discordId);
 
-    if (inGameCount > 0) {
-      return { state: 'in_game', queueRows, formingRows, inGameCount };
-    }
-
-    if (queueRows.length === 0 && formingRows.length === 0) {
-      return { state: 'not_participating', queueRows, formingRows, inGameCount };
-    }
-
+    // Historical in_game rows are immutable but must never shadow a current mutable
+    // queue/forming participation, so mutable state is classified before falling back to in_game.
     if (queueRows.length === 1 && formingRows.length === 0) {
       return { state: 'queue', queueRows, formingRows, inGameCount, queueRow: queueRows[0] };
     }
 
     if (queueRows.length === 0 && formingRows.length === 1) {
       return { state: 'forming_lobby', queueRows, formingRows, inGameCount, formingRow: formingRows[0] };
+    }
+
+    if (queueRows.length === 0 && formingRows.length === 0) {
+      if (inGameCount > 0) {
+        return { state: 'in_game', queueRows, formingRows, inGameCount };
+      }
+      return { state: 'not_participating', queueRows, formingRows, inGameCount };
     }
 
     return { state: 'state_conflict', queueRows, formingRows, inGameCount };

@@ -563,6 +563,51 @@ describe('/lobby-swap audit integration', () => {
   });
 
   test('failed: participante em in_game retorna LOBBY_IMMUTABLE sem mutação parcial', async () => {
+    seedQueueEntry(db, {
+      id: 1,
+      discordId: 'user-a',
+      username: 'User A#0001',
+      displayName: 'User A',
+      isSubscriber: 0,
+      joinedAtMs: 15_000,
+      queueOrderKey: 110,
+    });
+    insertLobby(db, {
+      id: 77,
+      lobbyNumber: 7,
+      status: 'in_game',
+      creationType: 'automatic',
+      createdAtMs: 50_000,
+    });
+    insertLobbyPlayer(db, {
+      id: 700,
+      lobbyId: 77,
+      discordId: 'user-b',
+      username: 'User B#0001',
+      displayName: 'User B',
+      position: 1,
+      originalJoinedAtMs: 49_000,
+      isSubscriber: 1,
+    });
+
+    const beforeQueue = db.prepare('SELECT discord_id, queue_order_key FROM queue_entries ORDER BY queue_order_key').all();
+
+    const interaction = makeInteraction({
+      id: 'interaction-failed-immutable',
+      actorFlags: [PermissionFlagsBits.ManageGuild],
+    });
+
+    await command.execute(interaction);
+
+    const afterQueue = db.prepare('SELECT discord_id, queue_order_key FROM queue_entries ORDER BY queue_order_key').all();
+    expect(afterQueue).toEqual(beforeQueue);
+
+    const latest = auditRepository.findLatest();
+    expect(latest.result).toBe('failed');
+    expect(latest.errorCode).toBe('LOBBY_IMMUTABLE');
+  });
+
+  test('success: participante com histórico in_game e fila atual permanece elegível para o swap', async () => {
     seedQueueOnlyScenario(db);
     insertLobby(db, {
       id: 77,
@@ -582,16 +627,25 @@ describe('/lobby-swap audit integration', () => {
       isSubscriber: 1,
     });
 
+    const activeLobbyBefore = db.prepare('SELECT * FROM lobbies WHERE id = 77').get();
+    const activeLobbyPlayersBefore = db.prepare('SELECT * FROM lobby_players WHERE lobby_id = 77').all();
+
     const interaction = makeInteraction({
-      id: 'interaction-failed-immutable',
+      id: 'interaction-success-in-game-history-queue',
       actorFlags: [PermissionFlagsBits.ManageGuild],
     });
 
     await command.execute(interaction);
 
+    const activeLobbyAfter = db.prepare('SELECT * FROM lobbies WHERE id = 77').get();
+    const activeLobbyPlayersAfter = db.prepare('SELECT * FROM lobby_players WHERE lobby_id = 77').all();
+    expect(activeLobbyAfter).toEqual(activeLobbyBefore);
+    expect(activeLobbyPlayersAfter).toEqual(activeLobbyPlayersBefore);
+
     const latest = auditRepository.findLatest();
-    expect(latest.result).toBe('failed');
-    expect(latest.errorCode).toBe('LOBBY_IMMUTABLE');
+    expect(latest.result).toBe('success');
+    expect(latest.errorCode).toBe('OK');
+    expect(latest.nextStateJson).toContain('"origemB":"queue"');
   });
 
   test('compatibilidade defensiva registra flag de nomes legados quando interação antiga chega', async () => {
