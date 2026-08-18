@@ -267,6 +267,8 @@ Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COM
 - Variável: `ADMIN_AUDIT_CHANNEL_ID`.
 - Quando ausente, a auditoria em SQLite continua ativa e o bot inicia normalmente.
 - Quando presente, o bot valida que o canal pertence ao `GUILD_ID` e publica um resumo curto com `allowedMentions.parse = []`.
+- O resumo identifica o executor e o alvo ou alvos Discord da ação; `/lobby-swap` mostra os dois participantes e comandos sem alvo humano omitem o campo.
+- As menções exibidas são apenas visuais e não notificam ninguém; dados sensíveis continuam saneados.
 - Falha de envio no Discord não reverte ação concluída e não cria loop de retry.
 
 #### Retenção automática da auditoria administrativa

@@ -28,6 +28,9 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Em `/kick-status` administrativo, apenas ator, alvo por Discord ID, comando, horário e resultado seguro são persistidos.
 - Falha de publicação opcional no Discord não desfaz operação concluída e gera apenas warning seguro.
 - Canal opcional de resumo: `ADMIN_AUDIT_CHANNEL_ID` (com validação de guild e `allowedMentions` sem menções).
+- O resumo identifica separadamente o executor e o alvo ou alvos Discord da ação; `/lobby-swap` registra os dois participantes (`Usuário A` e `Usuário B`).
+- Comandos sem alvo humano (`/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start`) não exibem campo de alvo.
+- As menções no resumo são apenas visuais e não notificam ninguém; dados sensíveis continuam saneados.
 - Retenção automática: `ADMIN_AUDIT_RETENTION_DAYS` (padrão 30 dias; inteiro seguro entre 1 e 3650).
 - Cutoff de retenção: remove apenas registros com `started_at_ms` estritamente anterior a `agora - retentionDays`.
 - Fronteira: registro exatamente no cutoff é preservado.

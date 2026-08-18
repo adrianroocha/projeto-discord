@@ -109,7 +109,7 @@ describe('adminCommandAuditService', () => {
     expect(send).toHaveBeenCalled();
 
     const payload = send.mock.calls[0][0];
-    expect(payload.allowedMentions).toEqual({ parse: [] });
+    expect(payload.allowedMentions).toEqual({ parse: [], users: [], roles: [] });
     expect(payload.content).toContain('Comando: /scheduler-close');
     expect(payload.content).toContain('Resultado: sucesso');
     expect(payload.content).not.toContain('token');

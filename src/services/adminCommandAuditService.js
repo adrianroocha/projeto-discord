@@ -1,6 +1,7 @@
 const { ChannelType } = require('discord.js');
 const config = require('../config');
 const adminCommandAuditLogsRepository = require('../database/adminCommandAuditLogsRepository');
+const adminAuditTargetPresenter = require('./adminAuditTargetPresenter');
 
 const ADMIN_AUDIT_STATUSES = new Set(['pending', 'success', 'failed', 'denied']);
 
@@ -172,10 +173,32 @@ function mapResultLabel(result) {
   return 'pendente';
 }
 
+function safeParseJson(rawValue) {
+  try {
+    const parsed = JSON.parse(rawValue || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+// Falha de formatação nunca pode impedir a publicação nem a operação administrativa.
+function buildSafeTargetLines(record) {
+  try {
+    return adminAuditTargetPresenter.buildAuditTargetLines({
+      commandName: record.commandName,
+      nextState: safeParseJson(record.nextStateJson),
+      parameters: safeParseJson(record.parametersJson),
+    });
+  } catch {
+    return [];
+  }
+}
+
 function buildEffectSummary(record) {
   const command = record.commandName;
-  const previousState = JSON.parse(record.previousStateJson || '{}');
-  const nextState = JSON.parse(record.nextStateJson || '{}');
+  const previousState = safeParseJson(record.previousStateJson);
+  const nextState = safeParseJson(record.nextStateJson);
 
   if (command === 'scheduler-open') {
     return 'fila aberta; ciclo reiniciado';
@@ -341,29 +364,33 @@ function createAdminCommandAuditService(options = {}) {
     const finalizedAtMs = Number(record.finishedAtMs || now());
     const dateLabel = formatTimestampForLog(finalizedAtMs, 'America/Sao_Paulo');
 
+    const targetLines = buildSafeTargetLines(record);
+    const actorDiscordId = adminAuditTargetPresenter.isDiscordSnowflake(String(record.actorDiscordId || ''))
+      ? String(record.actorDiscordId).trim()
+      : null;
+
     const lines = [];
-    if (record.result === 'success') {
-      lines.push('Acao administrativa');
-      lines.push(`Moderador: ${record.actorUsername}`);
-      lines.push(`Comando: /${record.commandName}`);
-      lines.push(`Resultado: ${mapResultLabel(record.result)}`);
-      lines.push(`Efeito: ${buildEffectSummary(record)}`);
-      lines.push(`Data: ${dateLabel}`);
-    } else {
-      lines.push('Acao administrativa nao concluida');
-      lines.push(`Moderador: ${record.actorUsername}`);
-      lines.push(`Comando: /${record.commandName}`);
-      lines.push(`Resultado: ${mapResultLabel(record.result)}`);
-      if (record.errorCode) {
-        lines.push(`Codigo: ${normalizeErrorCode(record.errorCode)}`);
-      }
-      lines.push(`Data: ${dateLabel}`);
+    lines.push(record.result === 'success' ? 'Acao administrativa' : 'Acao administrativa nao concluida');
+    lines.push(`Moderador: ${record.actorUsername}`);
+    if (actorDiscordId) {
+      lines.push(`ID do moderador: ${actorDiscordId}`);
     }
+    lines.push(`Comando: /${record.commandName}`);
+    lines.push(...targetLines);
+    lines.push(`Resultado: ${mapResultLabel(record.result)}`);
+    if (record.result === 'success') {
+      lines.push(`Efeito: ${buildEffectSummary(record)}`);
+    } else if (record.errorCode) {
+      lines.push(`Codigo: ${normalizeErrorCode(record.errorCode)}`);
+    }
+    lines.push(`Data: ${dateLabel}`);
 
     await channel.send({
-      content: lines.join('\n'),
+      content: adminAuditTargetPresenter.capDiscordContent(lines.join('\n')),
       allowedMentions: {
         parse: [],
+        users: [],
+        roles: [],
       },
     });
 
