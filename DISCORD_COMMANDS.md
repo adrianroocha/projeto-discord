@@ -104,12 +104,13 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Quem pode usar: Administrator.
 - Onde usar: servidor Discord.
 - Parâmetros: nenhum.
-- Resposta: ephemeral; informa o resultado da autenticação, o resultado de cada endpoint, a quantidade retornada na página e a distribuição por status das assinaturas quando disponível.
+- Resposta: ephemeral; informa o resultado da autenticação, o resultado de cada endpoint, a quantidade retornada na página e a distribuição por status das assinaturas quando disponível. Se um endpoint estiver em cooldown após HTTP 429 com `X-RateLimit-Reset` Unix válido, informa quando a consulta poderá ser repetida e não chama esse endpoint.
 - Consultas: `GET /v2/subscriptions?page=1&limit=10` e `GET /v2/subscriptions/plans?page=1&limit=10`.
 - Efeitos no banco: nenhum.
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: nenhum.
 - Limitações: mostra somente a primeira página, não o total da conta; não consulta transações. Requer `subscriptions:read` e `subscription-plans:read` em `LIVEPIX_OAUTH_SCOPES`.
+- Rate limit: o cooldown é independente por endpoint e só é aplicado quando a resposta 429 contém reset Unix válido; sem header válido, não é inventado um tempo de espera.
 - Segurança: não exibe dados de assinantes/planos, email, token ou segredo; não vincula contas Discord, não altera elegibilidade SUB e não concede nem remove cargos.
 
 ## /kick-link

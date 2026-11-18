@@ -86,11 +86,30 @@ function describeError(error, context) {
 
 function formatEndpointResult(label, result) {
   if (result.status === 'rejected') {
-    return `**${label}:** ❌ Falha — ${describeError(result.reason, 'query')}`;
+    const resetMessage =
+      result.reason?.code === 'RATE_LIMITED' &&
+      Number.isSafeInteger(result.reason.cooldownUntil) &&
+      result.reason.cooldownUntil > Date.now()
+        ? ` Consulta disponível após <t:${Math.floor(result.reason.cooldownUntil / 1000)}:F>.`
+        : '';
+    return `**${label}:** ❌ Falha — ${describeError(result.reason, 'query')}${resetMessage}`;
   }
 
   const itemLabel = result.value.length === 1 ? 'item' : 'itens';
   return `**${label}:** ✅ ${result.value.length} ${itemLabel} na página`;
+}
+
+function queryEndpoint(endpoint, query, validate) {
+  const cooldownUntil = livepixAuthService.getEndpointCooldown(endpoint);
+  if (cooldownUntil) {
+    return Promise.reject(
+      Object.assign(new Error('LivePix endpoint is cooling down.'), {
+        code: 'RATE_LIMITED',
+        cooldownUntil,
+      }),
+    );
+  }
+  return query().then(validate);
 }
 
 function formatStatusCounts(subscriptions) {
@@ -148,8 +167,16 @@ module.exports = {
     }
 
     const [subscriptionsResult, plansResult] = await Promise.allSettled([
-      livepixAuthService.listSubscriptions({ page: 1, limit: 10 }).then(validateSubscriptions),
-      livepixAuthService.listSubscriptionPlans({ page: 1, limit: 10 }).then(validatePlans),
+      queryEndpoint(
+        '/v2/subscriptions',
+        () => livepixAuthService.listSubscriptions({ page: 1, limit: 10 }),
+        validateSubscriptions,
+      ),
+      queryEndpoint(
+        '/v2/subscriptions/plans',
+        () => livepixAuthService.listSubscriptionPlans({ page: 1, limit: 10 }),
+        validatePlans,
+      ),
     ]);
 
     const lines = [

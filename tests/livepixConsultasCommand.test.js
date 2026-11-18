@@ -3,6 +3,7 @@ jest.mock('../src/services/livepixAuthService', () => ({
   listSubscriptions: jest.fn(),
   listSubscriptionPlans: jest.fn(),
   listSubscriptionTransactions: jest.fn(),
+  getEndpointCooldown: jest.fn(),
 }));
 
 const { MessageFlags, PermissionFlagsBits } = require('discord.js');
@@ -32,6 +33,7 @@ describe('/livepix-consultas command', () => {
     livepixAuthService.getAccessToken.mockResolvedValue('private-access-token');
     livepixAuthService.listSubscriptions.mockResolvedValue([]);
     livepixAuthService.listSubscriptionPlans.mockResolvedValue([]);
+    livepixAuthService.getEndpointCooldown.mockReturnValue(null);
   });
 
   test('é registrado com permissão padrão de Administrator', () => {
@@ -119,6 +121,42 @@ describe('/livepix-consultas command', () => {
     expect(reply).toContain('**Assinaturas:** ✅ 1 item na página');
     expect(reply).toContain('**Planos:** ❌ Falha — Tempo limite excedido');
     expect(reply).not.toContain('private upstream body');
+  });
+
+  test('informa cooldown por endpoint, mostra reset e não chama endpoint bloqueado', async () => {
+    const resetAt = Date.now() + 60_000;
+    livepixAuthService.getEndpointCooldown.mockImplementation((endpoint) =>
+      endpoint === '/v2/subscriptions' ? resetAt : null,
+    );
+    livepixAuthService.listSubscriptionPlans.mockResolvedValue([{ id: 'plan-1', name: 'Plan' }]);
+    const interaction = createInteraction();
+
+    await command.execute(interaction);
+
+    const reply = getReplyContent(interaction);
+    expect(reply).toContain(
+      `**Assinaturas:** ❌ Falha — HTTP 429: limite de requisições atingido. Consulta disponível após <t:${Math.floor(resetAt / 1000)}:F>.`,
+    );
+    expect(reply).toContain('**Planos:** ✅ 1 item na página');
+    expect(livepixAuthService.listSubscriptions).not.toHaveBeenCalled();
+    expect(livepixAuthService.listSubscriptionPlans).toHaveBeenCalledTimes(1);
+  });
+
+  test('mostra o horário de reset recebido no erro de rate limit', async () => {
+    const resetAt = Date.now() + 120_000;
+    livepixAuthService.listSubscriptions.mockRejectedValue(
+      Object.assign(new Error('private response body'), {
+        code: 'RATE_LIMITED',
+        cooldownUntil: resetAt,
+      }),
+    );
+    const interaction = createInteraction();
+
+    await command.execute(interaction);
+
+    expect(getReplyContent(interaction)).toContain(
+      `Consulta disponível após <t:${Math.floor(resetAt / 1000)}:F>.`,
+    );
   });
 
   test('não executa consultas se a autenticação falhar', async () => {

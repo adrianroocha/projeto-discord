@@ -1,9 +1,14 @@
 const { createLivePixApiService } = require('../src/services/livepixApiService');
 
-function makeResponse(status, body) {
+function makeResponse(status, body, headers = {}) {
   return {
     ok: status >= 200 && status < 300,
     status,
+    headers: {
+      get(name) {
+        return headers[name] || headers[name.toLowerCase()] || null;
+      },
+    },
     async text() {
       return typeof body === 'string' ? body : JSON.stringify(body);
     },
@@ -344,6 +349,126 @@ describe('livepixApiService', () => {
 
     await expect(service.listSubscriptions('token')).rejects.toMatchObject({ code, httpStatus: status });
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer token');
+  });
+
+  test('preserva headers do rate limit e ativa cooldown até o reset Unix válido', async () => {
+    const now = 2_000_000_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now);
+    const headers = {
+      'X-RateLimit-Limit': '60',
+      'X-RateLimit-Remaining': '0',
+      'X-RateLimit-Reset': String(now / 1000 + 30),
+    };
+    const fetchMock = jest.fn().mockResolvedValue(makeResponse(429, { ignored: 'sensitive' }, headers));
+    const service = createLivePixApiService({ fetchImpl: fetchMock });
+
+    try {
+      await expect(service.listSubscriptions('private-token')).rejects.toMatchObject({
+        code: 'RATE_LIMITED',
+        rateLimitHeaders: headers,
+        cooldownUntil: now + 30_000,
+      });
+      expect(service.getEndpointCooldown('/v2/subscriptions')).toBe(now + 30_000);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      nowSpy.mockRestore();
+    }
+  });
+
+  test('HTTP 429 sem headers não inventa cooldown nem faz retry', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(makeResponse(429, { private: 'body' }));
+    const service = createLivePixApiService({ fetchImpl: fetchMock });
+
+    await expect(service.listSubscriptions('token')).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+      rateLimitHeaders: {
+        'X-RateLimit-Limit': null,
+        'X-RateLimit-Remaining': null,
+        'X-RateLimit-Reset': null,
+      },
+      cooldownUntil: null,
+    });
+    expect(service.getEndpointCooldown('/v2/subscriptions')).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('header de reset inválido é preservado sem ativar cooldown', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(
+      makeResponse(429, {}, {
+        'X-RateLimit-Limit': '60',
+        'X-RateLimit-Remaining': '0',
+        'X-RateLimit-Reset': 'not-a-timestamp',
+      }),
+    );
+    const service = createLivePixApiService({ fetchImpl: fetchMock });
+
+    await expect(service.listSubscriptions('token')).rejects.toMatchObject({
+      rateLimitHeaders: {
+        'X-RateLimit-Reset': 'not-a-timestamp',
+      },
+      cooldownUntil: null,
+    });
+    expect(service.getEndpointCooldown('/v2/subscriptions')).toBeNull();
+  });
+
+  test('cooldown de assinaturas não bloqueia o endpoint de planos', async () => {
+    const resetAt = Math.floor(Date.now() / 1000) + 60;
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        makeResponse(429, {}, { 'X-RateLimit-Reset': String(resetAt) }),
+      )
+      .mockResolvedValueOnce(makeResponse(200, { data: [] }));
+    const service = createLivePixApiService({ fetchImpl: fetchMock });
+
+    await expect(service.listSubscriptions('token')).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+    });
+    await expect(service.listSubscriptionPlans('token')).resolves.toEqual([]);
+    await expect(service.listSubscriptions('token')).rejects.toMatchObject({
+      code: 'RATE_LIMITED',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test('chamadas simultâneas à mesma rota aguardam e respeitam o cooldown recebido', async () => {
+    const resetAt = Math.floor(Date.now() / 1000) + 60;
+    const fetchMock = jest.fn().mockResolvedValue(
+      makeResponse(429, {}, { 'X-RateLimit-Reset': String(resetAt) }),
+    );
+    const service = createLivePixApiService({ fetchImpl: fetchMock });
+
+    const results = await Promise.allSettled([
+      service.listSubscriptions('token'),
+      service.listSubscriptions('token', { page: 2 }),
+    ]);
+
+    expect(results.map(({ reason }) => reason?.code)).toEqual(['RATE_LIMITED', 'RATE_LIMITED']);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  test('libera o endpoint após o horário do reset', async () => {
+    let now = 2_000_000_000_000;
+    const nowSpy = jest.spyOn(Date, 'now').mockImplementation(() => now);
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValueOnce(
+        makeResponse(429, {}, { 'X-RateLimit-Reset': String(now / 1000 + 2) }),
+      )
+      .mockResolvedValueOnce(makeResponse(200, { data: [] }));
+    const service = createLivePixApiService({ fetchImpl: fetchMock });
+
+    try {
+      await expect(service.listSubscriptions('token')).rejects.toMatchObject({
+        code: 'RATE_LIMITED',
+      });
+      now += 2_001;
+      await expect(service.listSubscriptions('token')).resolves.toEqual([]);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(service.getEndpointCooldown('/v2/subscriptions')).toBeNull();
+    } finally {
+      nowSpy.mockRestore();
+    }
   });
 
   test.each([

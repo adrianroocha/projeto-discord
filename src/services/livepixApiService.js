@@ -5,6 +5,8 @@ class LivePixApiError extends Error {
     this.code = code;
     this.httpStatus = options.httpStatus || 500;
     this.category = options.category || 'livepix_api_error';
+    this.rateLimitHeaders = options.rateLimitHeaders || null;
+    this.cooldownUntil = options.cooldownUntil || null;
   }
 }
 
@@ -16,6 +18,8 @@ function createLivePixApiService(options = {}) {
   const logger = options.logger || console;
   const subscriptionStatuses = new Set(['active', 'pending', 'cancelled']);
   const recurrences = new Set(['monthly', 'quarterly', 'semiannual', 'yearly']);
+  const endpointCooldowns = new Map();
+  const endpointLocks = new Map();
 
   if (typeof fetchImpl !== 'function') {
     throw new Error('Fetch API não está disponível para integração LivePix.');
@@ -212,42 +216,106 @@ function createLivePixApiService(options = {}) {
     return body.data;
   }
 
-  async function requestJson(url, requestOptions = {}, onHttpStatus) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
+  function getEndpointCooldown(endpoint) {
+    const cooldownUntil = endpointCooldowns.get(endpoint);
+    if (!cooldownUntil || cooldownUntil <= Date.now()) {
+      endpointCooldowns.delete(endpoint);
+      return null;
+    }
+    return cooldownUntil;
+  }
+
+  function getHeader(response, name) {
+    const value =
+      typeof response.headers?.get === 'function'
+        ? response.headers.get(name)
+        : response.headers?.[name] || response.headers?.[name.toLowerCase()];
+    return typeof value === 'string' && value.trim() ? value.trim() : null;
+  }
+
+  function parseRateLimitReset(value) {
+    if (!value || !/^\d+(?:\.\d+)?$/.test(value)) {
+      return null;
+    }
+    const resetAt = Number(value) * 1000;
+    return Number.isSafeInteger(resetAt) && resetAt <= 8.64e15 ? resetAt : null;
+  }
+
+  function rateLimitedError(rateLimitHeaders, cooldownUntil = null) {
+    return new LivePixApiError('RATE_LIMITED', 'Limite de requisições da LivePix atingido.', {
+      httpStatus: 429,
+      category: 'rate_limited',
+      rateLimitHeaders,
+      cooldownUntil,
+    });
+  }
+
+  async function requestJson(url, requestOptions = {}, onHttpStatus, endpointKey) {
+    const endpoint = endpointKey || new URL(url).pathname;
+    const previousRequest = endpointLocks.get(endpoint) || Promise.resolve();
+    let releaseRequest;
+    const currentRequest = new Promise((resolve) => {
+      releaseRequest = resolve;
+    });
+    endpointLocks.set(endpoint, currentRequest);
 
     try {
-      const response = await fetchImpl(url, {
-        ...requestOptions,
-        signal: controller.signal,
-      });
-      if (typeof onHttpStatus === 'function') {
-        onHttpStatus(response.status);
+      await previousRequest;
+      const activeCooldown = getEndpointCooldown(endpoint);
+      if (activeCooldown) {
+        throw rateLimitedError(null, activeCooldown);
       }
 
-      const rawBody = await response.text();
-      let body = null;
-
-      if (rawBody) {
-        try {
-          body = JSON.parse(rawBody);
-        } catch {
-          body = null;
-        }
-      }
-
-      if (!response.ok) {
-        throw mapHttpError(response.status);
-      }
-
-      if (!body || typeof body !== 'object' || Array.isArray(body)) {
-        throw new LivePixApiError('INVALID_JSON_RESPONSE', 'Resposta inválida da LivePix API.', {
-          httpStatus: 502,
-          category: 'invalid_json_response',
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const response = await fetchImpl(url, {
+          ...requestOptions,
+          signal: controller.signal,
         });
-      }
+        if (typeof onHttpStatus === 'function') {
+          onHttpStatus(response.status);
+        }
 
-      return body;
+        const rateLimitHeaders = {
+          'X-RateLimit-Limit': getHeader(response, 'X-RateLimit-Limit'),
+          'X-RateLimit-Remaining': getHeader(response, 'X-RateLimit-Remaining'),
+          'X-RateLimit-Reset': getHeader(response, 'X-RateLimit-Reset'),
+        };
+        const resetAt = parseRateLimitReset(rateLimitHeaders['X-RateLimit-Reset']);
+        const rawBody = await response.text();
+        let body = null;
+
+        if (rawBody) {
+          try {
+            body = JSON.parse(rawBody);
+          } catch {
+            body = null;
+          }
+        }
+
+        if (!response.ok) {
+          if (response.status === 429) {
+            const cooldownUntil = resetAt > Date.now() ? resetAt : null;
+            if (cooldownUntil) {
+              endpointCooldowns.set(endpoint, cooldownUntil);
+            }
+            throw rateLimitedError(rateLimitHeaders, cooldownUntil);
+          }
+          throw mapHttpError(response.status);
+        }
+
+        if (!body || typeof body !== 'object' || Array.isArray(body)) {
+          throw new LivePixApiError('INVALID_JSON_RESPONSE', 'Resposta inválida da LivePix API.', {
+            httpStatus: 502,
+            category: 'invalid_json_response',
+          });
+        }
+
+        return body;
+      } finally {
+        clearTimeout(timer);
+      }
     } catch (error) {
       if (error instanceof LivePixApiError) {
         throw error;
@@ -265,7 +333,10 @@ function createLivePixApiService(options = {}) {
         category: 'network_error',
       });
     } finally {
-      clearTimeout(timer);
+      releaseRequest();
+      if (endpointLocks.get(endpoint) === currentRequest) {
+        endpointLocks.delete(endpoint);
+      }
     }
   }
 
@@ -285,10 +356,7 @@ function createLivePixApiService(options = {}) {
     }
 
     if (status === 429) {
-      return new LivePixApiError('RATE_LIMITED', 'Limite de requisições da LivePix atingido.', {
-        httpStatus: 429,
-        category: 'rate_limited',
-      });
+      return rateLimitedError(null);
     }
 
     if (status === 400 || status === 422) {
@@ -515,6 +583,7 @@ function createLivePixApiService(options = {}) {
     getSubscription,
     listSubscriptionTransactions,
     listSubscriptionPlans,
+    getEndpointCooldown,
   };
 }
 

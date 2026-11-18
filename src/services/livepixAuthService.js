@@ -146,6 +146,7 @@ function createLivePixAuthService(options = {}) {
     listSubscriptionTransactions: (subscriptionId, options) =>
       callAuthenticatedApi('listSubscriptionTransactions', subscriptionId, options),
     listSubscriptionPlans: (options) => callAuthenticatedApi('listSubscriptionPlans', options),
+    getEndpointCooldown: (endpoint) => apiService.getEndpointCooldown(endpoint),
     invalidateAccessToken,
   };
 }
