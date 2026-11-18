@@ -104,6 +104,15 @@ async function initDatabase() {
     )
   `;
 
+  const createLivePixAccountsTableSql = `
+    CREATE TABLE IF NOT EXISTS livepix_accounts (
+      discord_id TEXT PRIMARY KEY NOT NULL,
+      livepix_account_id TEXT NOT NULL UNIQUE,
+      created_at_ms INTEGER NOT NULL,
+      updated_at_ms INTEGER NOT NULL
+    )
+  `;
+
   const createManualSubGrantsTableSql = `
     CREATE TABLE IF NOT EXISTS manual_sub_grants (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -258,6 +267,7 @@ async function initDatabase() {
   db.exec(createQueuePrioritySnapshotsTableSql);
   db.exec(createSchedulerStateTableSql);
   db.exec(createKickAccountsTableSql);
+  db.exec(createLivePixAccountsTableSql);
   db.exec(createManualSubGrantsTableSql);
   db.exec(createKickSubscriptionsTableSql);
   db.exec(createKickWebhookEventsTableSql);

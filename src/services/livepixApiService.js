@@ -170,13 +170,13 @@ function createLivePixApiService(options = {}) {
       plan &&
       typeof plan === 'object' &&
       !Array.isArray(plan) &&
-      isObjectId(plan.id) &&
+      typeof plan.id === 'string' &&
+      plan.id.length > 0 &&
       typeof plan.slug === 'string' &&
       plan.slug.length >= 1 &&
       typeof plan.name === 'string' &&
       plan.name.length >= 1 &&
       typeof plan.description === 'string' &&
-      plan.description.length >= 1 &&
       isPlanAmount(plan.amount) &&
       typeof plan.currency === 'string' &&
       /^[A-Z]{3}$/.test(plan.currency) &&
@@ -240,9 +240,10 @@ function createLivePixApiService(options = {}) {
       transaction &&
       typeof transaction === 'object' &&
       !Array.isArray(transaction) &&
-      isObjectId(transaction.id) &&
+      typeof transaction.id === 'string' &&
+      transaction.id.length > 0 &&
       typeof transaction.proof === 'string' &&
-      /^E\d{30}$/.test(transaction.proof) &&
+      transaction.proof.length > 0 &&
       Number.isSafeInteger(transaction.amount) &&
       transaction.amount >= 1 &&
       isDateTime(transaction.createdAt)
@@ -470,6 +471,75 @@ function createLivePixApiService(options = {}) {
     };
   }
 
+  async function exchangeAuthorizationCodeToken(payload) {
+    if (
+      !payload ||
+      typeof payload !== 'object' ||
+      typeof payload.clientId !== 'string' ||
+      !payload.clientId.trim() ||
+      typeof payload.clientSecret !== 'string' ||
+      !payload.clientSecret.trim() ||
+      typeof payload.code !== 'string' ||
+      !payload.code.trim() ||
+      typeof payload.redirectUri !== 'string' ||
+      !payload.redirectUri.trim() ||
+      payload.redirectUri !== payload.redirectUri.trim()
+    ) {
+      throw invalidRequestOptions();
+    }
+
+    const form = new URLSearchParams({
+      grant_type: 'authorization_code',
+      client_id: payload.clientId.trim(),
+      client_secret: payload.clientSecret,
+      code: payload.code.trim(),
+      redirect_uri: payload.redirectUri,
+    });
+    const body = await requestJson(`${oauthBaseUrl}/oauth2/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
+      body: form.toString(),
+    });
+
+    if (
+      typeof body.access_token !== 'string' ||
+      !body.access_token.trim() ||
+      typeof body.token_type !== 'string' ||
+      body.token_type.toLowerCase() !== 'bearer'
+    ) {
+      throw new LivePixApiError('INVALID_TOKEN_RESPONSE', 'Resposta de token inválida da LivePix API.', {
+        httpStatus: 502,
+        category: 'invalid_token_response',
+      });
+    }
+
+    return { accessToken: body.access_token.trim() };
+  }
+
+  async function getAccountId(accessToken) {
+    requireAccessToken(accessToken);
+    const body = await requestJson(`${apiBaseUrl}/v2/account`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    });
+    const accountId = body.data?.id;
+
+    if (typeof accountId !== 'string' || !accountId.trim()) {
+      throw new LivePixApiError('INVALID_ACCOUNT_RESPONSE', 'Resposta de conta inválida da LivePix API.', {
+        httpStatus: 502,
+        category: 'invalid_account_response',
+      });
+    }
+
+    return accountId.trim();
+  }
+
   async function getAccount(accessToken) {
     requireAccessToken(accessToken);
     const body = await requestJson(`${apiBaseUrl}/v2/account`, {
@@ -611,6 +681,8 @@ function createLivePixApiService(options = {}) {
 
   return {
     exchangeClientCredentialsToken,
+    exchangeAuthorizationCodeToken,
+    getAccountId,
     getAccount,
     listSubscriptions,
     getSubscription,

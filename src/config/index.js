@@ -25,6 +25,39 @@ function parseLivePixScopes(rawScopes) {
   return (scopes || 'account:read').split(/\s+/).filter(Boolean);
 }
 
+function parseLivePixRedirectUri(value) {
+  if (value === undefined || value === null || value === '') {
+    return null;
+  }
+
+  function invalidRedirectUri() {
+    return Object.assign(new Error('LIVEPIX_REDIRECT_URI inválido.'), {
+      code: 'INVALID_CONFIG_VALUE',
+    });
+  }
+
+  if (typeof value !== 'string' || value.trim() !== value) {
+    throw invalidRedirectUri();
+  }
+
+  let redirectUrl;
+  try {
+    redirectUrl = new URL(value);
+  } catch {
+    throw invalidRedirectUri();
+  }
+
+  if (
+    !['http:', 'https:'].includes(redirectUrl.protocol) ||
+    !redirectUrl.hostname ||
+    (redirectUrl.protocol !== 'https:' && redirectUrl.hostname.toLowerCase() !== 'localhost')
+  ) {
+    throw invalidRedirectUri();
+  }
+
+  return value;
+}
+
 function parseDiscordIdList(value, options = {}) {
   const name = options.name || 'CONFIG_VALUE';
 
@@ -228,6 +261,7 @@ const kickClientId = process.env.KICK_CLIENT_ID || null;
 const kickClientSecret = process.env.KICK_CLIENT_SECRET || null;
 const livepixClientId = process.env.LIVEPIX_CLIENT_ID || null;
 const livepixClientSecret = process.env.LIVEPIX_CLIENT_SECRET || null;
+const livepixRedirectUri = parseLivePixRedirectUri(process.env.LIVEPIX_REDIRECT_URI);
 
 module.exports = {
   databasePath:
@@ -242,6 +276,7 @@ module.exports = {
   queueChannelId: process.env.QUEUE_CHANNEL_ID || null,
   queuePanelChannelId: process.env.QUEUE_PANEL_CHANNEL_ID || null,
   kickLinkChannelId: process.env.KICK_LINK_CHANNEL_ID || null,
+  livepixLinkChannelId: process.env.LIVEPIX_LINK_CHANNEL_ID || null,
   adminAuditChannelId: process.env.ADMIN_AUDIT_CHANNEL_ID || null,
   queueOpenTime: process.env.QUEUE_OPEN_TIME || '18:58',
   queueCloseTime: process.env.QUEUE_CLOSE_TIME || '06:00',
@@ -252,6 +287,9 @@ module.exports = {
   livepixClientId,
   livepixClientSecret,
   livepixOauthScopes: parseLivePixScopes(process.env.LIVEPIX_OAUTH_SCOPES),
+  livepixLinkOauthScopes: parseLivePixScopes(process.env.LIVEPIX_LINK_OAUTH_SCOPES),
+  livepixRedirectUri,
+  livepixLinkEnabled: Boolean(livepixClientId && livepixClientSecret && livepixRedirectUri),
   kickHost: parseHost(process.env.KICK_HOST, '127.0.0.1'),
   kickRedirectUri: process.env.KICK_REDIRECT_URI || 'http://localhost:3000/kick/callback',
   kickOauthScopes: parseKickScopes(process.env.KICK_OAUTH_SCOPES || 'user:read events:subscribe'),

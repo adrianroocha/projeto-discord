@@ -1,3 +1,6 @@
+process.env.DISCORD_TOKEN = process.env.DISCORD_TOKEN || 'test-token';
+process.env.GUILD_ID = process.env.GUILD_ID || 'test-guild';
+
 const { MessageFlags } = require('discord.js');
 jest.mock('../src/buttons/joinQueue', () => ({
   customId: 'join_queue',

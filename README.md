@@ -73,6 +73,7 @@ GUILD_ID=
 QUEUE_PANEL_CHANNEL_ID=
 QUEUE_CHANNEL_ID=
 KICK_LINK_CHANNEL_ID=
+LIVEPIX_LINK_CHANNEL_ID=
 ADMIN_AUDIT_CHANNEL_ID=
 ADMIN_AUDIT_RETENTION_DAYS=30
 
@@ -107,6 +108,12 @@ SQLITE_BACKUP_STARTUP_DELAY_SECONDS=60
 KICK_HTTP_MAX_BODY_BYTES=1048576
 KICK_HTTP_BODY_TIMEOUT_MS=10000
 KICK_HTTP_MAX_URL_LENGTH=8192
+
+# LivePix individual OAuth (separado do fluxo administrativo client_credentials)
+LIVEPIX_CLIENT_ID=
+LIVEPIX_CLIENT_SECRET=
+LIVEPIX_REDIRECT_URI=https://DOMINIO/livepix/callback
+LIVEPIX_LINK_OAUTH_SCOPES=account:read
 ```
 
 ### Observações importantes
@@ -123,6 +130,9 @@ KICK_HTTP_MAX_URL_LENGTH=8192
 - O backup padrão executa às 08:15 em `America/Sao_Paulo`, após o fechamento padrão da fila às 08:00.
 - A retenção padrão remove backups antigos após 7 dias e preserva apenas arquivos do padrão do projeto.
 - Limites HTTP da Kick (`KICK_HTTP_MAX_BODY_BYTES`, `KICK_HTTP_BODY_TIMEOUT_MS`, `KICK_HTTP_MAX_URL_LENGTH`) são opcionais e usam fallback seguro para os padrões quando ausentes, inválidos ou fora dos limites aceitos.
+- `LIVEPIX_LINK_CHANNEL_ID` habilita o painel independente de vínculo individual; `LIVEPIX_REDIRECT_URI` deve corresponder exatamente à URL cadastrada na aplicação LivePix.
+- `LIVEPIX_REDIRECT_URI` precisa ser uma URL HTTP(S) válida; exige HTTPS fora de `localhost` e rejeita espaços no início ou no fim. O valor validado é usado sem normalização na autorização e na troca do código.
+- `LIVEPIX_LINK_OAUTH_SCOPES` controla os escopos pedidos no consentimento individual e não altera `LIVEPIX_OAUTH_SCOPES` usado no fluxo administrativo `client_credentials`.
 
 ## Railway
 
@@ -182,6 +192,9 @@ KICK_HTTP_MAX_URL_LENGTH=8192
 LIVEPIX_CLIENT_ID=
 LIVEPIX_CLIENT_SECRET=
 LIVEPIX_OAUTH_SCOPES=account:read subscriptions:read subscription-plans:read
+LIVEPIX_LINK_CHANNEL_ID=
+LIVEPIX_REDIRECT_URI=https://DOMINIO/livepix/callback
+LIVEPIX_LINK_OAUTH_SCOPES=account:read
 
 # Porta da aplicação (fallback local)
 KICK_PORT=3000
@@ -200,6 +213,7 @@ ADMIN_AUDIT_RETENTION_DAYS=30
 - O domínio público inicial será o domínio gerado `*.up.railway.app`.
 - Após obter o domínio, configure:
 - `KICK_REDIRECT_URI=https://DOMINIO/kick/callback`
+- `LIVEPIX_REDIRECT_URI=https://DOMINIO/livepix/callback` quando o vínculo individual LivePix estiver habilitado
 - webhook Kick em `https://DOMINIO/kick/webhooks`
 - O volume persistente deve ser montado exatamente em `/data`.
 - O lock operacional SQLite nunca é removido automaticamente. Locks abandonados exigem parada confirmada do serviço e recuperação manual conforme o [runbook de backup e restore](./docs/runbooks/sqlite-backup-restore.md).
@@ -474,7 +488,13 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - O escopo padrão é `account:read`; `LIVEPIX_OAUTH_SCOPES` aceita múltiplos escopos separados por espaços. Para `/livepix-consultas`, configure `account:read subscriptions:read subscription-plans:read`.
 - A consulta de diagnóstico usa `GET https://api.livepix.gg/v2/account` e exibe somente o username autenticado.
 - Configure `LIVEPIX_CLIENT_ID` e `LIVEPIX_CLIENT_SECRET` com as credenciais da aplicação LivePix. `LIVEPIX_OAUTH_SCOPES` é opcional e assume `account:read`.
-- `LIVEPIX_REDIRECT_URI` não é necessário: o fluxo de autorização escolhido não usa redirecionamento.
+- O vínculo individual de usuários usa um fluxo separado `authorization_code` em `https://oauth.livepix.gg/oauth2/auth` e `https://oauth.livepix.gg/oauth2/token`, com callback `GET /livepix/callback` no mesmo servidor HTTP existente.
+- O painel individual é configurado por `LIVEPIX_LINK_CHANNEL_ID` e tem ações privadas para vincular, consultar e desvincular; a desvinculação requer confirmação e não altera dados da Kick.
+- `LIVEPIX_REDIRECT_URI` deve corresponder exatamente ao callback autorizado na aplicação LivePix. `LIVEPIX_LINK_OAUTH_SCOPES` controla os escopos do consentimento individual, sem alterar os escopos administrativos de `LIVEPIX_OAUTH_SCOPES`.
+- O `state` individual é aleatório, associado em memória ao Discord iniciador, expira em 10 minutos e só pode ser consumido uma vez. Reiniciar o bot invalida tentativas pendentes.
+- O token individual é mantido apenas em memória durante a consulta a `GET /v2/account`. A persistência contém somente IDs de Discord/LivePix e timestamps; nenhum access token ou refresh token é salvo.
+- A tabela `livepix_accounts` é criada idempotentemente por `initDatabase`; não foi executada migration em produção.
+- O fluxo individual não renova tokens. Suporte a refresh só deve ser implementado após confirmação documental da LivePix sobre emissão, validade e rotação de refresh tokens.
 - O comando privado `/livepix-status` exige `Administrator`, faz a autenticação e consulta a conta, sem exibir token, segredo, email ou ID.
 - O comando privado `/livepix-consultas` exige `Administrator` e consulta somente a primeira página (até 10 itens) de assinaturas e planos. Exibe contagens com status sem diferenciar maiúsculas/minúsculas, sem dados pessoais, sem percorrer páginas e sem consultar transações. Distingue falha do serviço LivePix de falha na validação adicional do comando sem exibir o corpo da resposta. Após HTTP 429 com `X-RateLimit-Reset` Unix válido, bloqueia novas consultas somente ao endpoint afetado até o reset; o comando informa o horário e não repete chamadas durante o cooldown.
 - A conta retornada pelo status representa a conta autenticada da integração; **não identifica o pagador ou assinante**. As consultas não vinculam contas Discord, não concedem nem removem cargo SUB e não alteram elegibilidade.

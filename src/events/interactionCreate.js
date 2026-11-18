@@ -5,6 +5,11 @@ const kickLinkStartButton = require('../buttons/kickLinkStart');
 const kickLinkStatusButton = require('../buttons/kickLinkStatus');
 const kickUnlinkConfirmButton = require('../buttons/kickUnlinkConfirm');
 const kickUnlinkCancelButton = require('../buttons/kickUnlinkCancel');
+const livepixLinkStartButton = require('../buttons/livepixLinkStart');
+const livepixLinkStatusButton = require('../buttons/livepixLinkStatus');
+const livepixUnlinkStartButton = require('../buttons/livepixUnlinkStart');
+const livepixUnlinkConfirmButton = require('../buttons/livepixUnlinkConfirm');
+const livepixUnlinkCancelButton = require('../buttons/livepixUnlinkCancel');
 const applicationLifecycleService = require('../services/applicationLifecycleService');
 
 const buttonHandlers = {
@@ -12,9 +17,17 @@ const buttonHandlers = {
   [leaveQueueButton.customId]: leaveQueueButton,
   [kickLinkStartButton.customId]: kickLinkStartButton,
   [kickLinkStatusButton.customId]: kickLinkStatusButton,
+  [livepixLinkStartButton.customId]: livepixLinkStartButton,
+  [livepixLinkStatusButton.customId]: livepixLinkStatusButton,
+  [livepixUnlinkStartButton.customId]: livepixUnlinkStartButton,
 };
 
-const prefixButtonHandlers = [kickUnlinkConfirmButton, kickUnlinkCancelButton];
+const prefixButtonHandlers = [
+  kickUnlinkConfirmButton,
+  kickUnlinkCancelButton,
+  livepixUnlinkConfirmButton,
+  livepixUnlinkCancelButton,
+];
 const legacyDevelopmentCommands = new Set(['fila-add-teste', 'dev-fill-queue', 'dev-clear-test-data']);
 const SHUTDOWN_MESSAGE = 'O bot está reiniciando. Tente novamente em instantes.';
 

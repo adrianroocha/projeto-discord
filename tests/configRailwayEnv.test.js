@@ -20,7 +20,10 @@ function loadConfig(overrides = {}) {
       key === 'GUILD_ID' ||
       key === 'LIVEPIX_CLIENT_ID' ||
       key === 'LIVEPIX_CLIENT_SECRET' ||
-      key === 'LIVEPIX_OAUTH_SCOPES'
+      key === 'LIVEPIX_OAUTH_SCOPES' ||
+      key === 'LIVEPIX_REDIRECT_URI' ||
+      key === 'LIVEPIX_LINK_CHANNEL_ID' ||
+      key === 'LIVEPIX_LINK_OAUTH_SCOPES'
     ) {
       delete process.env[key];
     }
@@ -63,6 +66,8 @@ describe('config Railway host/port and data paths', () => {
     expect(config.livepixClientId).toBeNull();
     expect(config.livepixClientSecret).toBeNull();
     expect(config.livepixOauthScopes).toEqual(['account:read']);
+    expect(config.livepixRedirectUri).toBeNull();
+    expect(config.livepixLinkEnabled).toBe(false);
   });
 
   test('LivePix lê credenciais e escopos configurados', () => {
@@ -75,6 +80,66 @@ describe('config Railway host/port and data paths', () => {
     expect(config.livepixClientId).toBe('livepix-client-id');
     expect(config.livepixClientSecret).toBe('livepix-client-secret');
     expect(config.livepixOauthScopes).toEqual(['account:read', 'wallet:read']);
+  });
+
+  test('LivePix individual usa redirect e escopo independentes do client_credentials', () => {
+    const config = loadConfig({
+      LIVEPIX_CLIENT_ID: 'client-id',
+      LIVEPIX_CLIENT_SECRET: 'client-secret',
+      LIVEPIX_REDIRECT_URI: 'https://bot.example/livepix/callback',
+      LIVEPIX_LINK_CHANNEL_ID: 'livepix-channel',
+      LIVEPIX_OAUTH_SCOPES: 'admin:scope',
+      LIVEPIX_LINK_OAUTH_SCOPES: 'account:read',
+    });
+
+    expect(config.livepixRedirectUri).toBe('https://bot.example/livepix/callback');
+    expect(config.livepixLinkChannelId).toBe('livepix-channel');
+    expect(config.livepixOauthScopes).toEqual(['admin:scope']);
+    expect(config.livepixLinkOauthScopes).toEqual(['account:read']);
+    expect(config.livepixLinkEnabled).toBe(true);
+  });
+
+  test.each([
+    'https://bot.example/livepix/callback',
+    'http://localhost:3000/livepix/callback',
+  ])('aceita LIVEPIX_REDIRECT_URI válido: %s', (redirectUri) => {
+    const config = loadConfig({
+      NODE_ENV: 'production',
+      LIVEPIX_REDIRECT_URI: redirectUri,
+    });
+
+    expect(config.livepixRedirectUri).toBe(redirectUri);
+  });
+
+  test.each(['not-a-url', 'ftp://localhost/callback', 'https://'])(
+    'rejeita LIVEPIX_REDIRECT_URI inválido: %s',
+    (redirectUri) => {
+      expect(() =>
+        loadConfig({
+          LIVEPIX_REDIRECT_URI: redirectUri,
+        }),
+      ).toThrow('LIVEPIX_REDIRECT_URI inválido.');
+    },
+  );
+
+  test('rejeita HTTP fora de localhost em produção', () => {
+    expect(() =>
+      loadConfig({
+        NODE_ENV: 'production',
+        LIVEPIX_REDIRECT_URI: 'http://bot.example/livepix/callback',
+      }),
+    ).toThrow('LIVEPIX_REDIRECT_URI inválido.');
+  });
+
+  test.each([
+    ' https://bot.example/livepix/callback',
+    'https://bot.example/livepix/callback ',
+  ])('rejeita espaços acidentais em LIVEPIX_REDIRECT_URI: %j', (redirectUri) => {
+    expect(() =>
+      loadConfig({
+        LIVEPIX_REDIRECT_URI: redirectUri,
+      }),
+    ).toThrow('LIVEPIX_REDIRECT_URI inválido.');
   });
 
   test('host é configurável com KICK_HOST', () => {

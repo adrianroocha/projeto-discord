@@ -269,7 +269,6 @@ describe('kickHttpServer', () => {
         completeOAuthCallback: jest.fn().mockResolvedValue({ kickUsername: 'kick-ok' }),
       },
     });
-
     const req = { method: 'GET', url: '/kick/callback?code=ok&state=ok' };
     const res = createMockResponse();
 
@@ -278,6 +277,49 @@ describe('kickHttpServer', () => {
     expect(res.statusCode).toBe(200);
     expect(res.body).toContain('Conta Kick vinculada com sucesso');
     expect(res.body).toContain('kick-ok');
+  });
+
+  test('callback LivePix trata cancelamento com resposta segura', async () => {
+    const completeOAuthCallback = jest.fn().mockRejectedValue({ code: 'OAUTH_CANCELLED' });
+    const handler = createRequestHandler({
+      config: { kickPort: 3000 },
+      livepixLinkAuthService: { completeOAuthCallback },
+      logger: { warn: jest.fn() },
+    });
+    const req = { method: 'GET', url: '/livepix/callback?error=access_denied&state=state-1' };
+    const res = createMockResponse();
+
+    await handler(req, res);
+
+    expect(completeOAuthCallback).toHaveBeenCalledWith({
+      code: null,
+      state: 'state-1',
+      error: 'access_denied',
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain('Autorização cancelada');
+  });
+
+  test('callback LivePix com código inválido não revela retorno do provedor', async () => {
+    const completeOAuthCallback = jest.fn().mockRejectedValue({
+      code: 'BAD_REQUEST',
+      httpStatus: 400,
+      message: 'provider response contains secret details',
+    });
+    const handler = createRequestHandler({
+      config: { kickPort: 3000 },
+      livepixLinkAuthService: { completeOAuthCallback },
+      logger: { warn: jest.fn() },
+    });
+    const req = { method: 'GET', url: '/livepix/callback?code=invalid-code&state=state-2' };
+    const res = createMockResponse();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain('Falha na integração');
+    expect(res.body).not.toContain('invalid-code');
+    expect(res.body).not.toContain('provider response');
   });
 
   test('rota /health funciona em servidor real via localhost', async () => {

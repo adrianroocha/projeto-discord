@@ -5,6 +5,7 @@ const commandHandler = require('../handlers/commandHandler');
 const { startKickHttpServer } = require('./kickHttpServer');
 const queueMessageService = require('./queueMessageService');
 const kickLinkPanelService = require('./kickLinkPanelService');
+const livepixLinkPanelService = require('./livepixLinkPanelService');
 const schedulerService = require('./schedulerService');
 const sqliteBackupScheduler = require('./sqliteBackupScheduler');
 const subscriberRoleReconciliationScheduler = require('./subscriberRoleReconciliationScheduler');
@@ -47,6 +48,7 @@ function createAppBootstrapService(options = {}) {
   const kickHttpServerStarter = options.startKickHttpServer || startKickHttpServer;
   const queuePanel = options.queueMessageService || queueMessageService;
   const kickPanel = options.kickLinkPanelService || kickLinkPanelService;
+  const livepixPanel = options.livepixLinkPanelService || livepixLinkPanelService;
   const queueScheduler = options.schedulerService || schedulerService;
   const backupScheduler = options.sqliteBackupScheduler || sqliteBackupScheduler;
   const subReconciliationScheduler =
@@ -98,6 +100,15 @@ function createAppBootstrapService(options = {}) {
         }
       } else if (kickPanelResult && kickPanelResult.enabled && typeof logger?.info === 'function') {
         logger.info('Painel de vínculo Kick inicializado.');
+      }
+
+      const livepixPanelResult = await livepixPanel.initPanel(discordClient);
+      if (livepixPanelResult && livepixPanelResult.code === 'CHANNEL_ACCESS_DENIED') {
+        if (typeof logger?.warn === 'function') {
+          logger.warn('Painel de vínculo LivePix não inicializado: permissões insuficientes no canal. code=CHANNEL_ACCESS_DENIED');
+        }
+      } else if (livepixPanelResult && livepixPanelResult.enabled && typeof logger?.info === 'function') {
+        logger.info('Painel de vínculo LivePix inicializado.');
       }
 
       queueScheduler.startScheduler(discordClient);

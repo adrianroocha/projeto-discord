@@ -105,6 +105,7 @@ describe('appBootstrapService', () => {
     const registerCommands = jest.fn().mockResolvedValue(undefined);
     const queueInitPanel = jest.fn().mockResolvedValue(undefined);
     const kickInitPanel = jest.fn().mockResolvedValue({ enabled: true });
+    const livepixInitPanel = jest.fn().mockResolvedValue({ enabled: true });
     const startScheduler = jest.fn();
     const backupStart = jest.fn();
     const subReconciliationStart = jest.fn();
@@ -136,6 +137,7 @@ describe('appBootstrapService', () => {
       startKickHttpServer: jest.fn().mockResolvedValue({ started: true, host: '127.0.0.1', port: 3000 }),
       queueMessageService: { initPanel: queueInitPanel },
       kickLinkPanelService: { initPanel: kickInitPanel },
+      livepixLinkPanelService: { initPanel: livepixInitPanel },
       schedulerService: { startScheduler },
       sqliteBackupScheduler: { start: backupStart },
       subscriberRoleReconciliationScheduler: { start: subReconciliationStart },
@@ -152,6 +154,7 @@ describe('appBootstrapService', () => {
     expect(registerCommands).toHaveBeenCalledTimes(1);
     expect(queueInitPanel).toHaveBeenCalledTimes(1);
     expect(kickInitPanel).toHaveBeenCalledTimes(1);
+    expect(livepixInitPanel).toHaveBeenCalledTimes(1);
     expect(startScheduler).toHaveBeenCalledTimes(1);
     expect(backupStart).toHaveBeenCalledTimes(1);
     expect(subReconciliationStart).toHaveBeenCalledTimes(1);

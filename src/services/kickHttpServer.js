@@ -6,6 +6,7 @@ const kickSubscriptionEventService = require('./kickSubscriptionEventService');
 const kickAccountsRepository = require('../database/kickAccountsRepository');
 const subscriberRoleAutoSyncService = require('./subscriberRoleAutoSyncService');
 const applicationLifecycleService = require('./applicationLifecycleService');
+const livepixLinkAuthService = require('./livepixLinkAuthService');
 
 let server = null;
 let closePromise = null;
@@ -284,6 +285,63 @@ function mapCallbackError(error) {
   return { statusCode: 500, title: 'Erro interno', message: 'Não foi possível concluir o vínculo com a Kick.' };
 }
 
+function mapLivePixCallbackError(error) {
+  if (error?.code === 'OAUTH_CANCELLED') {
+    return {
+      statusCode: 400,
+      title: 'Autorização cancelada',
+      message: 'A autorização da conta LivePix foi cancelada. Você pode iniciar novamente pelo painel.',
+    };
+  }
+  if (error?.code === 'OAUTH_PROVIDER_ERROR') {
+    return {
+      statusCode: 400,
+      title: 'Autorização não concluída',
+      message: 'A LivePix não autorizou a solicitação. Você pode iniciar novamente pelo painel.',
+    };
+  }
+  if (['STATE_INVALID', 'STATE_EXPIRED', 'STATE_REUSED'].includes(error?.code)) {
+    return {
+      statusCode: 400,
+      title: 'Link inválido ou expirado',
+      message: 'O link de vínculo está inválido, expirado ou já foi utilizado.',
+    };
+  }
+  if (error?.code === 'LIVEPIX_ACCOUNT_CONFLICT') {
+    return {
+      statusCode: 409,
+      title: 'Vínculo não criado',
+      message: 'Este usuário do Discord ou esta conta LivePix já possui um vínculo.',
+    };
+  }
+  if (error?.code === 'LIVEPIX_OAUTH_DISABLED') {
+    return {
+      statusCode: 503,
+      title: 'Integração indisponível',
+      message: 'A vinculação individual LivePix não está configurada neste ambiente.',
+    };
+  }
+  if (typeof error?.httpStatus === 'number' && error.httpStatus >= 400) {
+    if (error.httpStatus >= 500) {
+      return {
+        statusCode: 502,
+        title: 'Serviço indisponível',
+        message: 'Não foi possível concluir o vínculo com a LivePix. Tente novamente mais tarde.',
+      };
+    }
+    return {
+      statusCode: error.httpStatus,
+      title: 'Falha na integração',
+      message: 'Não foi possível concluir a integração com a LivePix.',
+    };
+  }
+  return {
+    statusCode: 500,
+    title: 'Erro interno',
+    message: 'Não foi possível concluir o vínculo com a LivePix.',
+  };
+}
+
 function normalizeWebhookEventType(eventType) {
   if (typeof eventType !== 'string') {
     return '';
@@ -360,6 +418,7 @@ function createRequestHandler(dependencies = {}) {
   const cfg = dependencies.config || config;
   const logger = dependencies.logger || console;
   const lifecycleService = dependencies.applicationLifecycleService || applicationLifecycleService;
+  const livepixAuthService = dependencies.livepixLinkAuthService || livepixLinkAuthService;
   const maxBodyBytes = getSafePositiveInteger(cfg.kickHttpMaxBodyBytes, DEFAULT_MAX_BODY_BYTES);
   const bodyTimeoutMs = getSafePositiveInteger(cfg.kickHttpBodyTimeoutMs, DEFAULT_BODY_TIMEOUT_MS);
   const maxUrlLength = getSafePositiveInteger(cfg.kickHttpMaxUrlLength, DEFAULT_MAX_URL_LENGTH);
@@ -651,6 +710,29 @@ function createRequestHandler(dependencies = {}) {
       return;
     }
 
+    if (requestUrl.pathname === '/livepix/callback') {
+      const code = requestUrl.searchParams.get('code');
+      const state = requestUrl.searchParams.get('state');
+      const providerError = requestUrl.searchParams.get('error');
+
+      try {
+        await livepixAuthService.completeOAuthCallback({ code, state, error: providerError });
+        writeHtml(
+          res,
+          200,
+          'Conta LivePix vinculada com sucesso',
+          'Vínculo da conta LivePix concluído. Você pode voltar ao Discord.',
+        );
+      } catch (error) {
+        const safeError = mapLivePixCallbackError(error);
+        if (typeof logger?.warn === 'function') {
+          logger.warn(`LivePix OAuth callback falhou: ${error?.category || error?.code || 'unknown_error'}`);
+        }
+        writeHtml(res, safeError.statusCode, safeError.title, safeError.message);
+      }
+      return;
+    }
+
     res.statusCode = 404;
     res.end('Not Found');
   };
@@ -755,4 +837,5 @@ module.exports = {
   stopKickHttpServer,
   getKickHttpServerInstance,
   mapCallbackError,
+  mapLivePixCallbackError,
 };

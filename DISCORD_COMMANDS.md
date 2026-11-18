@@ -556,6 +556,26 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Efeitos na fila: nenhum.
 - Limitações: token expira, é de uso único e não pode ser usado por outro usuário.
 
+## Painel permanente Vincular conta LivePix
+- Nome: Painel permanente Vincular conta LivePix.
+- Finalidade: disponibilizar ações independentes para vínculo, consulta e desvinculação da conta LivePix do próprio usuário.
+- Quem pode usar: qualquer usuário que visualize o canal.
+- Onde usar: canal configurado em LIVEPIX_LINK_CHANNEL_ID (mesmo servidor de GUILD_ID).
+- Parâmetros: nenhum.
+- Resposta: mensagem fixa com os botões `Vincular conta LivePix`, `Consultar meu vínculo` e `Desvincular minha conta`.
+- Efeitos no banco: somente o callback OAuth cria `livepix_accounts`; consulta não altera dados; desvinculação confirmada remove somente o vínculo LivePix.
+- Efeitos em cargo: nenhum.
+- Efeitos na fila: nenhum.
+- Limitações: exige LIVEPIX_CLIENT_ID, LIVEPIX_CLIENT_SECRET e LIVEPIX_REDIRECT_URI; painel desativado se LIVEPIX_LINK_CHANNEL_ID estiver ausente.
+
+## Botões LivePix
+- `livepix-link-start`: responde privadamente com link OAuth individual; `state` associa o fluxo ao Discord por 10 minutos e é de uso único.
+- `livepix-link-status`: consulta privadamente somente o vínculo do autor, sem chamada externa.
+- `livepix-unlink-start`: exige que o autor confirme a desvinculação em mensagem privada.
+- `livepix-unlink-confirm:{token}`: remove somente o registro de `livepix_accounts`; confirmação privada, de uso único e expira em 5 minutos.
+- `livepix-unlink-cancel:{token}`: invalida a confirmação sem alterar o banco.
+- Nenhum desses botões modifica a integração Kick, cargos SUB ou fila. A LivePix account ID já vinculada não é revelada ao outro Discord em conflitos.
+
 ## Botão admin_open
 - Nome: admin_open
 - Finalidade: reservado para futura ação de abrir fila por botão.
