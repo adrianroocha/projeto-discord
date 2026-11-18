@@ -42,10 +42,15 @@ function createLivePixAuthService(options = {}) {
     return value.trim();
   }
 
-  function invalidateAccessToken() {
+  function invalidateAccessToken(expectedToken) {
+    if (expectedToken !== undefined && cachedAccessToken !== expectedToken) {
+      return false;
+    }
+
     cachedAccessToken = null;
     expiresAtMs = 0;
     refreshAtMs = 0;
+    return true;
   }
 
   function isTokenValid(referenceNow) {
@@ -109,14 +114,24 @@ function createLivePixAuthService(options = {}) {
     return pendingRequest;
   }
 
-  async function getAuthenticatedAccount() {
+  async function callAuthenticatedApi(methodName, ...args) {
+    const apiMethod = apiService[methodName];
+    if (typeof apiMethod !== 'function') {
+      throw new LivePixAuthError(
+        'API_METHOD_UNAVAILABLE',
+        'Método de consulta LivePix indisponível.',
+        { httpStatus: 500, category: 'api_method_unavailable' },
+      );
+    }
+
     const accessToken = await getAccessToken();
 
     try {
-      return await apiService.getAccount(accessToken);
+      return await apiMethod.call(apiService, accessToken, ...args);
     } catch (error) {
       if (error?.code === 'UNAUTHORIZED') {
-        invalidateAccessToken();
+        // 401 can also indicate a missing scope; retrying with the same scope would not help.
+        invalidateAccessToken(accessToken);
       }
       throw error;
     }
@@ -124,7 +139,13 @@ function createLivePixAuthService(options = {}) {
 
   return {
     getAccessToken,
-    getAuthenticatedAccount,
+    getAuthenticatedAccount: () => callAuthenticatedApi('getAccount'),
+    listSubscriptions: (options) => callAuthenticatedApi('listSubscriptions', options),
+    getSubscription: (subscriptionId) =>
+      callAuthenticatedApi('getSubscription', subscriptionId),
+    listSubscriptionTransactions: (subscriptionId, options) =>
+      callAuthenticatedApi('listSubscriptionTransactions', subscriptionId, options),
+    listSubscriptionPlans: (options) => callAuthenticatedApi('listSubscriptionPlans', options),
     invalidateAccessToken,
   };
 }

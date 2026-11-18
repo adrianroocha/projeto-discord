@@ -181,7 +181,7 @@ KICK_HTTP_MAX_URL_LENGTH=8192
 # LivePix
 LIVEPIX_CLIENT_ID=
 LIVEPIX_CLIENT_SECRET=
-LIVEPIX_OAUTH_SCOPES=account:read
+LIVEPIX_OAUTH_SCOPES=account:read subscriptions:read subscription-plans:read
 
 # Porta da aplicação (fallback local)
 KICK_PORT=3000
@@ -238,6 +238,7 @@ Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COM
 - `/kick-events-sync` - sincroniza os event subscriptions oficiais da Kick para o webhook da aplicação e aceita `force:true` para uma ressincronização manual.
 - `/kick-webhook-status` - mostra auditoria resumida do último webhook válido recebido pela integração Kick.
 - `/livepix-status` - testa a autenticação LivePix e consulta a conta autenticada (Administrator).
+- `/livepix-consultas` - valida consultas de assinaturas e planos LivePix (Administrator).
 
 ### Autorização operacional centralizada
 
@@ -470,12 +471,13 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 
 - A integração usa o fluxo OAuth `client_credentials` da documentação oficial para autenticar a conta LivePix configurada na aplicação.
 - O token é obtido em `https://oauth.livepix.gg/oauth2/token`, mantido somente em memória e reutilizado até próximo da expiração; como esse fluxo não fornece refresh token na documentação, um novo token é solicitado quando necessário.
-- O escopo padrão é `account:read`; ajuste `LIVEPIX_OAUTH_SCOPES` apenas para escopos documentados que a aplicação realmente necessite.
+- O escopo padrão é `account:read`; `LIVEPIX_OAUTH_SCOPES` aceita múltiplos escopos separados por espaços. Para `/livepix-consultas`, configure `account:read subscriptions:read subscription-plans:read`.
 - A consulta de diagnóstico usa `GET https://api.livepix.gg/v2/account` e exibe somente o username autenticado.
 - Configure `LIVEPIX_CLIENT_ID` e `LIVEPIX_CLIENT_SECRET` com as credenciais da aplicação LivePix. `LIVEPIX_OAUTH_SCOPES` é opcional e assume `account:read`.
 - `LIVEPIX_REDIRECT_URI` não é necessário: o fluxo de autorização escolhido não usa redirecionamento.
 - O comando privado `/livepix-status` exige `Administrator`, faz a autenticação e consulta a conta, sem exibir token, segredo, email ou ID.
-- A conta retornada representa a conta autenticada da integração; **não identifica o pagador ou assinante**. Esta fase não consulta assinaturas, não recebe webhooks LivePix e não concede nem remove cargo SUB ou vincula contas ao Discord.
+- O comando privado `/livepix-consultas` exige `Administrator` e consulta somente a primeira página (até 10 itens) de assinaturas e planos. Exibe contagens, sem dados pessoais, sem percorrer páginas e sem consultar transações.
+- A conta retornada pelo status representa a conta autenticada da integração; **não identifica o pagador ou assinante**. As consultas não vinculam contas Discord, não concedem nem removem cargo SUB e não alteram elegibilidade.
 - Indisponibilidade, timeout ou credenciais inválidas são exibidos como falha de diagnóstico sem interromper o bot.
 
 ## Kick (etapa atual)

@@ -51,6 +51,26 @@ describe('livepixAuthService', () => {
     });
   });
 
+  test('envia múltiplos escopos OAuth separados por espaços', async () => {
+    const { service, livepixApiService } = createService({
+      config: {
+        livepixOauthScopes: [
+          'account:read',
+          'subscriptions:read',
+          'subscription-plans:read',
+        ],
+      },
+    });
+
+    await service.getAccessToken();
+
+    expect(livepixApiService.exchangeClientCredentialsToken).toHaveBeenCalledWith({
+      clientId: 'livepix-client-id',
+      clientSecret: 'livepix-client-secret',
+      scope: 'account:read subscriptions:read subscription-plans:read',
+    });
+  });
+
   test('reutiliza token em memória enquanto válido', async () => {
     const { service, livepixApiService } = createService();
 
@@ -157,6 +177,74 @@ describe('livepixAuthService', () => {
       displayName: 'LivePix User',
     });
     expect(JSON.stringify(account)).not.toContain('access-token-1');
+  });
+
+  test('encaminha consultas de assinatura usando o token em cache', async () => {
+    const livepixApiService = {
+      exchangeClientCredentialsToken: jest.fn().mockResolvedValue({
+        accessToken: 'access-token-1',
+        expiresIn: 3600,
+      }),
+      listSubscriptions: jest.fn().mockResolvedValue([]),
+      getSubscription: jest.fn().mockResolvedValue({ id: 'subscription-1' }),
+      listSubscriptionTransactions: jest.fn().mockResolvedValue([]),
+      listSubscriptionPlans: jest.fn().mockResolvedValue([]),
+    };
+    const { service } = createService({ livepixApiService });
+    const options = { page: 2, limit: 10 };
+
+    await service.listSubscriptions(options);
+    await service.getSubscription('subscription-1');
+    await service.listSubscriptionTransactions('subscription-1', options);
+    await service.listSubscriptionPlans(options);
+
+    expect(livepixApiService.listSubscriptions).toHaveBeenCalledWith('access-token-1', options);
+    expect(livepixApiService.getSubscription).toHaveBeenCalledWith(
+      'access-token-1',
+      'subscription-1',
+    );
+    expect(livepixApiService.listSubscriptionTransactions).toHaveBeenCalledWith(
+      'access-token-1',
+      'subscription-1',
+      options,
+    );
+    expect(livepixApiService.listSubscriptionPlans).toHaveBeenCalledWith(
+      'access-token-1',
+      options,
+    );
+    expect(livepixApiService.exchangeClientCredentialsToken).toHaveBeenCalledTimes(1);
+  });
+
+  test('401 em consulta invalida o token e deixa a nova autenticação para a próxima chamada', async () => {
+    const livepixApiService = {
+      exchangeClientCredentialsToken: jest
+        .fn()
+        .mockResolvedValueOnce({ accessToken: 'expired-token', expiresIn: 3600 })
+        .mockResolvedValueOnce({ accessToken: 'refreshed-token', expiresIn: 3600 }),
+      listSubscriptions: jest
+        .fn()
+        .mockRejectedValueOnce(Object.assign(new Error('unauthorized'), { code: 'UNAUTHORIZED' }))
+        .mockResolvedValueOnce([]),
+    };
+    const { service } = createService({ livepixApiService });
+
+    await expect(service.listSubscriptions({ page: 1 })).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    });
+    expect(livepixApiService.listSubscriptions).toHaveBeenCalledTimes(1);
+    await expect(service.listSubscriptions({ page: 1 })).resolves.toEqual([]);
+
+    expect(livepixApiService.exchangeClientCredentialsToken).toHaveBeenCalledTimes(2);
+    expect(livepixApiService.listSubscriptions).toHaveBeenNthCalledWith(
+      1,
+      'expired-token',
+      { page: 1 },
+    );
+    expect(livepixApiService.listSubscriptions).toHaveBeenNthCalledWith(
+      2,
+      'refreshed-token',
+      { page: 1 },
+    );
   });
 
   test('invalidar token em resposta 401 força nova autenticação na próxima consulta', async () => {

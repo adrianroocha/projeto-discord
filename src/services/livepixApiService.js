@@ -13,9 +13,149 @@ function createLivePixApiService(options = {}) {
   const timeoutMs = Number(options.timeoutMs || 10_000);
   const oauthBaseUrl = (options.oauthBaseUrl || 'https://oauth.livepix.gg').replace(/\/$/, '');
   const apiBaseUrl = (options.apiBaseUrl || 'https://api.livepix.gg').replace(/\/$/, '');
+  const subscriptionStatuses = new Set(['active', 'pending', 'cancelled']);
+  const recurrences = new Set(['monthly', 'quarterly', 'semiannual', 'yearly']);
 
   if (typeof fetchImpl !== 'function') {
     throw new Error('Fetch API não está disponível para integração LivePix.');
+  }
+
+  function invalidRequestOptions() {
+    return new LivePixApiError(
+      'INVALID_REQUEST_OPTIONS',
+      'Parâmetros inválidos para consulta LivePix.',
+      { httpStatus: 400, category: 'invalid_request_options' },
+    );
+  }
+
+  function invalidResponse(code, message) {
+    return new LivePixApiError(code, message, {
+      httpStatus: 502,
+      category: 'invalid_api_response',
+    });
+  }
+
+  function isObjectId(value) {
+    return typeof value === 'string' && /^[a-f\d]{24}$/i.test(value);
+  }
+
+  function isDateTime(value) {
+    return (
+      typeof value === 'string' &&
+      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+      !Number.isNaN(Date.parse(value))
+    );
+  }
+
+  function validateQueryOptions(options, allowedKeys, validators) {
+    if (options === undefined) {
+      return '';
+    }
+
+    if (!options || typeof options !== 'object' || Array.isArray(options)) {
+      throw invalidRequestOptions();
+    }
+
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(options)) {
+      if (value === undefined) {
+        continue;
+      }
+
+      if (!allowedKeys.has(key) || !validators[key](value)) {
+        throw invalidRequestOptions();
+      }
+      query.set(key, String(value));
+    }
+
+    const serialized = query.toString();
+    return serialized ? `?${serialized}` : '';
+  }
+
+  function validatePagination(options, additionalValidators = {}) {
+    return validateQueryOptions(
+      options,
+      new Set(['page', 'limit', ...Object.keys(additionalValidators)]),
+      {
+        page: (value) => Number.isSafeInteger(value) && value >= 1,
+        limit: (value) => Number.isSafeInteger(value) && value >= 1 && value <= 100,
+        ...additionalValidators,
+      },
+    );
+  }
+
+  function requireAccessToken(accessToken) {
+    if (typeof accessToken !== 'string' || !accessToken.trim()) {
+      throw new LivePixApiError('INVALID_ACCESS_TOKEN', 'Token de acesso LivePix inválido.', {
+        httpStatus: 401,
+        category: 'unauthorized',
+      });
+    }
+  }
+
+  function isSubscription(subscription) {
+    return (
+      subscription &&
+      typeof subscription === 'object' &&
+      !Array.isArray(subscription) &&
+      isObjectId(subscription.id) &&
+      typeof subscription.subscriber === 'string' &&
+      subscription.subscriber.length >= 1 &&
+      subscription.subscriber.length <= 72 &&
+      Number.isSafeInteger(subscription.months) &&
+      subscription.months >= 0 &&
+      typeof subscription.currency === 'string' &&
+      /^[A-Z]{3}$/.test(subscription.currency) &&
+      Number.isSafeInteger(subscription.amount) &&
+      subscription.amount >= 1 &&
+      recurrences.has(subscription.recurrence) &&
+      subscriptionStatuses.has(subscription.status) &&
+      isDateTime(subscription.renewAt) &&
+      isDateTime(subscription.updatedAt) &&
+      isDateTime(subscription.createdAt)
+    );
+  }
+
+  function isSubscriptionPlan(plan) {
+    return (
+      plan &&
+      typeof plan === 'object' &&
+      !Array.isArray(plan) &&
+      isObjectId(plan.id) &&
+      typeof plan.slug === 'string' &&
+      plan.slug.length >= 1 &&
+      typeof plan.name === 'string' &&
+      plan.name.length >= 1 &&
+      typeof plan.description === 'string' &&
+      plan.description.length >= 1 &&
+      typeof plan.amount === 'number' &&
+      Number.isFinite(plan.amount) &&
+      plan.amount >= 0 &&
+      typeof plan.currency === 'string' &&
+      /^[A-Z]{3}$/.test(plan.currency) &&
+      isDateTime(plan.createdAt)
+    );
+  }
+
+  function isSubscriptionTransaction(transaction) {
+    return (
+      transaction &&
+      typeof transaction === 'object' &&
+      !Array.isArray(transaction) &&
+      isObjectId(transaction.id) &&
+      typeof transaction.proof === 'string' &&
+      /^E\d{30}$/.test(transaction.proof) &&
+      Number.isSafeInteger(transaction.amount) &&
+      transaction.amount >= 1 &&
+      isDateTime(transaction.createdAt)
+    );
+  }
+
+  function validateDataArray(body, validator, code, message) {
+    if (!Array.isArray(body.data) || !body.data.every(validator)) {
+      throw invalidResponse(code, message);
+    }
+    return body.data;
   }
 
   async function requestJson(url, requestOptions = {}) {
@@ -94,6 +234,20 @@ function createLivePixApiService(options = {}) {
       });
     }
 
+    if (status === 400 || status === 422) {
+      return new LivePixApiError('BAD_REQUEST', 'A LivePix rejeitou os parâmetros da requisição.', {
+        httpStatus: status,
+        category: 'bad_request',
+      });
+    }
+
+    if (status === 404) {
+      return new LivePixApiError('NOT_FOUND', 'O recurso solicitado não foi encontrado na LivePix.', {
+        httpStatus: 404,
+        category: 'not_found',
+      });
+    }
+
     if (status >= 500) {
       return new LivePixApiError('UPSTREAM_UNAVAILABLE', 'A LivePix API está indisponível.', {
         httpStatus: 502,
@@ -151,6 +305,7 @@ function createLivePixApiService(options = {}) {
   }
 
   async function getAccount(accessToken) {
+    requireAccessToken(accessToken);
     const body = await requestJson(`${apiBaseUrl}/v2/account`, {
       method: 'GET',
       headers: {
@@ -185,9 +340,107 @@ function createLivePixApiService(options = {}) {
     };
   }
 
+  async function listSubscriptions(accessToken, options = {}) {
+    requireAccessToken(accessToken);
+    const query = validatePagination(options, {
+      status: (value) => subscriptionStatuses.has(value),
+      currency: (value) => typeof value === 'string' && /^[A-Z]{3}$/.test(value),
+    });
+    const body = await requestJson(`${apiBaseUrl}/v2/subscriptions${query}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    });
+
+    return validateDataArray(
+      body,
+      isSubscription,
+      'INVALID_SUBSCRIPTIONS_RESPONSE',
+      'Resposta de assinaturas inválida da LivePix API.',
+    );
+  }
+
+  async function getSubscription(accessToken, subscriptionId) {
+    requireAccessToken(accessToken);
+    if (!isObjectId(subscriptionId)) {
+      throw invalidRequestOptions();
+    }
+
+    const body = await requestJson(
+      `${apiBaseUrl}/v2/subscriptions/${encodeURIComponent(subscriptionId)}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      },
+    );
+
+    if (!isSubscription(body.data)) {
+      throw invalidResponse(
+        'INVALID_SUBSCRIPTION_RESPONSE',
+        'Resposta de assinatura inválida da LivePix API.',
+      );
+    }
+    return body.data;
+  }
+
+  async function listSubscriptionTransactions(accessToken, subscriptionId, options = {}) {
+    requireAccessToken(accessToken);
+    if (!isObjectId(subscriptionId)) {
+      throw invalidRequestOptions();
+    }
+    const query = validatePagination(options, {
+      proof: (value) => typeof value === 'string' && /^E\d{30}$/.test(value),
+    });
+    const body = await requestJson(
+      `${apiBaseUrl}/v2/subscriptions/${encodeURIComponent(subscriptionId)}/transactions${query}`,
+      {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: 'application/json',
+        },
+      },
+    );
+
+    return validateDataArray(
+      body,
+      isSubscriptionTransaction,
+      'INVALID_SUBSCRIPTION_TRANSACTIONS_RESPONSE',
+      'Resposta de transações da assinatura inválida da LivePix API.',
+    );
+  }
+
+  async function listSubscriptionPlans(accessToken, options = {}) {
+    requireAccessToken(accessToken);
+    const query = validatePagination(options);
+    const body = await requestJson(`${apiBaseUrl}/v2/subscriptions/plans${query}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    });
+
+    return validateDataArray(
+      body,
+      isSubscriptionPlan,
+      'INVALID_SUBSCRIPTION_PLANS_RESPONSE',
+      'Resposta de planos de assinatura inválida da LivePix API.',
+    );
+  }
+
   return {
     exchangeClientCredentialsToken,
     getAccount,
+    listSubscriptions,
+    getSubscription,
+    listSubscriptionTransactions,
+    listSubscriptionPlans,
   };
 }
 

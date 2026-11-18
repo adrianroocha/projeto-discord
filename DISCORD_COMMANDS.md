@@ -98,6 +98,20 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Limitações: depende de `LIVEPIX_CLIENT_ID`, `LIVEPIX_CLIENT_SECRET`, escopo `account:read` e disponibilidade da LivePix API.
 - Segurança: nunca exibe credenciais, token, email ou ID da conta; a conta autenticada não comprova a identidade de pagador/assinante e não cria vínculo Discord ou concede SUB.
 
+## /livepix-consultas
+- Nome: /livepix-consultas
+- Finalidade: validar o acesso de leitura às consultas de assinaturas e planos LivePix.
+- Quem pode usar: Administrator.
+- Onde usar: servidor Discord.
+- Parâmetros: nenhum.
+- Resposta: ephemeral; informa o resultado da autenticação, o resultado de cada endpoint, a quantidade retornada na página e a distribuição por status das assinaturas quando disponível.
+- Consultas: `GET /v2/subscriptions?page=1&limit=10` e `GET /v2/subscriptions/plans?page=1&limit=10`.
+- Efeitos no banco: nenhum.
+- Efeitos em cargo: nenhum.
+- Efeitos na fila: nenhum.
+- Limitações: mostra somente a primeira página, não o total da conta; não consulta transações. Requer `subscriptions:read` e `subscription-plans:read` em `LIVEPIX_OAUTH_SCOPES`.
+- Segurança: não exibe dados de assinantes/planos, email, token ou segredo; não vincula contas Discord, não altera elegibilidade SUB e não concede nem remove cargos.
+
 ## /kick-link
 - Nome: /kick-link
 - Finalidade: alternativa de vínculo OAuth Kick do usuário Discord (o fluxo principal também está no painel permanente).
