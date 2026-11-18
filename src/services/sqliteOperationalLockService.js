@@ -96,35 +96,18 @@ function getRailwayRuntimeMetadata() {
   };
 }
 
-function isPathInsideDirectory(filePath, directoryPath) {
-  if (!filePath || !directoryPath) {
-    return false;
+function getObservedTimestamp(payload, lockFilePath) {
+  if (lockFilePath) {
+    try {
+      const mtimeMs = Math.trunc(fs.statSync(lockFilePath).mtimeMs);
+      if (Number.isSafeInteger(mtimeMs) && mtimeMs > 0) {
+        return mtimeMs;
+      }
+    } catch {
+      // Fall back to the timestamp recorded when the lock was created.
+    }
   }
 
-  const absoluteFilePath = path.resolve(filePath);
-  const absoluteDirectoryPath = path.resolve(directoryPath);
-  const relative = path.relative(absoluteDirectoryPath, absoluteFilePath);
-
-  if (!relative) {
-    return true;
-  }
-
-  return !relative.startsWith('..') && !path.isAbsolute(relative);
-}
-
-function canRecoverImmediatelyInRailwayVolume(databasePath) {
-  const runtimeMetadata = getRailwayRuntimeMetadata();
-  const currentDeploymentId = runtimeMetadata.deploymentId;
-  const volumeMountPath = runtimeMetadata.volumeMountPath;
-
-  if (!currentDeploymentId || !volumeMountPath) {
-    return false;
-  }
-
-  return isPathInsideDirectory(databasePath, volumeMountPath);
-}
-
-function getObservedTimestamp(payload) {
   if (!payload || typeof payload !== 'object') {
     return null;
   }
@@ -167,12 +150,8 @@ function refreshLock(databasePath) {
     return { refreshed: false, lockFilePath, reason: 'not_owned' };
   }
 
-  const nextPayload = {
-    ...payload,
-    updatedAtMs: Date.now(),
-  };
-
-  safeWriteJson(lockFilePath, nextPayload, { exclusive: false });
+  const timestamp = new Date();
+  fs.utimesSync(lockFilePath, timestamp, timestamp);
   return { refreshed: true, lockFilePath };
 }
 
@@ -237,7 +216,7 @@ function acquireLock(databasePath, options = {}) {
 
   const existing = safeReadJson(lockFilePath);
   const pidRunning = isPidProbablyRunning(Number(existing && existing.pid));
-  const observedTimestampMs = getObservedTimestamp(existing);
+  const observedTimestampMs = getObservedTimestamp(existing, lockFilePath);
   const stale = isStaleTimestamp(observedTimestampMs, staleThresholdMs);
 
   if (isPayloadOwnedByCurrentInstance(existing)) {
@@ -249,56 +228,23 @@ function acquireLock(databasePath, options = {}) {
     };
   }
 
-  if (canRecoverImmediatelyInRailwayVolume(databasePath)) {
-    try {
-      fs.unlinkSync(lockFilePath);
-      writeLockFile(lockFilePath, payload);
-      return {
-        acquired: true,
-        lockFilePath,
-        staleRemoved: true,
-        recoveredByRailwayVolume: true,
-        previousOwner: existing,
-      };
-    } catch (error) {
-      const failure = new Error('Falha ao recuperar lock operacional em volume Railway.');
-      failure.code = error && error.code ? error.code : 'LOCK_RAILWAY_VOLUME_RECOVERY_FAILED';
-      throw failure;
-    }
-  }
-
-  if (stale) {
-    try {
-      fs.unlinkSync(lockFilePath);
-      writeLockFile(lockFilePath, payload);
-      return {
-        acquired: true,
-        lockFilePath,
-        staleRemoved: true,
-        previousOwner: existing,
-      };
-    } catch (error) {
-      const failure = new Error('Falha ao recuperar lock operacional obsoleto do SQLite.');
-      failure.code = error && error.code ? error.code : 'LOCK_STALE_RECOVERY_FAILED';
-      throw failure;
-    }
-  }
-
   return {
     acquired: false,
     lockFilePath,
     staleRemoved: false,
-    active: !stale && pidRunning,
+    active: pidRunning,
+    stale,
+    recoveryRequired: true,
     lockData: existing,
   };
 }
 
 function releaseLock(databasePath) {
   const lockFilePath = lockPathFromDatabasePath(databasePath);
-  stopHeartbeat(databasePath);
 
   try {
     if (!fs.existsSync(lockFilePath)) {
+      stopHeartbeat(databasePath);
       return {
         released: true,
         lockFilePath,
@@ -314,6 +260,7 @@ function releaseLock(databasePath) {
     }
 
     fs.unlinkSync(lockFilePath);
+    stopHeartbeat(databasePath);
   } catch (error) {
     const failure = new Error('Falha ao remover lock operacional do SQLite.');
     failure.code = error && error.code ? error.code : 'LOCK_REMOVE_FAILED';
@@ -341,9 +288,9 @@ function inspectLock(databasePath) {
   const lockData = safeReadJson(lockFilePath);
   const activeByToken = isPayloadOwnedByCurrentInstance(lockData);
   const pidRunning = isPidProbablyRunning(Number(lockData && lockData.pid));
-  const observedTimestampMs = getObservedTimestamp(lockData);
+  const observedTimestampMs = getObservedTimestamp(lockData, lockFilePath);
   const stale = isStaleTimestamp(observedTimestampMs, createStaleThresholdMs());
-  const active = activeByToken || (!stale && pidRunning);
+  const active = activeByToken || pidRunning;
 
   return {
     exists: true,
@@ -351,6 +298,7 @@ function inspectLock(databasePath) {
     active,
     stale,
     ownedByCurrentInstance: activeByToken,
+    recoveryRequired: !activeByToken,
     lockData,
   };
 }

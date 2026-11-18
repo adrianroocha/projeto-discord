@@ -84,6 +84,20 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Limitações: depende de configuração Kick válida e disponibilidade da API externa.
 - Comportamento: o modo padrão cria apenas eventos ausentes; `force:true` tenta ressincronizar os quatro eventos desejados usando diagnóstico seguro da subscription existente.
 
+## /livepix-status
+- Nome: /livepix-status
+- Finalidade: testar a autenticação LivePix e consultar a conta autenticada.
+- Quem pode usar: Administrator.
+- Onde usar: servidor Discord.
+- Parâmetros: nenhum.
+- Resposta: ephemeral com status da conexão e username da conta autenticada; usa defer/edit para a chamada externa.
+- Exemplo: /livepix-status
+- Efeitos no banco: nenhum.
+- Efeitos em cargo: nenhum.
+- Efeitos na fila: nenhum.
+- Limitações: depende de `LIVEPIX_CLIENT_ID`, `LIVEPIX_CLIENT_SECRET`, escopo `account:read` e disponibilidade da LivePix API.
+- Segurança: nunca exibe credenciais, token, email ou ID da conta; a conta autenticada não comprova a identidade de pagador/assinante e não cria vínculo Discord ou concede SUB.
+
 ## /kick-link
 - Nome: /kick-link
 - Finalidade: alternativa de vínculo OAuth Kick do usuário Discord (o fluxo principal também está no painel permanente).

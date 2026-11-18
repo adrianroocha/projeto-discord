@@ -9,7 +9,7 @@ let db = null;
 let closePromise = null;
 let lockHeld = false;
 
-function openConnection() {
+function openConnection(options = {}) {
   return new Promise((resolve, reject) => {
     if (lifecycleService.isShuttingDown()) {
       reject(new Error('Aplicação em shutdown: nova conexão SQLite bloqueada.'));
@@ -27,10 +27,6 @@ function openConnection() {
         ownerTag: 'discord-bot-main',
       });
 
-      if (lockResult.recoveredByRailwayVolume) {
-        console.info('SQLite lock recovery code=LOCK_RAILWAY_VOLUME_RECOVERED');
-      }
-
       if (!lockResult.acquired) {
         const lockError = new Error('Banco SQLite em uso por outra instância.');
         lockError.code = 'SQLITE_DB_LOCK_ACTIVE';
@@ -40,7 +36,10 @@ function openConnection() {
 
       lockHeld = true;
       sqliteOperationalLockService.startHeartbeat(databasePath);
-      db = new Database(databasePath, { readonly: false, fileMustExist: false });
+      db = new Database(databasePath, {
+        readonly: false,
+        fileMustExist: Boolean(options.fileMustExist),
+      });
       resolve(db);
     } catch (err) {
       if (lockHeld) {

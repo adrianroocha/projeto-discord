@@ -28,7 +28,7 @@ function createDiscordClientStub() {
   return emitter;
 }
 
-describe('Railway bootstrap lock recovery', () => {
+describe('Railway bootstrap lock safety', () => {
   afterEach(() => {
     delete process.env.DISCORD_TOKEN;
     delete process.env.GUILD_ID;
@@ -39,7 +39,7 @@ describe('Railway bootstrap lock recovery', () => {
     jest.resetModules();
   });
 
-  test('Restart Railway no mesmo deployment/replica recupera lock e chega a ready', async () => {
+  test('lock deixado por instância anterior bloqueia bootstrap até recuperação manual', async () => {
     const { root, dbPath } = createTempDbPath();
 
     process.env.DISCORD_TOKEN = 'test-token';
@@ -52,8 +52,7 @@ describe('Railway bootstrap lock recovery', () => {
     const lockPath = `${path.resolve(dbPath)}.lock`;
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
 
-    // Simula lock deixado por container antigo que morreu sem cleanup (SIGKILL)
-    // no mesmo deployment.
+    // Simula lock abandonado por container anterior. A recuperação é manual e fail-closed.
     fs.writeFileSync(
       lockPath,
       JSON.stringify({
@@ -98,17 +97,15 @@ describe('Railway bootstrap lock recovery', () => {
     try {
       const result = await service.start(discordClient);
 
-      expect(result.started).toBe(true);
-      expect(lifecycleService.markReady).toHaveBeenCalledTimes(1);
-      expect(lifecycleService.markFailed).not.toHaveBeenCalled();
-      expect(shutdown).not.toHaveBeenCalled();
-      expect(sqliteClient.isConnectionOpen()).toBe(true);
+      expect(result.started).toBe(false);
+      expect(lifecycleService.markReady).not.toHaveBeenCalled();
+      expect(lifecycleService.markFailed).toHaveBeenCalledWith('startup_failure');
+      expect(shutdown).toHaveBeenCalledTimes(1);
+      expect(sqliteClient.isConnectionOpen()).toBe(false);
 
       const lockData = JSON.parse(fs.readFileSync(lockPath, 'utf8'));
-      expect(lockData.railwayDeploymentId).toBe('deployment-same');
-      expect(lockData.railwayReplicaId).toBe('replica-same');
+      expect(lockData.instanceToken).toBe('old-container-token');
     } finally {
-      await sqliteClient.closeConnection();
       fs.rmSync(root, { recursive: true, force: true });
     }
   });

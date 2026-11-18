@@ -20,6 +20,11 @@ function parseKickScopes(rawScopes) {
     .filter(Boolean);
 }
 
+function parseLivePixScopes(rawScopes) {
+  const scopes = typeof rawScopes === 'string' ? rawScopes.trim() : '';
+  return (scopes || 'account:read').split(/\s+/).filter(Boolean);
+}
+
 function parseDiscordIdList(value, options = {}) {
   const name = options.name || 'CONFIG_VALUE';
 
@@ -221,6 +226,8 @@ function parsePortWithPrecedence() {
 
 const kickClientId = process.env.KICK_CLIENT_ID || null;
 const kickClientSecret = process.env.KICK_CLIENT_SECRET || null;
+const livepixClientId = process.env.LIVEPIX_CLIENT_ID || null;
+const livepixClientSecret = process.env.LIVEPIX_CLIENT_SECRET || null;
 
 module.exports = {
   databasePath:
@@ -242,6 +249,9 @@ module.exports = {
   queueTestIntervalMinutes: Number(process.env.QUEUE_TEST_INTERVAL_MINUTES || '5'),
   kickClientId,
   kickClientSecret,
+  livepixClientId,
+  livepixClientSecret,
+  livepixOauthScopes: parseLivePixScopes(process.env.LIVEPIX_OAUTH_SCOPES),
   kickHost: parseHost(process.env.KICK_HOST, '127.0.0.1'),
   kickRedirectUri: process.env.KICK_REDIRECT_URI || 'http://localhost:3000/kick/callback',
   kickOauthScopes: parseKickScopes(process.env.KICK_OAUTH_SCOPES || 'user:read events:subscribe'),

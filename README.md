@@ -178,6 +178,11 @@ KICK_HTTP_MAX_BODY_BYTES=1048576
 KICK_HTTP_BODY_TIMEOUT_MS=10000
 KICK_HTTP_MAX_URL_LENGTH=8192
 
+# LivePix
+LIVEPIX_CLIENT_ID=
+LIVEPIX_CLIENT_SECRET=
+LIVEPIX_OAUTH_SCOPES=account:read
+
 # Porta da aplicação (fallback local)
 KICK_PORT=3000
 
@@ -197,7 +202,7 @@ ADMIN_AUDIT_RETENTION_DAYS=30
 - `KICK_REDIRECT_URI=https://DOMINIO/kick/callback`
 - webhook Kick em `https://DOMINIO/kick/webhooks`
 - O volume persistente deve ser montado exatamente em `/data`.
-- Em restart do Railway no mesmo deployment, o lock operacional no volume é recuperado com segurança para evitar loop de reinicialização.
+- O lock operacional SQLite nunca é removido automaticamente. Locks abandonados exigem parada confirmada do serviço e recuperação manual conforme o [runbook de backup e restore](./docs/runbooks/sqlite-backup-restore.md).
 - A configuração de réplica única deve ser conferida manualmente no painel do Railway (Scaling).
 - O próprio uso de volume persistente impede operação segura com múltiplas réplicas para este serviço SQLite.
 - Deployments com volume persistente podem causar pequena indisponibilidade durante troca de versão.
@@ -232,6 +237,7 @@ Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COM
 - `/lobby-remove` - remove administrativamente um jogador ausente de uma lobby em formação sem retorná-lo para a fila.
 - `/kick-events-sync` - sincroniza os event subscriptions oficiais da Kick para o webhook da aplicação e aceita `force:true` para uma ressincronização manual.
 - `/kick-webhook-status` - mostra auditoria resumida do último webhook válido recebido pela integração Kick.
+- `/livepix-status` - testa a autenticação LivePix e consulta a conta autenticada (Administrator).
 
 ### Autorização operacional centralizada
 
@@ -369,25 +375,30 @@ Quando a fila está fechada, os botões ficam desabilitados.
 - `npm test` - executa a suíte automatizada.
 - `npm run test:watch` - executa os testes em modo assistido.
 - `npm run test:coverage` - executa os testes com cobertura.
-- `npm run db:backup` - executa backup manual seguro do SQLite com validação de integridade.
-- `npm run db:backup:status` - lista metadados seguros de backups (sem conteúdo de tabelas).
+- `npm run db:backup` - executa backup manual seguro com lock operacional, sem inicializar nem migrar o banco.
+- `npm run db:backup:status` - valida arquivos de backup sem abrir o banco ativo.
 - `npm run db:restore -- --file <nome-ou-caminho-controlado> --confirm` - restaura backup offline com confirmação explícita.
 
 ## Backup e restore do SQLite
 
 - O backup diário é feito por scheduler dedicado, com `setTimeout` encadeado, sem `setInterval`.
 - Cada backup cria arquivo temporário, valida com `PRAGMA integrity_check`, e só depois faz rename atômico para o arquivo final.
+- O backup manual exige banco já existente e falha se outra instância estiver usando-o; o backup automático continua usando a conexão principal.
+- O status valida diretamente os arquivos e não abre o banco ativo; por isso, a auditoria histórica não está disponível nesse comando.
 - Falha de retenção não invalida backup já concluído.
-- Execuções são auditadas em `sqlite_backup_runs` (somente metadados seguros).
-- Estado de execução diária do scheduler é persistido em `sqlite_backup_scheduler_state` para evitar duplicidade após restart.
+- Execuções são auditadas em `app_sqlite_backup_runs` (somente metadados seguros).
+- Estado de execução diária do scheduler é persistido em `app_sqlite_backup_scheduler_state` para evitar duplicidade após restart.
 
 ### Restore offline obrigatório
 
 - O bot deve estar desligado para restore.
 - O restore exige `--confirm`; sem isso, nada é alterado.
-- O arquivo de origem é restrito ao diretório configurado de backup e protegido contra path traversal.
+- O arquivo de origem é restrito ao diretório configurado de backup; path traversal e links simbólicos que escapem do diretório são bloqueados.
+- O restore mantém exclusividade operacional durante a verificação, o backup pré-restore, a substituição e o rollback; sidecars SQLite bloqueiam a operação.
 - Antes de restaurar, o script cria backup pré-restore do banco atual e valida esse backup.
 - A substituição usa arquivo temporário e swap controlado; em falha, o banco anterior é preservado.
+- No encerramento normal, o processo proprietário remove seu próprio lock; locks de outras instâncias ou abandonados nunca são removidos automaticamente.
+- Se o rollback falhar (`RESTORE_ROLLBACK_FAILED`), o processo termina com erro, mantém o lock e preserva os arquivos disponíveis. A recuperação manual do banco é obrigatória antes de iniciar outra instância.
 
 Runbook completo: [docs/runbooks/sqlite-backup-restore.md](docs/runbooks/sqlite-backup-restore.md).
 
@@ -454,6 +465,18 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - A tentativa de vínculo (`state` + `code_verifier`) é armazenada em memória por 10 minutos.
 - O `state` é de uso único e é removido após consumo ou expiração.
 - Se o bot reiniciar, tentativas pendentes são perdidas e o usuário deve gerar novo link pelo comando.
+
+## LivePix (autenticação)
+
+- A integração usa o fluxo OAuth `client_credentials` da documentação oficial para autenticar a conta LivePix configurada na aplicação.
+- O token é obtido em `https://oauth.livepix.gg/oauth2/token`, mantido somente em memória e reutilizado até próximo da expiração; como esse fluxo não fornece refresh token na documentação, um novo token é solicitado quando necessário.
+- O escopo padrão é `account:read`; ajuste `LIVEPIX_OAUTH_SCOPES` apenas para escopos documentados que a aplicação realmente necessite.
+- A consulta de diagnóstico usa `GET https://api.livepix.gg/v2/account` e exibe somente o username autenticado.
+- Configure `LIVEPIX_CLIENT_ID` e `LIVEPIX_CLIENT_SECRET` com as credenciais da aplicação LivePix. `LIVEPIX_OAUTH_SCOPES` é opcional e assume `account:read`.
+- `LIVEPIX_REDIRECT_URI` não é necessário: o fluxo de autorização escolhido não usa redirecionamento.
+- O comando privado `/livepix-status` exige `Administrator`, faz a autenticação e consulta a conta, sem exibir token, segredo, email ou ID.
+- A conta retornada representa a conta autenticada da integração; **não identifica o pagador ou assinante**. Esta fase não consulta assinaturas, não recebe webhooks LivePix e não concede nem remove cargo SUB ou vincula contas ao Discord.
+- Indisponibilidade, timeout ou credenciais inválidas são exibidos como falha de diagnóstico sem interromper o bot.
 
 ## Kick (etapa atual)
 

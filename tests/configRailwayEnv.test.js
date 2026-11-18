@@ -17,7 +17,10 @@ function loadConfig(overrides = {}) {
       key === 'ADMIN_AUDIT_RETENTION_DAYS' ||
       key === 'BOT_OPERATOR_ROLE_IDS' ||
       key === 'DISCORD_TOKEN' ||
-      key === 'GUILD_ID'
+      key === 'GUILD_ID' ||
+      key === 'LIVEPIX_CLIENT_ID' ||
+      key === 'LIVEPIX_CLIENT_SECRET' ||
+      key === 'LIVEPIX_OAUTH_SCOPES'
     ) {
       delete process.env[key];
     }
@@ -52,6 +55,26 @@ describe('config Railway host/port and data paths', () => {
   test('fallback de porta para 3000', () => {
     const config = loadConfig({ KICK_PORT: 'invalid' });
     expect(config.kickPort).toBe(3000);
+  });
+
+  test('LivePix usa escopo account:read por padrão sem exigir credenciais', () => {
+    const config = loadConfig({});
+
+    expect(config.livepixClientId).toBeNull();
+    expect(config.livepixClientSecret).toBeNull();
+    expect(config.livepixOauthScopes).toEqual(['account:read']);
+  });
+
+  test('LivePix lê credenciais e escopos configurados', () => {
+    const config = loadConfig({
+      LIVEPIX_CLIENT_ID: 'livepix-client-id',
+      LIVEPIX_CLIENT_SECRET: 'livepix-client-secret',
+      LIVEPIX_OAUTH_SCOPES: 'account:read wallet:read',
+    });
+
+    expect(config.livepixClientId).toBe('livepix-client-id');
+    expect(config.livepixClientSecret).toBe('livepix-client-secret');
+    expect(config.livepixOauthScopes).toEqual(['account:read', 'wallet:read']);
   });
 
   test('host é configurável com KICK_HOST', () => {

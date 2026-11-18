@@ -46,6 +46,16 @@ function ensureInsideDirectory(filePath, directoryPath) {
   return !relative.startsWith('..') && !path.isAbsolute(relative);
 }
 
+function assertRealPathInsideDirectory(filePath, directoryPath) {
+  const realFilePath = fs.realpathSync(filePath);
+  const realDirectoryPath = fs.realpathSync(directoryPath);
+  if (!ensureInsideDirectory(realFilePath, realDirectoryPath)) {
+    throw Object.assign(new Error('Restore bloqueado: arquivo fora de SQLITE_BACKUP_DIRECTORY.'), {
+      code: 'RESTORE_PATH_OUTSIDE_BACKUP_DIR',
+    });
+  }
+}
+
 function normalizeInputBackupPath(fileInput, backupDirectory) {
   if (typeof fileInput !== 'string' || !fileInput.trim()) {
     throw Object.assign(new Error('Informe --file <nome-ou-caminho-controlado>.'), {
@@ -77,8 +87,8 @@ function normalizeInputBackupPath(fileInput, backupDirectory) {
 
 function probeDatabaseIsUnused(databasePath) {
   const lockStatus = sqliteOperationalLockService.inspectLock(databasePath);
-  if (lockStatus.exists && lockStatus.active) {
-    throw Object.assign(new Error('Restore bloqueado: lock operacional ativo indica banco em uso.'), {
+  if (lockStatus.exists && !lockStatus.ownedByCurrentInstance) {
+    throw Object.assign(new Error('Restore bloqueado: lock operacional existente indica banco em uso.'), {
       code: 'RESTORE_LOCK_ACTIVE',
     });
   }
@@ -97,6 +107,18 @@ function probeDatabaseIsUnused(databasePath) {
   } finally {
     if (db) {
       db.close();
+    }
+  }
+}
+
+function assertNoDatabaseSidecars(databasePath) {
+  for (const suffix of ['-wal', '-shm', '-journal']) {
+    const sidecarPath = `${databasePath}${suffix}`;
+    if (fs.existsSync(sidecarPath)) {
+      throw Object.assign(new Error('Restore bloqueado: arquivo auxiliar SQLite presente.'), {
+        code: 'RESTORE_DATABASE_SIDECAR_PRESENT',
+        sidecarPath,
+      });
     }
   }
 }
@@ -146,11 +168,16 @@ function restoreAtomically(options) {
 
   let renamedOriginal = false;
   let restored = false;
+  let rollbackError = null;
+  let cleanupError = null;
+  let failedRestoredPath = null;
 
   try {
+    assertNoDatabaseSidecars(databasePath);
     fs.copyFileSync(sourceBackupPath, restoreTempPath);
     sqliteBackupService.validateBackup(restoreTempPath);
 
+    assertNoDatabaseSidecars(databasePath);
     fs.renameSync(databasePath, previousDbPath);
     renamedOriginal = true;
 
@@ -168,12 +195,12 @@ function restoreAtomically(options) {
   } catch (error) {
     if (restored) {
       try {
-        const failedRestoredPath = `${databasePath}.failed-${Date.now()}.sqlite`;
+        failedRestoredPath = `${databasePath}.failed-${Date.now()}.sqlite`;
         if (fs.existsSync(databasePath)) {
           fs.renameSync(databasePath, failedRestoredPath);
         }
-      } catch {
-        // no-op
+      } catch (rollbackFailure) {
+        rollbackError = rollbackFailure;
       }
     }
 
@@ -182,17 +209,35 @@ function restoreAtomically(options) {
         if (!fs.existsSync(databasePath) && fs.existsSync(previousDbPath)) {
           fs.renameSync(previousDbPath, databasePath);
         }
-      } catch {
-        // no-op
+      } catch (rollbackFailure) {
+        rollbackError = rollbackFailure;
       }
     }
 
-    if (fs.existsSync(restoreTempPath)) {
+    if (!rollbackError && fs.existsSync(restoreTempPath)) {
       try {
         fs.unlinkSync(restoreTempPath);
-      } catch {
-        // no-op
+      } catch (error) {
+        cleanupError = error;
       }
+    }
+
+    if (rollbackError) {
+      const recoveryFiles = [databasePath, previousDbPath, restoreTempPath, failedRestoredPath]
+        .filter((filePath) => filePath && fs.existsSync(filePath));
+      throw Object.assign(new Error('Restauração falhou e a recuperação automática encontrou erro.'), {
+        code: 'RESTORE_ROLLBACK_FAILED',
+        cause: rollbackError,
+        recoveryFiles,
+      });
+    }
+
+    if (cleanupError) {
+      throw Object.assign(new Error('Rollback concluído, mas o temporário de restore não pôde ser removido.'), {
+        code: 'RESTORE_TEMP_CLEANUP_FAILED',
+        cause: cleanupError,
+        recoveryFiles: fs.existsSync(restoreTempPath) ? [restoreTempPath] : [],
+      });
     }
 
     throw Object.assign(new Error('Falha durante restauração atômica do SQLite.'), {
@@ -218,11 +263,25 @@ async function main() {
     return;
   }
 
+  let lockAcquired = false;
+  let retainLockForRecovery = false;
   try {
     const resolvedDatabasePath = path.resolve(config.databasePath);
     const backupDirectory = path.resolve(config.sqliteBackupDirectory || './backups');
 
+    const lockResult = sqliteOperationalLockService.acquireLock(resolvedDatabasePath, {
+      ownerTag: 'db-restore-cli',
+    });
+    if (!lockResult.acquired || lockResult.alreadyOwned) {
+      throw Object.assign(new Error('Restore bloqueado: não foi possível obter exclusividade do banco.'), {
+        code: 'RESTORE_LOCK_ACTIVE',
+      });
+    }
+    lockAcquired = true;
+
     fs.mkdirSync(backupDirectory, { recursive: true });
+
+    assertNoDatabaseSidecars(resolvedDatabasePath);
 
     const sourceBackupPath = normalizeInputBackupPath(args.file, backupDirectory);
     if (!fs.existsSync(sourceBackupPath)) {
@@ -230,6 +289,8 @@ async function main() {
         code: 'RESTORE_SOURCE_NOT_FOUND',
       });
     }
+
+    assertRealPathInsideDirectory(sourceBackupPath, backupDirectory);
 
     if (path.resolve(sourceBackupPath) === resolvedDatabasePath) {
       throw Object.assign(new Error('Restore bloqueado: origem não pode ser o DATABASE_PATH ativo.'), {
@@ -241,6 +302,7 @@ async function main() {
     probeDatabaseIsUnused(resolvedDatabasePath);
 
     const preRestore = await createPreRestoreBackup(resolvedDatabasePath, backupDirectory);
+    assertNoDatabaseSidecars(resolvedDatabasePath);
     const restoreResult = restoreAtomically({
       sourceBackupPath,
       databasePath: resolvedDatabasePath,
@@ -249,16 +311,27 @@ async function main() {
     try {
       sqliteBackupService.validateBackup(resolvedDatabasePath);
     } catch (validationError) {
+      let invalidRestoredPath = null;
       try {
-        if (fs.existsSync(resolvedDatabasePath) && fs.existsSync(restoreResult.previousDbPath)) {
-          const badPath = `${resolvedDatabasePath}.invalid-${Date.now()}.sqlite`;
-          fs.renameSync(resolvedDatabasePath, badPath);
-          fs.renameSync(restoreResult.previousDbPath, resolvedDatabasePath);
-          sqliteBackupService.validateBackup(resolvedDatabasePath);
+        if (!fs.existsSync(restoreResult.previousDbPath)) {
+          throw new Error('Arquivo do banco anterior não está disponível para rollback.');
         }
+        if (fs.existsSync(resolvedDatabasePath)) {
+          invalidRestoredPath = `${resolvedDatabasePath}.invalid-${Date.now()}.sqlite`;
+          fs.renameSync(resolvedDatabasePath, invalidRestoredPath);
+        }
+        fs.renameSync(restoreResult.previousDbPath, resolvedDatabasePath);
+        sqliteBackupService.validateBackup(resolvedDatabasePath);
       } catch {
+        const recoveryFiles = [
+          resolvedDatabasePath,
+          restoreResult.previousDbPath,
+          restoreResult.restoreTempPath,
+          invalidRestoredPath,
+        ].filter((filePath) => filePath && fs.existsSync(filePath));
         throw Object.assign(new Error('Validação final falhou e rollback não pôde ser concluído.'), {
-          code: 'RESTORE_FINAL_VALIDATION_AND_ROLLBACK_FAILED',
+          code: 'RESTORE_ROLLBACK_FAILED',
+          recoveryFiles,
         });
       }
 
@@ -274,7 +347,34 @@ async function main() {
     process.exitCode = 0;
   } catch (error) {
     fail(`Restore falhou. code=${error.code || error.name || 'DB_RESTORE_FAILED'}`, 1);
+    if (error.code === 'RESTORE_ROLLBACK_FAILED') {
+      retainLockForRecovery = true;
+      const recoveryFiles = Array.isArray(error.recoveryFiles) ? error.recoveryFiles : [];
+      console.error(
+        `Intervenção manual obrigatória: estado do banco não confirmado. Lock operacional mantido. Arquivos de recuperação preservados: ${recoveryFiles.join(', ') || 'verifique manualmente o diretório do banco'}`,
+      );
+    }
+  } finally {
+    if (lockAcquired && !retainLockForRecovery) {
+      try {
+        sqliteOperationalLockService.releaseLock(config.databasePath);
+      } catch (error) {
+        console.error(`Erro ao liberar lock SQLite. code=${error.code || 'LOCK_REMOVE_FAILED'}`);
+        process.exitCode = 1;
+      }
+    }
   }
 }
 
-main();
+if (require.main === module) {
+  main();
+}
+
+module.exports = {
+  main,
+  assertNoDatabaseSidecars,
+  normalizeInputBackupPath,
+  probeDatabaseIsUnused,
+  createPreRestoreBackup,
+  restoreAtomically,
+};

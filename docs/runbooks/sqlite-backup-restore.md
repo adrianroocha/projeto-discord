@@ -49,7 +49,7 @@ Variáveis opcionais:
 
 ## Auditoria
 
-Tabela: `sqlite_backup_runs`.
+Tabela: `app_sqlite_backup_runs`.
 
 Campos registrados:
 
@@ -79,6 +79,15 @@ Status:
 npm run db:backup:status
 ```
 
+O status lista e valida os arquivos sem abrir o banco ativo. Por isso, não consulta
+`app_sqlite_backup_runs`; os resultados de execução gravados somente nessa tabela
+não ficam disponíveis nesse comando.
+
+O CLI de backup exige que o arquivo do banco já exista e adquire o lock
+operacional antes de abrir a conexão. Ele não inicializa o esquema nem executa
+migrações. Se o bot estiver usando o banco, o comando falha sem abrir outra
+conexão.
+
 ## Restore offline (CLI)
 
 ### Regras críticas
@@ -86,8 +95,18 @@ npm run db:backup:status
 - Bot totalmente desligado.
 - Obrigatório `--confirm`.
 - Origem validada e restrita ao diretório de backup configurado.
-- Path traversal bloqueado.
-- Lock operacional ativo bloqueia restore.
+- Path traversal e links simbólicos para fora do diretório de backups são bloqueados.
+- O restore adquire o lock operacional antes de qualquer acesso ao banco e o
+  mantém durante verificações, backup pré-restore, troca e rollback.
+- No encerramento normal, o processo proprietário remove seu próprio lock.
+  Locks de outras instâncias ou abandonados nunca são removidos automaticamente,
+  ainda que antigos, com PID não encontrado ou com metadados Railway diferentes.
+- Se o rollback falhar (`RESTORE_ROLLBACK_FAILED`), o processo termina com erro,
+  mantém o lock e preserva os arquivos disponíveis para recuperação. O banco
+  exige intervenção manual; não inicie outra instância nem remova o lock até
+  confirmar e recuperar manualmente o estado do banco.
+- A presença de `-wal`, `-shm` ou `-journal` ao lado do banco bloqueia o restore;
+  os arquivos auxiliares não são removidos automaticamente.
 - Backup pré-restore obrigatório antes de substituir.
 - Swap controlado com arquivo temporário no diretório do banco.
 - Em falha, rollback para o banco anterior.
@@ -102,12 +121,43 @@ npm run db:restore -- --file <nome-ou-caminho-controlado> --confirm
 
 1. Validar `--confirm`.
 2. Validar origem e `PRAGMA integrity_check` da origem.
-3. Detectar uso ativo (lock operacional e tentativa de lock exclusivo).
+3. Adquirir o lock operacional e verificar sidecars e lock exclusivo SQLite.
 4. Criar e validar backup pré-restore.
 5. Preparar arquivo temporário de restore.
 6. Trocar arquivos por rename controlado.
 7. Validar banco restaurado.
 8. Se validação final falhar, tentar rollback do banco anterior.
+9. Se não for possível confirmar o rollback, terminar com erro, preservar os
+   arquivos disponíveis e manter o lock para impedir novas instâncias.
+
+## Lock abandonado e recuperação manual
+
+Um lock existente sempre bloqueia novas conexões. O timestamp, o estado do PID e
+os metadados Railway servem apenas para diagnóstico e não autorizam a remoção
+automática.
+
+O processo proprietário remove seu próprio lock ao encerrar normalmente. Um
+lock mantido por falha crítica de rollback (`RESTORE_ROLLBACK_FAILED`) indica que
+o estado do banco não pôde ser confirmado: os arquivos devem ser avaliados e
+recuperados manualmente antes de qualquer nova inicialização. Locks de outras
+instâncias ou abandonados também nunca são removidos automaticamente.
+
+Para recuperar um lock abandonado:
+
+1. Pare o serviço do bot e confirme no Railway que a instância está parada; não
+   basta iniciar um segundo deploy ou observar um PID ausente.
+2. Confirme que não há outra instância nem processo CLI usando esse `DATABASE_PATH`.
+3. Faça uma cópia preservando o arquivo `<DATABASE_PATH>.lock` para diagnóstico.
+4. Remova manualmente somente esse lock, sem remover ou editar o banco e seus
+   arquivos auxiliares.
+5. Inicie o serviço e confirme que ele adquiriu o lock e abriu o banco.
+
+Se não for possível confirmar que todos os processos pararam, não remova o lock.
+O bootstrap e os CLIs falharão de forma segura e exigirão intervenção operacional.
+
+O comando `db:backup:status` não abre o banco nem remove ou inspeciona locks. Ele
+valida cada arquivo de backup diretamente e informa que a auditoria de execuções
+armazenada no banco ativo não foi consultada.
 
 ## Integração com shutdown gracioso
 

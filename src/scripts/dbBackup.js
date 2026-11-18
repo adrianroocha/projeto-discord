@@ -1,6 +1,5 @@
 require('dotenv').config();
 
-const database = require('../database/database');
 const sqliteClient = require('../database/sqliteClient');
 const sqliteBackupService = require('../services/sqliteBackupService');
 
@@ -8,7 +7,7 @@ async function main() {
   let exitCode = 1;
 
   try {
-    await database.initDatabase();
+    await sqliteClient.openConnection({ fileMustExist: true });
 
     const backupResult = await sqliteBackupService.createBackup({ triggerType: 'cli_manual' });
     if (!backupResult.success) {

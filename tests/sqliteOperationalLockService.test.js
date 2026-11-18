@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawn, spawnSync } = require('child_process');
 
 function createTempDbPath() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sqlite-lock-tests-'));
@@ -78,60 +79,89 @@ describe('sqliteOperationalLockService', () => {
     const lockPath = lockService.lockPathFromDatabasePath(dbPath);
 
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-    fs.writeFileSync(
-      lockPath,
-      JSON.stringify({
-        version: 2,
-        pid: process.pid,
-        instanceToken: 'other-instance-token',
-        createdAtMs: Date.now(),
-        updatedAtMs: Date.now(),
-        ownerTag: 'other',
-        databasePath: path.resolve(dbPath),
-      }),
-      'utf8',
-    );
+    const lockContents = JSON.stringify({
+      version: 2,
+      pid: process.pid,
+      instanceToken: 'other-instance-token',
+      createdAtMs: Date.now(),
+      updatedAtMs: Date.now(),
+      ownerTag: 'other',
+      databasePath: path.resolve(dbPath),
+    });
+    fs.writeFileSync(lockPath, lockContents, 'utf8');
 
     try {
       const result = lockService.acquireLock(dbPath, { staleThresholdMs: 60_000 });
       expect(result.acquired).toBe(false);
       expect(result.active).toBe(true);
+      expect(fs.readFileSync(lockPath, 'utf8')).toBe(lockContents);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test('recupera lock obsoleto após redeploy com PID reutilizado', () => {
+  test('lock ativo com timestamp antigo nunca é removido', () => {
+    const { root, dbPath } = createTempDbPath();
+    const lockService = require('../src/services/sqliteOperationalLockService');
+    const lockPath = lockService.lockPathFromDatabasePath(dbPath);
+    const lockContents = JSON.stringify({
+      version: 2,
+      pid: process.pid,
+      instanceToken: 'active-other-instance',
+      createdAtMs: Date.now() - 600_000,
+      updatedAtMs: Date.now() - 600_000,
+      ownerTag: 'active-old-lock',
+      databasePath: path.resolve(dbPath),
+    });
+
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    fs.writeFileSync(lockPath, lockContents, 'utf8');
+    const oldTime = new Date(Date.now() - 600_000);
+    fs.utimesSync(lockPath, oldTime, oldTime);
+
+    try {
+      const result = lockService.acquireLock(dbPath, { staleThresholdMs: 1_000 });
+      expect(result.acquired).toBe(false);
+      expect(result.active).toBe(true);
+      expect(result.stale).toBe(true);
+      expect(fs.readFileSync(lockPath, 'utf8')).toBe(lockContents);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('lock antigo com proprietário desconhecido exige recuperação manual', () => {
     const { root, dbPath } = createTempDbPath();
     const lockService = require('../src/services/sqliteOperationalLockService');
     const lockPath = lockService.lockPathFromDatabasePath(dbPath);
 
     fs.mkdirSync(path.dirname(lockPath), { recursive: true });
-    fs.writeFileSync(
-      lockPath,
-      JSON.stringify({
-        version: 2,
-        pid: process.pid,
-        instanceToken: 'old-container-token',
-        createdAtMs: Date.now() - 600_000,
-        updatedAtMs: Date.now() - 600_000,
-        ownerTag: 'old',
-        databasePath: path.resolve(dbPath),
-      }),
-      'utf8',
-    );
+    const oldLock = JSON.stringify({
+      version: 2,
+      pid: 2147483647,
+      instanceToken: 'old-container-token',
+      createdAtMs: Date.now() - 600_000,
+      updatedAtMs: Date.now() - 600_000,
+      ownerTag: 'old',
+      databasePath: path.resolve(dbPath),
+    });
+    fs.writeFileSync(lockPath, oldLock, 'utf8');
+    const oldTime = new Date(Date.now() - 600_000);
+    fs.utimesSync(lockPath, oldTime, oldTime);
 
     try {
       const result = lockService.acquireLock(dbPath, { staleThresholdMs: 1_000 });
-      expect(result.acquired).toBe(true);
-      expect(result.staleRemoved).toBe(true);
+      expect(result.acquired).toBe(false);
+      expect(result.active).toBe(false);
+      expect(result.stale).toBe(true);
+      expect(result.recoveryRequired).toBe(true);
+      expect(fs.readFileSync(lockPath, 'utf8')).toBe(oldLock);
     } finally {
-      lockService.releaseLock(dbPath);
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test('deployment Railway diferente recupera lock imediatamente', () => {
+  test('deployment Railway diferente não autoriza remoção de lock', () => {
     const { root, dbPath } = createTempDbPath();
     process.env.RAILWAY_DEPLOYMENT_ID = 'new-deployment';
     process.env.RAILWAY_REPLICA_ID = 'replica-a';
@@ -159,15 +189,15 @@ describe('sqliteOperationalLockService', () => {
 
     try {
       const result = lockService.acquireLock(dbPath, { staleThresholdMs: 60_000 });
-      expect(result.acquired).toBe(true);
-      expect(result.recoveredByRailwayVolume).toBe(true);
+      expect(result.acquired).toBe(false);
+      expect(result.active).toBe(true);
+      expect(JSON.parse(fs.readFileSync(lockPath, 'utf8')).railwayDeploymentId).toBe('old-deployment');
     } finally {
-      lockService.releaseLock(dbPath);
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
 
-  test('restart Railway com mesmo deploymentId e replicaId recupera lock imediatamente', () => {
+  test('restart Railway com mesmo deployment e replica não autoriza remoção de lock', () => {
     const { root, dbPath } = createTempDbPath();
     process.env.RAILWAY_DEPLOYMENT_ID = 'same-deployment';
     process.env.RAILWAY_REPLICA_ID = 'same-replica';
@@ -195,10 +225,10 @@ describe('sqliteOperationalLockService', () => {
 
     try {
       const result = lockService.acquireLock(dbPath, { staleThresholdMs: 60_000 });
-      expect(result.acquired).toBe(true);
-      expect(result.recoveredByRailwayVolume).toBe(true);
+      expect(result.acquired).toBe(false);
+      expect(result.active).toBe(true);
+      expect(JSON.parse(fs.readFileSync(lockPath, 'utf8')).instanceToken).toBe('other-instance-token');
     } finally {
-      lockService.releaseLock(dbPath);
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
@@ -270,7 +300,7 @@ describe('sqliteOperationalLockService', () => {
     }
   });
 
-  test('database.sqlite não é removido nem alterado ao recuperar lock no Railway', () => {
+  test('metadados Railway não removem lock nem alteram database.sqlite', () => {
     const { root, dbPath } = createTempDbPath();
     process.env.RAILWAY_DEPLOYMENT_ID = 'dep-safe';
     process.env.RAILWAY_REPLICA_ID = 'rep-safe';
@@ -301,15 +331,81 @@ describe('sqliteOperationalLockService', () => {
 
     try {
       const result = lockService.acquireLock(dbPath, { staleThresholdMs: 60_000 });
-      expect(result.acquired).toBe(true);
-      expect(result.recoveredByRailwayVolume).toBe(true);
+      expect(result.acquired).toBe(false);
+      expect(JSON.parse(fs.readFileSync(lockPath, 'utf8')).instanceToken).toBe('old-token');
 
       const afterContent = fs.readFileSync(dbPath, 'utf8');
       const afterSize = fs.statSync(dbPath).size;
       expect(afterContent).toBe(beforeContent);
       expect(afterSize).toBe(beforeSize);
     } finally {
-      lockService.releaseLock(dbPath);
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('dois processos não adquirem exclusividade simultaneamente', async () => {
+    const { root, dbPath } = createTempDbPath();
+    const lockModulePath = path.resolve(__dirname, '../src/services/sqliteOperationalLockService');
+    const childScript = `
+      const locks = require(${JSON.stringify(lockModulePath)});
+      const dbPath = process.argv[1];
+      const result = locks.acquireLock(dbPath, { ownerTag: 'child-test' });
+      process.stdout.write(JSON.stringify({ acquired: result.acquired }) + String.fromCharCode(10));
+      if (result.acquired) {
+        setTimeout(() => {
+          locks.releaseLock(dbPath);
+          process.exit(0);
+        }, 500);
+      } else {
+        process.exit(0);
+      }
+    `;
+
+    const first = spawn(process.execPath, ['-e', childScript, dbPath], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const firstExit = new Promise((resolve, reject) => {
+      first.once('error', reject);
+      first.once('exit', (code) => {
+        if (code === 0) {
+          resolve();
+        } else {
+          reject(new Error(`Primeiro processo terminou com ${code}`));
+        }
+      });
+    });
+
+    try {
+      const firstResult = await new Promise((resolve, reject) => {
+        let output = '';
+        first.stdout.on('data', (chunk) => {
+          output += chunk.toString();
+          const newlineIndex = output.indexOf('\n');
+          if (newlineIndex >= 0) {
+            resolve(JSON.parse(output.slice(0, newlineIndex)));
+          }
+        });
+        first.once('error', reject);
+      });
+      expect(firstResult.acquired).toBe(true);
+
+      const second = spawnSync(process.execPath, ['-e', childScript, dbPath], {
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      expect(second.status).toBe(0);
+      expect(JSON.parse(second.stdout.trim()).acquired).toBe(false);
+      await firstExit;
+
+      const afterRelease = spawnSync(process.execPath, ['-e', childScript, dbPath], {
+        encoding: 'utf8',
+        timeout: 5000,
+      });
+      expect(afterRelease.status).toBe(0);
+      expect(JSON.parse(afterRelease.stdout.trim()).acquired).toBe(true);
+    } finally {
+      if (first.exitCode === null) {
+        first.kill();
+      }
+      await firstExit.catch(() => undefined);
       fs.rmSync(root, { recursive: true, force: true });
     }
   });
