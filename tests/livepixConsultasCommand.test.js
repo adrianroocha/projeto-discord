@@ -91,6 +91,97 @@ describe('/livepix-consultas command', () => {
     expect(reply).not.toContain('Private plan details');
   });
 
+  test.each([
+    'Active',
+    'active',
+    'ACTIVE',
+    'Pending',
+    'pending',
+    'PENDING',
+    'Cancelled',
+    'cancelled',
+    'CANCELLED',
+  ])('aceita status %s preservando o valor recebido', async (status) => {
+    const subscription = { id: 'sub-1', status };
+    livepixAuthService.listSubscriptions.mockResolvedValue([subscription]);
+    const interaction = createInteraction();
+
+    await command.execute(interaction);
+
+    const reply = getReplyContent(interaction);
+    expect(reply).toContain('**Assinaturas:** ✅ 1 item na página');
+    expect(subscription.status).toBe(status);
+  });
+
+  test('normaliza status somente para validar e contar sem alterar os valores originais', async () => {
+    const subscriptions = [
+      { id: 'sub-1', status: 'Active' },
+      { id: 'sub-2', status: 'active' },
+      { id: 'sub-3', status: 'ACTIVE' },
+      { id: 'sub-4', status: 'Pending' },
+      { id: 'sub-5', status: 'pending' },
+      { id: 'sub-6', status: 'PENDING' },
+      { id: 'sub-7', status: 'Cancelled' },
+      { id: 'sub-8', status: 'cancelled' },
+      { id: 'sub-9', status: 'CANCELLED' },
+    ];
+    livepixAuthService.listSubscriptions.mockResolvedValue(subscriptions);
+    const interaction = createInteraction();
+
+    await command.execute(interaction);
+
+    expect(getReplyContent(interaction)).toContain(
+      '**Status nesta página:** ativas 3 · pendentes 3 · canceladas 3',
+    );
+    expect(subscriptions.map((subscription) => subscription.status)).toEqual([
+      'Active',
+      'active',
+      'ACTIVE',
+      'Pending',
+      'pending',
+      'PENDING',
+      'Cancelled',
+      'cancelled',
+      'CANCELLED',
+    ]);
+  });
+
+  test.each([
+    ['desconhecido', { status: 'expired' }],
+    ['ausente', {}],
+    ['null', { status: null }],
+    ['number', { status: 1 }],
+    ['boolean', { status: true }],
+    ['object', { status: {} }],
+  ])('rejeita status %s com diagnóstico de validação do comando', async (_label, statusField) => {
+    livepixAuthService.listSubscriptions.mockResolvedValue([
+      { id: 'sub-1', ...statusField },
+    ]);
+    const interaction = createInteraction();
+
+    await command.execute(interaction);
+
+    expect(getReplyContent(interaction)).toContain(
+      '**Assinaturas:** ❌ Falha — A validação adicional do comando rejeitou a resposta de assinaturas.',
+    );
+  });
+
+  test.each([
+    ['ausente', { status: 'active' }],
+    ['vazio', { id: '', status: 'active' }],
+    ['null', { id: null, status: 'active' }],
+    ['number', { id: 1, status: 'active' }],
+  ])('continua rejeitando ID %s', async (_label, subscription) => {
+    livepixAuthService.listSubscriptions.mockResolvedValue([subscription]);
+    const interaction = createInteraction();
+
+    await command.execute(interaction);
+
+    expect(getReplyContent(interaction)).toContain(
+      '**Assinaturas:** ❌ Falha — A validação adicional do comando rejeitou a resposta de assinaturas.',
+    );
+  });
+
   test('exibe falha das assinaturas sem ocultar o sucesso dos planos', async () => {
     livepixAuthService.listSubscriptions.mockRejectedValue(
       Object.assign(new Error('private response body'), { code: 'FORBIDDEN' }),
@@ -185,8 +276,12 @@ describe('/livepix-consultas command', () => {
     await command.execute(interaction);
 
     const reply = getReplyContent(interaction);
-    expect(reply).toContain('**Assinaturas:** ❌ Falha — Resposta inválida da LivePix.');
-    expect(reply).toContain('**Planos:** ❌ Falha — Resposta inválida da LivePix.');
+    expect(reply).toContain(
+      '**Assinaturas:** ❌ Falha — A validação adicional do comando rejeitou a resposta de assinaturas.',
+    );
+    expect(reply).toContain(
+      '**Planos:** ❌ Falha — A validação adicional do comando rejeitou a resposta de planos.',
+    );
     expect(reply).not.toContain('[object Object]');
   });
 
@@ -196,7 +291,10 @@ describe('/livepix-consultas command', () => {
     ['RATE_LIMITED', 'HTTP 429: limite de requisições atingido.'],
     ['REQUEST_TIMEOUT', 'Tempo limite excedido ao consultar a LivePix.'],
     ['NETWORK_ERROR', 'Falha de rede ao consultar a LivePix.'],
-    ['INVALID_SUBSCRIPTIONS_RESPONSE', 'Resposta inválida da LivePix.'],
+    [
+      'INVALID_SUBSCRIPTIONS_RESPONSE',
+      'O serviço LivePix rejeitou a resposta de assinaturas.',
+    ],
   ])('apresenta mensagem segura para %s', async (code, expectedMessage) => {
     livepixAuthService.listSubscriptions.mockRejectedValue(
       Object.assign(new Error('sensitive response content'), { code }),

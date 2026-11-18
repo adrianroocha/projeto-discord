@@ -104,7 +104,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 - Quem pode usar: Administrator.
 - Onde usar: servidor Discord.
 - Parâmetros: nenhum.
-- Resposta: ephemeral; informa o resultado da autenticação, o resultado de cada endpoint, a quantidade retornada na página e a distribuição por status das assinaturas quando disponível. Se um endpoint estiver em cooldown após HTTP 429 com `X-RateLimit-Reset` Unix válido, informa quando a consulta poderá ser repetida e não chama esse endpoint.
+- Resposta: ephemeral; informa o resultado da autenticação, o resultado de cada endpoint, a quantidade retornada na página e a distribuição por status das assinaturas (sem diferenciar maiúsculas/minúsculas) quando disponível. Distingue rejeição do serviço LivePix de rejeição pela validação adicional do comando, sem exibir o corpo da resposta. Se um endpoint estiver em cooldown após HTTP 429 com `X-RateLimit-Reset` Unix válido, informa quando a consulta poderá ser repetida e não chama esse endpoint.
 - Consultas: `GET /v2/subscriptions?page=1&limit=10` e `GET /v2/subscriptions/plans?page=1&limit=10`.
 - Efeitos no banco: nenhum.
 - Efeitos em cargo: nenhum.

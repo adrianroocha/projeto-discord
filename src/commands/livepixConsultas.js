@@ -22,10 +22,11 @@ function validateSubscriptions(subscriptions) {
         Array.isArray(subscription) ||
         typeof subscription.id !== 'string' ||
         !subscription.id ||
-        !subscriptionStatuses.has(subscription.status),
+        typeof subscription.status !== 'string' ||
+        !subscriptionStatuses.has(subscription.status.toLowerCase()),
     )
   ) {
-    throw invalidResponse('INVALID_SUBSCRIPTIONS_RESPONSE');
+    throw invalidResponse('COMMAND_INVALID_SUBSCRIPTIONS_RESPONSE');
   }
 
   return subscriptions;
@@ -45,7 +46,7 @@ function validatePlans(plans) {
         !plan.name,
     )
   ) {
-    throw invalidResponse('INVALID_SUBSCRIPTION_PLANS_RESPONSE');
+    throw invalidResponse('COMMAND_INVALID_SUBSCRIPTION_PLANS_RESPONSE');
   }
 
   return plans;
@@ -65,11 +66,18 @@ function describeError(error, context) {
       return 'Tempo limite excedido ao consultar a LivePix.';
     case 'NETWORK_ERROR':
       return 'Falha de rede ao consultar a LivePix.';
-    case 'INVALID_JSON_RESPONSE':
-    case 'INVALID_TOKEN_RESPONSE':
     case 'INVALID_SUBSCRIPTIONS_RESPONSE':
+      return 'O serviço LivePix rejeitou a resposta de assinaturas.';
+    case 'COMMAND_INVALID_SUBSCRIPTIONS_RESPONSE':
+      return 'A validação adicional do comando rejeitou a resposta de assinaturas.';
     case 'INVALID_SUBSCRIPTION_PLANS_RESPONSE':
-      return 'Resposta inválida da LivePix.';
+      return 'O serviço LivePix rejeitou a resposta de planos.';
+    case 'COMMAND_INVALID_SUBSCRIPTION_PLANS_RESPONSE':
+      return 'A validação adicional do comando rejeitou a resposta de planos.';
+    case 'INVALID_JSON_RESPONSE':
+      return 'O serviço LivePix retornou JSON inválido.';
+    case 'INVALID_TOKEN_RESPONSE':
+      return 'O serviço LivePix retornou uma resposta OAuth inválida.';
     case 'MISSING_CONFIG':
       return 'Configuração necessária da LivePix ausente.';
     case 'BAD_REQUEST':
@@ -115,7 +123,7 @@ function queryEndpoint(endpoint, query, validate) {
 function formatStatusCounts(subscriptions) {
   const counts = { active: 0, pending: 0, cancelled: 0 };
   for (const subscription of subscriptions) {
-    counts[subscription.status] += 1;
+    counts[subscription.status.toLowerCase()] += 1;
   }
 
   return `**Status nesta página:** ${Object.entries(counts)
