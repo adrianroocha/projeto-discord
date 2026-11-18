@@ -1,6 +1,6 @@
-const service = require('../src/services/kickUnlinkConfirmationService');
+const service = require('../src/services/accountUnlinkConfirmationService');
 
-describe('kickUnlinkConfirmationService', () => {
+describe('accountUnlinkConfirmationService', () => {
   beforeEach(() => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
@@ -13,7 +13,7 @@ describe('kickUnlinkConfirmationService', () => {
   });
 
   test('gera confirmação com expiração de 5 minutos', () => {
-    const created = service.create('discord-1', { kickUsername: 'user1' });
+    const created = service.create('discord-1', { accountId: 'account-1' });
 
     expect(created.token).toMatch(/^[a-f0-9]{32}$/);
     expect(created.expiresAtMs).toBe(Date.now() + 5 * 60 * 1000);

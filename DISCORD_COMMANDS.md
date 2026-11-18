@@ -18,7 +18,7 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 ## Auditoria administrativa de fila e lobbies
 - Fonte oficial: tabela SQLite `admin_command_audit_logs`.
 - Escopo auditado nesta etapa (comandos mutáveis): `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start`, `/lobby-swap`, `/lobby-remove`.
-- Consulta administrativa auditada nesta etapa: `/kick-status usuario:@Membro` quando o alvo é terceiro.
+- Consultas administrativas auditadas nesta etapa: `/kick-status usuario:@Membro` e `/livepix-status usuario:@Membro` quando o alvo é terceiro.
 - Consultas próprias continuam fora da auditoria administrativa.
 - Comandos administrativos de consulta ainda não auditados nesta etapa: `/scheduler-status`, `/fila-status`, `/lobby-status`.
 - Cada tentativa registra início (`pending`) e resultado final (`success`, `failed` ou `denied`) com código seguro.
@@ -86,17 +86,32 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 
 ## /livepix-status
 - Nome: /livepix-status
-- Finalidade: testar a autenticação LivePix e consultar a conta autenticada.
-- Quem pode usar: Administrator.
+- Finalidade: consultar se um usuário Discord está vinculado a uma conta LivePix e, se estiver, mostrar o ID armazenado.
+- Quem pode usar: qualquer usuário para consultar a si mesmo; consulta de terceiros exige autorização operacional (`Administrator`, `Manage Guild` ou cargo em `BOT_OPERATOR_ROLE_IDS`).
 - Onde usar: servidor Discord.
-- Parâmetros: nenhum.
-- Resposta: ephemeral com status da conexão e username da conta autenticada; usa defer/edit para a chamada externa.
+- Parâmetros: usuario (user, opcional).
+- Resposta: ephemeral; mostra o usuário consultado, se há vínculo e o ID da conta LivePix armazenado quando houver.
 - Exemplo: /livepix-status
-- Efeitos no banco: nenhum.
+- Exemplo: /livepix-status usuario:@Membro
+- Efeitos no banco: apenas leitura; consultas de terceiros são auditadas sem gravar o ID da conta LivePix.
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: nenhum.
-- Limitações: depende de `LIVEPIX_CLIENT_ID`, `LIVEPIX_CLIENT_SECRET`, escopo `account:read` e disponibilidade da LivePix API.
-- Segurança: nunca exibe credenciais, token, email ou ID da conta; a conta autenticada não comprova a identidade de pagador/assinante e não cria vínculo Discord ou concede SUB.
+- Regras de acesso: sem `usuario`, consulta o autor; ao consultar outro membro, o ator e o alvo precisam estar disponíveis no servidor.
+- Segurança: consulta somente o vínculo local; não consulta a API LivePix nem exibe tokens ou credenciais.
+
+## /livepix-unlink
+- Nome: /livepix-unlink
+- Finalidade: iniciar a desvinculação administrativa da conta LivePix de um membro.
+- Quem pode usar: Administrator.
+- Onde usar: servidor Discord.
+- Parâmetros: usuario (user, obrigatório), motivo (string, obrigatório).
+- Resposta: ephemeral com botões de confirmar/cancelar.
+- Exemplo: /livepix-unlink usuario:@Membro motivo:Solicitação do usuário
+- Efeitos no banco: nenhum direto no comando; ao confirmar, remove somente `livepix_accounts` e registra a auditoria em `livepix_unlink_audit`.
+- Efeitos em cargo: nenhum.
+- Efeitos na fila: nenhum.
+- Limitações: confirmação expira em 5 minutos, é de uso único e só pode ser confirmada pelo administrador que iniciou.
+- Segurança: contas, vínculos e dados da Kick não são alterados; a auditoria é transacional com a remoção.
 
 ## /livepix-consultas
 - Nome: /livepix-consultas
@@ -558,12 +573,12 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 
 ## Painel permanente Vincular conta LivePix
 - Nome: Painel permanente Vincular conta LivePix.
-- Finalidade: disponibilizar ações independentes para vínculo, consulta e desvinculação da conta LivePix do próprio usuário.
+- Finalidade: disponibilizar ações independentes para vínculo e consulta da conta LivePix do próprio usuário.
 - Quem pode usar: qualquer usuário que visualize o canal.
 - Onde usar: canal configurado em LIVEPIX_LINK_CHANNEL_ID (mesmo servidor de GUILD_ID).
 - Parâmetros: nenhum.
-- Resposta: mensagem fixa com os botões `Vincular conta LivePix`, `Consultar meu vínculo` e `Desvincular minha conta`.
-- Efeitos no banco: somente o callback OAuth cria `livepix_accounts`; consulta não altera dados; desvinculação confirmada remove somente o vínculo LivePix.
+- Resposta: mensagem fixa com os botões `Vincular conta LivePix` e `Consultar meu vínculo`.
+- Efeitos no banco: somente o callback OAuth cria `livepix_accounts`; consulta não altera dados.
 - Efeitos em cargo: nenhum.
 - Efeitos na fila: nenhum.
 - Limitações: exige LIVEPIX_CLIENT_ID, LIVEPIX_CLIENT_SECRET e LIVEPIX_REDIRECT_URI; painel desativado se LIVEPIX_LINK_CHANNEL_ID estiver ausente.
@@ -571,10 +586,8 @@ Este documento deve ser atualizado sempre que qualquer comando slash, botão ou 
 ## Botões LivePix
 - `livepix-link-start`: responde privadamente com link OAuth individual; `state` associa o fluxo ao Discord por 10 minutos e é de uso único.
 - `livepix-link-status`: consulta privadamente somente o vínculo do autor, sem chamada externa.
-- `livepix-unlink-start`: exige que o autor confirme a desvinculação em mensagem privada.
-- `livepix-unlink-confirm:{token}`: remove somente o registro de `livepix_accounts`; confirmação privada, de uso único e expira em 5 minutos.
-- `livepix-unlink-cancel:{token}`: invalida a confirmação sem alterar o banco.
-- Nenhum desses botões modifica a integração Kick, cargos SUB ou fila. A LivePix account ID já vinculada não é revelada ao outro Discord em conflitos.
+- `livepix-unlink-confirm:{token}` e `livepix-unlink-cancel:{token}`: confirmam ou cancelam a ação iniciada pelo comando administrativo `/livepix-unlink`; token temporário de uso único, válido por 5 minutos e vinculado ao administrador iniciador.
+- Os botões de vínculo e consulta não modificam a integração Kick, cargos SUB ou fila. A LivePix account ID já vinculada não é revelada ao outro Discord em conflitos.
 
 ## Botão admin_open
 - Nome: admin_open

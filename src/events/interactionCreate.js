@@ -7,7 +7,6 @@ const kickUnlinkConfirmButton = require('../buttons/kickUnlinkConfirm');
 const kickUnlinkCancelButton = require('../buttons/kickUnlinkCancel');
 const livepixLinkStartButton = require('../buttons/livepixLinkStart');
 const livepixLinkStatusButton = require('../buttons/livepixLinkStatus');
-const livepixUnlinkStartButton = require('../buttons/livepixUnlinkStart');
 const livepixUnlinkConfirmButton = require('../buttons/livepixUnlinkConfirm');
 const livepixUnlinkCancelButton = require('../buttons/livepixUnlinkCancel');
 const applicationLifecycleService = require('../services/applicationLifecycleService');
@@ -19,7 +18,6 @@ const buttonHandlers = {
   [kickLinkStatusButton.customId]: kickLinkStatusButton,
   [livepixLinkStartButton.customId]: livepixLinkStartButton,
   [livepixLinkStatusButton.customId]: livepixLinkStatusButton,
-  [livepixUnlinkStartButton.customId]: livepixUnlinkStartButton,
 };
 
 const prefixButtonHandlers = [

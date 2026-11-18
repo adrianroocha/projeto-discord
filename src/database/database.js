@@ -113,6 +113,17 @@ async function initDatabase() {
     )
   `;
 
+  const createLivePixUnlinkAuditTableSql = `
+    CREATE TABLE IF NOT EXISTS livepix_unlink_audit (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      discord_id TEXT NOT NULL,
+      livepix_account_id TEXT NOT NULL,
+      unlinked_by_discord_id TEXT NOT NULL,
+      unlinked_at_ms INTEGER NOT NULL,
+      reason TEXT NOT NULL
+    )
+  `;
+
   const createManualSubGrantsTableSql = `
     CREATE TABLE IF NOT EXISTS manual_sub_grants (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -268,6 +279,7 @@ async function initDatabase() {
   db.exec(createSchedulerStateTableSql);
   db.exec(createKickAccountsTableSql);
   db.exec(createLivePixAccountsTableSql);
+  db.exec(createLivePixUnlinkAuditTableSql);
   db.exec(createManualSubGrantsTableSql);
   db.exec(createKickSubscriptionsTableSql);
   db.exec(createKickWebhookEventsTableSql);

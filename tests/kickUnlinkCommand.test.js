@@ -3,7 +3,7 @@ jest.mock('../src/database/kickAccountsRepository', () => ({
   unlinkWithAudit: jest.fn(),
 }));
 
-jest.mock('../src/services/kickUnlinkConfirmationService', () => ({
+jest.mock('../src/services/accountUnlinkConfirmationService', () => ({
   cleanupExpired: jest.fn(),
   create: jest.fn(),
   validate: jest.fn(),
@@ -16,7 +16,7 @@ jest.mock('../src/services/subscriberRoleAutoSyncService', () => ({
 }));
 
 const kickAccountsRepository = require('../src/database/kickAccountsRepository');
-const confirmationService = require('../src/services/kickUnlinkConfirmationService');
+const confirmationService = require('../src/services/accountUnlinkConfirmationService');
 const autoSyncService = require('../src/services/subscriberRoleAutoSyncService');
 const { PermissionFlagsBits, MessageFlags } = require('discord.js');
 

@@ -251,7 +251,8 @@ Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COM
 - `/lobby-remove` - remove administrativamente um jogador ausente de uma lobby em formação sem retorná-lo para a fila.
 - `/kick-events-sync` - sincroniza os event subscriptions oficiais da Kick para o webhook da aplicação e aceita `force:true` para uma ressincronização manual.
 - `/kick-webhook-status` - mostra auditoria resumida do último webhook válido recebido pela integração Kick.
-- `/livepix-status` - testa a autenticação LivePix e consulta a conta autenticada (Administrator).
+- `/livepix-status` - consulta o vínculo LivePix do próprio usuário ou, com autorização operacional, de outro membro.
+- `/livepix-unlink` - desvincula administrativamente uma conta LivePix após confirmação temporária.
 - `/livepix-consultas` - valida consultas de assinaturas e planos LivePix (Administrator).
 
 ### Autorização operacional centralizada
@@ -272,14 +273,14 @@ Documentação detalhada e mandatória de comandos slash e botões: [DISCORD_COM
 ### Auditoria administrativa de fila e lobbies
 
 - Fonte oficial: SQLite (`admin_command_audit_logs`).
-- Escopo atual auditado: `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start`, `/lobby-swap`, `/lobby-remove` e consultas administrativas de `/kick-status usuario:@Membro` para terceiros.
+- Escopo atual auditado: `/scheduler-open`, `/scheduler-close`, `/lobby-form-force`, `/lobby-start`, `/lobby-swap`, `/lobby-remove` e consultas administrativas de `/kick-status usuario:@Membro` e `/livepix-status usuario:@Membro` para terceiros.
 - Consultas próprias continuam fora da auditoria administrativa.
 - Comandos administrativos de consulta ainda fora desta etapa: `/scheduler-status`, `/fila-status`, `/lobby-status`.
 - Para cada tentativa, o bot registra início (`pending`) e finaliza como `success`, `failed` ou `denied`.
 - Campos persistidos são apenas metadados seguros: `interaction_id`, `guild_id`, `channel_id`, ator, comando, parâmetros saneados, `queue_cycle_id`, estados operacionais seguros, código seguro e timestamps.
-- Dados proibidos no log: token, secret, payload completo do Discord, OAuth/Kick sensível, stack trace e mensagens internas de exceção.
+- Dados proibidos no log: token, secret, payload completo do Discord, credenciais/OAuth/IDs de contas Kick ou LivePix, stack trace e mensagens internas de exceção.
 - Se a criação do registro obrigatório no SQLite falhar antes da mutação, a ação administrativa mutável é recusada.
-- Na consulta administrativa de `/kick-status`, o log persiste apenas ator, alvo por Discord ID, comando, resultado seguro e timestamps.
+- Nas consultas administrativas de `/kick-status` e `/livepix-status`, o log persiste apenas ator, alvo por Discord ID, comando, resultado seguro e timestamps; IDs de contas externas e estados de vínculo não são registrados.
 - Se a ação principal concluir e a finalização da auditoria falhar, a ação não é revertida; o bot gera apenas warning seguro.
 - Idempotência por `interaction_id`: a mesma interação não gera duas execuções auditadas.
 
@@ -486,18 +487,19 @@ O projeto já possui base funcional e suíte automatizada. A próxima expansão 
 - A integração usa o fluxo OAuth `client_credentials` da documentação oficial para autenticar a conta LivePix configurada na aplicação.
 - O token é obtido em `https://oauth.livepix.gg/oauth2/token`, mantido somente em memória e reutilizado até próximo da expiração; como esse fluxo não fornece refresh token na documentação, um novo token é solicitado quando necessário.
 - O escopo padrão é `account:read`; `LIVEPIX_OAUTH_SCOPES` aceita múltiplos escopos separados por espaços. Para `/livepix-consultas`, configure `account:read subscriptions:read subscription-plans:read`.
-- A consulta de diagnóstico usa `GET https://api.livepix.gg/v2/account` e exibe somente o username autenticado.
+- O fluxo administrativo `client_credentials` permanece separado do OAuth individual e é usado por `/livepix-consultas`; o vínculo de usuários não usa essas credenciais.
 - Configure `LIVEPIX_CLIENT_ID` e `LIVEPIX_CLIENT_SECRET` com as credenciais da aplicação LivePix. `LIVEPIX_OAUTH_SCOPES` é opcional e assume `account:read`.
 - O vínculo individual de usuários usa um fluxo separado `authorization_code` em `https://oauth.livepix.gg/oauth2/auth` e `https://oauth.livepix.gg/oauth2/token`, com callback `GET /livepix/callback` no mesmo servidor HTTP existente.
-- O painel individual é configurado por `LIVEPIX_LINK_CHANNEL_ID` e tem ações privadas para vincular, consultar e desvincular; a desvinculação requer confirmação e não altera dados da Kick.
+- O painel individual é configurado por `LIVEPIX_LINK_CHANNEL_ID` e tem ações privadas para vincular e consultar o próprio vínculo; desvinculação administrativa é feita somente por `/livepix-unlink`.
 - `LIVEPIX_REDIRECT_URI` deve corresponder exatamente ao callback autorizado na aplicação LivePix. `LIVEPIX_LINK_OAUTH_SCOPES` controla os escopos do consentimento individual, sem alterar os escopos administrativos de `LIVEPIX_OAUTH_SCOPES`.
 - O `state` individual é aleatório, associado em memória ao Discord iniciador, expira em 10 minutos e só pode ser consumido uma vez. Reiniciar o bot invalida tentativas pendentes.
 - O token individual é mantido apenas em memória durante a consulta a `GET /v2/account`. A persistência contém somente IDs de Discord/LivePix e timestamps; nenhum access token ou refresh token é salvo.
 - A tabela `livepix_accounts` é criada idempotentemente por `initDatabase`; não foi executada migration em produção.
 - O fluxo individual não renova tokens. Suporte a refresh só deve ser implementado após confirmação documental da LivePix sobre emissão, validade e rotação de refresh tokens.
-- O comando privado `/livepix-status` exige `Administrator`, faz a autenticação e consulta a conta, sem exibir token, segredo, email ou ID.
+- `/livepix-status` consulta o estado local do vínculo Discord/LivePix. Consulta própria é livre; consulta de terceiros exige autorização operacional (`Administrator`, `Manage Guild` ou cargo em `BOT_OPERATOR_ROLE_IDS`) e é auditada. Quando vinculado, mostra somente o ID da conta LivePix persistido; não consulta API externa nem expõe tokens ou credenciais.
+- `/livepix-unlink` exige `Administrator`, usuário alvo e motivo. A confirmação de uso único expira em 5 minutos; ao confirmar, remove e audita somente o vínculo LivePix, sem alterar contas, vínculos, cargos ou dados da Kick.
 - O comando privado `/livepix-consultas` exige `Administrator` e consulta somente a primeira página (até 10 itens) de assinaturas e planos. Exibe contagens com status sem diferenciar maiúsculas/minúsculas, sem dados pessoais, sem percorrer páginas e sem consultar transações. Distingue falha do serviço LivePix de falha na validação adicional do comando sem exibir o corpo da resposta. Após HTTP 429 com `X-RateLimit-Reset` Unix válido, bloqueia novas consultas somente ao endpoint afetado até o reset; o comando informa o horário e não repete chamadas durante o cooldown.
-- A conta retornada pelo status representa a conta autenticada da integração; **não identifica o pagador ou assinante**. As consultas não vinculam contas Discord, não concedem nem removem cargo SUB e não alteram elegibilidade.
+- As consultas administrativas não identificam pagadores ou assinantes, não vinculam contas Discord, não concedem nem removem cargo SUB e não alteram elegibilidade.
 - Indisponibilidade, timeout ou credenciais inválidas são exibidos como falha de diagnóstico sem interromper o bot.
 
 ## Kick (etapa atual)

@@ -3,7 +3,6 @@ node_modules/
 
 # Environment files
 .env
-.env.livepix.test
 
 # SQLite database files
 *.sqlite
@@ -17,6 +16,15 @@ backups/
 
 # Test coverage
 coverage/
+
+# Local-only LivePix diagnostics, synthetic tests, and test credentials
+.env.livepix.test
+src/scripts/livepixLocalSubscriptionDiagnostic.js
+src/scripts/livepixReadStatusDiagnostic.js
+src/scripts/livepixSubscriptionDiagnosticPresenter.js
+src/scripts/livepixSubscriptionValidatorDiagnostic.js
+tests/livepixLocalSubscriptionDiagnostic.test.js
+tests/livepixSubscriptionDiagnosticPresenter.test.js
 
 # Logs
 *.log

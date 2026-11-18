@@ -107,6 +107,17 @@ describe('adminAuditTargetPresenter', () => {
     expect(lines).toEqual([]);
   });
 
+  test('consulta LivePix registra somente o usuário Discord como alvo', () => {
+    const lines = presenter.buildAuditTargetLines({
+      commandName: 'livepix-status',
+      nextState: { targetDiscordId: USER_A, livepixAccountId: 'private-livepix-id' },
+      parameters: { targetDiscordId: USER_A, queryScope: 'third_party' },
+    });
+
+    expect(lines).toEqual([`Alvo: <@${USER_A}>`, `ID do alvo: ${USER_A}`]);
+    expect(lines.join('\n')).not.toContain('private-livepix-id');
+  });
+
   test('nenhum interaction ID, channel ID ou ID interno e exibido como alvo', () => {
     const lines = presenter.buildAuditTargetLines({
       commandName: 'lobby-remove',

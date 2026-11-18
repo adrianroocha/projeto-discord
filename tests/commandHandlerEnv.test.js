@@ -29,5 +29,7 @@ describe('command handler environment registration', () => {
     expect(client.commands.has('fila-add-teste')).toBe(false);
     expect(client.commands.has('dev-fill-queue')).toBe(false);
     expect(client.commands.has('dev-clear-test-data')).toBe(false);
+    expect(client.commands.has('livepix-status')).toBe(true);
+    expect(client.commands.has('livepix-unlink')).toBe(true);
   });
 });

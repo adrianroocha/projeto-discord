@@ -24,10 +24,6 @@ function buildPanelActionRow() {
       .setCustomId('livepix-link-status')
       .setStyle(ButtonStyle.Secondary)
       .setLabel('Consultar meu vínculo'),
-    new ButtonBuilder()
-      .setCustomId('livepix-unlink-start')
-      .setStyle(ButtonStyle.Danger)
-      .setLabel('Desvincular minha conta'),
   );
 }
 

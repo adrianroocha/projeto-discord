@@ -1,5 +1,5 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
-const confirmationService = require('../services/kickUnlinkConfirmationService');
+const confirmationService = require('../services/accountUnlinkConfirmationService');
 
 const PREFIX = 'kick-unlink-cancel:';
 

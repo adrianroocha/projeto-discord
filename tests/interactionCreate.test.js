@@ -32,12 +32,24 @@ jest.mock('../src/buttons/kickUnlinkCancel', () => ({
   execute: jest.fn().mockResolvedValue(undefined),
 }));
 
+jest.mock('../src/buttons/livepixUnlinkConfirm', () => ({
+  customIdPrefix: 'livepix-unlink-confirm:',
+  execute: jest.fn().mockResolvedValue(undefined),
+}));
+
+jest.mock('../src/buttons/livepixUnlinkCancel', () => ({
+  customIdPrefix: 'livepix-unlink-cancel:',
+  execute: jest.fn().mockResolvedValue(undefined),
+}));
+
 const joinQueueButton = require('../src/buttons/joinQueue');
 const leaveQueueButton = require('../src/buttons/leaveQueue');
 const kickLinkStartButton = require('../src/buttons/kickLinkStart');
 const kickLinkStatusButton = require('../src/buttons/kickLinkStatus');
 const kickUnlinkConfirmButton = require('../src/buttons/kickUnlinkConfirm');
 const kickUnlinkCancelButton = require('../src/buttons/kickUnlinkCancel');
+const livepixUnlinkConfirmButton = require('../src/buttons/livepixUnlinkConfirm');
+const livepixUnlinkCancelButton = require('../src/buttons/livepixUnlinkCancel');
 const interactionCreateEvent = require('../src/events/interactionCreate');
 const lifecycleService = require('../src/services/applicationLifecycleService');
 
@@ -158,6 +170,36 @@ describe('interactionCreate event', () => {
 
     expect(kickUnlinkCancelButton.execute).toHaveBeenCalledWith(interaction);
     expect(kickUnlinkConfirmButton.execute).not.toHaveBeenCalled();
+  });
+
+  test('encaminha confirmação administrativa LivePix por prefixo', async () => {
+    const interaction = {
+      isButton: () => true,
+      isChatInputCommand: () => false,
+      customId: 'livepix-unlink-confirm:token-123',
+      reply: jest.fn().mockResolvedValue(undefined),
+      followUp: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await interactionCreateEvent.execute(interaction);
+
+    expect(livepixUnlinkConfirmButton.execute).toHaveBeenCalledWith(interaction);
+    expect(livepixUnlinkCancelButton.execute).not.toHaveBeenCalled();
+  });
+
+  test('encaminha cancelamento administrativo LivePix por prefixo', async () => {
+    const interaction = {
+      isButton: () => true,
+      isChatInputCommand: () => false,
+      customId: 'livepix-unlink-cancel:token-123',
+      reply: jest.fn().mockResolvedValue(undefined),
+      followUp: jest.fn().mockResolvedValue(undefined),
+    };
+
+    await interactionCreateEvent.execute(interaction);
+
+    expect(livepixUnlinkCancelButton.execute).toHaveBeenCalledWith(interaction);
+    expect(livepixUnlinkConfirmButton.execute).not.toHaveBeenCalled();
   });
 
   test('ignora botão desconhecido sem afetar handlers existentes', async () => {

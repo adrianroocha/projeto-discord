@@ -1,6 +1,6 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const livepixAccountsRepository = require('../database/livepixAccountsRepository');
-const confirmationService = require('../services/livepixUnlinkConfirmationService');
+const confirmationService = require('../services/accountUnlinkConfirmationService');
 
 const PREFIX = 'livepix-unlink-confirm:';
 
@@ -24,11 +24,11 @@ module.exports = {
 
   async execute(interaction) {
     const token = (interaction.customId || '').slice(PREFIX.length);
-    const result = confirmationService.consume(token, interaction.user.id);
-    if (!result.ok) {
+    const validation = confirmationService.validate(token, interaction.user.id);
+    if (!validation.ok) {
       await interaction.reply({
         content:
-          result.reason === 'forbidden'
+          validation.reason === 'forbidden'
             ? 'Esta confirmação pertence a outro usuário.'
             : 'Esta confirmação é inválida, expirou ou já foi utilizada.',
         flags: MessageFlags.Ephemeral,
@@ -36,20 +36,38 @@ module.exports = {
       return;
     }
 
-    try {
-      const removed = livepixAccountsRepository.unlinkByDiscordId(interaction.user.id);
-      await interaction.update({
-        content: removed
-          ? 'Sua conta LivePix foi desvinculada. O vínculo Kick não foi alterado.'
-          : 'Nenhum vínculo LivePix ativo foi encontrado.',
-        components: [buildDisabledRow(token)],
+    const consumed = confirmationService.consume(token, interaction.user.id);
+    if (!consumed.ok) {
+      await interaction.reply({
+        content: 'Esta confirmação é inválida, expirou ou já foi utilizada.',
+        flags: MessageFlags.Ephemeral,
       });
-    } catch (error) {
-      console.error(`Falha ao desvincular conta LivePix. code=${error?.code || error?.name || 'unknown_error'}`);
-      await interaction.update({
-        content: 'Não foi possível concluir a desvinculação LivePix.',
-        components: [buildDisabledRow(token)],
-      });
+      return;
     }
+
+    const targetDiscordId = consumed.metadata?.targetDiscordId;
+    const reason = consumed.metadata?.reason;
+    if (!targetDiscordId || !reason) {
+      await interaction.reply({
+        content: 'Esta confirmação está inválida para desvinculação administrativa.',
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    const result = livepixAccountsRepository.unlinkWithAudit({
+      discordId: targetDiscordId,
+      unlinkedByDiscordId: interaction.user.id,
+      reason,
+      unlinkedAtMs: Date.now(),
+    });
+
+    await interaction.update({
+      content: result.unlinked
+        ? `Desvinculação LivePix concluída para <@${targetDiscordId}>. O usuário poderá vincular novamente pelo painel LivePix. Nenhum dado da Kick foi alterado.`
+        : `Nenhum vínculo LivePix ativo foi encontrado para <@${targetDiscordId}>. A conta já estava desvinculada.`,
+      components: [buildDisabledRow(token)],
+      allowedMentions: { parse: [] },
+    });
   },
 };

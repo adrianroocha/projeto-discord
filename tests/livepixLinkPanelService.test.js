@@ -4,7 +4,7 @@ process.env.GUILD_ID = process.env.GUILD_ID || 'test-guild';
 const { createLivePixLinkPanelService } = require('../src/services/livepixLinkPanelService');
 
 describe('livepixLinkPanelService', () => {
-  test('painel exclusivo LivePix contém ações de vínculo, consulta e desvinculação', () => {
+  test('painel LivePix contém ações de vínculo e consulta, sem botão de desvinculação', () => {
     const service = createLivePixLinkPanelService({ config: { livepixLinkChannelId: 'channel-1' } });
     const components = service.buildPanelActionRow().toJSON().components;
 
@@ -12,7 +12,6 @@ describe('livepixLinkPanelService', () => {
     expect(components.map((component) => component.custom_id)).toEqual([
       'livepix-link-start',
       'livepix-link-status',
-      'livepix-unlink-start',
     ]);
     expect(components[0].label).toBe('Vincular conta LivePix');
   });

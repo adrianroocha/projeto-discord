@@ -28,6 +28,13 @@ const TARGET_CONTRACT_BY_COMMAND = {
       idKeys: ['targetDiscordId', 'usuario', 'usuarioDiscordId'],
     },
   ],
+  'livepix-status': [
+    {
+      role: 'target',
+      label: 'Alvo',
+      idKeys: ['targetDiscordId', 'usuario', 'usuarioDiscordId'],
+    },
+  ],
   'lobby-swap': [
     {
       role: 'user_a',

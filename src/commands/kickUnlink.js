@@ -1,6 +1,6 @@
 const { SlashCommandBuilder, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const kickAccountsRepository = require('../database/kickAccountsRepository');
-const confirmationService = require('../services/kickUnlinkConfirmationService');
+const confirmationService = require('../services/accountUnlinkConfirmationService');
 
 function buildRow(token) {
   return new ActionRowBuilder().addComponents(

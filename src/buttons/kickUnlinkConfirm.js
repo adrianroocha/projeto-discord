@@ -1,6 +1,6 @@
 const { ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const kickAccountsRepository = require('../database/kickAccountsRepository');
-const confirmationService = require('../services/kickUnlinkConfirmationService');
+const confirmationService = require('../services/accountUnlinkConfirmationService');
 const subscriberRoleAutoSyncService = require('../services/subscriberRoleAutoSyncService');
 
 const PREFIX = 'kick-unlink-confirm:';

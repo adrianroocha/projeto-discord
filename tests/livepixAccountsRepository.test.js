@@ -5,12 +5,14 @@ describe('livepixAccountsRepository', () => {
   let db;
   let repository;
   let kickRepository;
+  let livepixUnlinkAuditRepository;
 
   beforeEach(async () => {
     context = await createTestContext();
     db = getDb(context.sqliteClient);
     repository = require('../src/database/livepixAccountsRepository');
     kickRepository = require('../src/database/kickAccountsRepository');
+    livepixUnlinkAuditRepository = require('../src/database/livepixUnlinkAuditRepository');
   });
 
   afterEach(async () => {
@@ -72,16 +74,49 @@ describe('livepixAccountsRepository', () => {
     expect(countRows(db, 'livepix_accounts')).toBe(1);
   });
 
-  test('desvincula somente LivePix e preserva vínculo Kick do mesmo Discord', () => {
-    repository.createLink({ discordId: 'discord-shared', livepixAccountId: 'account-shared' });
+  test('desvinculação administrativa remove somente LivePix e grava auditoria', () => {
+    repository.createLink({ discordId: 'discord-admin-unlink', livepixAccountId: 'livepix-77' });
     kickRepository.upsert({
-      discordId: 'discord-shared',
-      kickUserId: 'kick-user',
-      kickUsername: 'kick-user-name',
+      discordId: 'discord-admin-unlink',
+      kickUserId: 'kick-77',
+      kickUsername: 'kick-user-77',
     });
 
-    expect(repository.unlinkByDiscordId('discord-shared')).toBe(true);
-    expect(repository.findByDiscordId('discord-shared')).toBeNull();
-    expect(kickRepository.findByDiscordId('discord-shared').kick_user_id).toBe('kick-user');
+    const result = repository.unlinkWithAudit({
+      discordId: 'discord-admin-unlink',
+      unlinkedByDiscordId: 'admin-1',
+      reason: 'Solicitação administrativa',
+      unlinkedAtMs: 2000,
+    });
+
+    expect(result.unlinked).toBe(true);
+    expect(repository.findByDiscordId('discord-admin-unlink')).toBeNull();
+    expect(kickRepository.findByDiscordId('discord-admin-unlink').kick_user_id).toBe('kick-77');
+    expect(livepixUnlinkAuditRepository.findLatest()).toMatchObject({
+      discord_id: 'discord-admin-unlink',
+      livepix_account_id: 'livepix-77',
+      unlinked_by_discord_id: 'admin-1',
+      unlinked_at_ms: 2000,
+      reason: 'Solicitação administrativa',
+    });
+  });
+
+  test('falha ao gravar auditoria mantém o vínculo LivePix', () => {
+    repository.createLink({ discordId: 'discord-audit-failure', livepixAccountId: 'livepix-88' });
+    const registerSpy = jest.spyOn(livepixUnlinkAuditRepository, 'register').mockImplementation(() => {
+      throw new Error('falha-auditoria');
+    });
+
+    expect(() =>
+      repository.unlinkWithAudit({
+        discordId: 'discord-audit-failure',
+        unlinkedByDiscordId: 'admin-2',
+        reason: 'Teste',
+        unlinkedAtMs: 3000,
+      }),
+    ).toThrow('falha-auditoria');
+    expect(repository.findByDiscordId('discord-audit-failure').livepix_account_id).toBe('livepix-88');
+
+    registerSpy.mockRestore();
   });
 });

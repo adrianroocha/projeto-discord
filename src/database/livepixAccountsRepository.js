@@ -1,4 +1,5 @@
 const { getDatabase } = require('./sqliteClient');
+const livepixUnlinkAuditRepository = require('./livepixUnlinkAuditRepository');
 
 function toNonEmptyString(value, fieldName) {
   if (typeof value !== 'string' || !value.trim()) {
@@ -78,13 +79,46 @@ function createLink(input) {
   }
 }
 
-function unlinkByDiscordId(discordId) {
-  const id = toNonEmptyString(discordId, 'discordId');
-  return getDatabase().prepare('DELETE FROM livepix_accounts WHERE discord_id = ?').run(id).changes > 0;
+function unlinkWithAudit(input) {
+  if (!input || typeof input !== 'object') {
+    throw new Error('Parâmetro inválido: input é obrigatório.');
+  }
+
+  const db = getDatabase();
+  const discordId = toNonEmptyString(input.discordId, 'discordId');
+  const unlinkedByDiscordId = toNonEmptyString(input.unlinkedByDiscordId, 'unlinkedByDiscordId');
+  const reason = toNonEmptyString(input.reason, 'reason');
+  const unlinkedAtMs = toTimestampMs(input.unlinkedAtMs ?? Date.now(), 'unlinkedAtMs');
+
+  const transaction = db.transaction(() => {
+    const existing = findByDiscordId(discordId);
+    if (!existing) {
+      return { unlinked: false, reason: 'not_found' };
+    }
+
+    if (!db.prepare('DELETE FROM livepix_accounts WHERE discord_id = ?').run(discordId).changes) {
+      throw new Error('Não foi possível remover vínculo LivePix para auditoria.');
+    }
+
+    const audit = livepixUnlinkAuditRepository.register(
+      {
+        discordId,
+        livepixAccountId: existing.livepix_account_id,
+        unlinkedByDiscordId,
+        unlinkedAtMs,
+        reason,
+      },
+      db,
+    );
+
+    return { unlinked: true, account: existing, audit };
+  });
+
+  return transaction();
 }
 
 module.exports = {
   findByDiscordId,
   createLink,
-  unlinkByDiscordId,
+  unlinkWithAudit,
 };
