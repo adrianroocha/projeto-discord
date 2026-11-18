@@ -241,6 +241,48 @@ describe('livepixApiService', () => {
   });
 
   test.each([
+    ['zero como number', 0],
+    ['inteiro positivo como number', 42],
+    ['string numérica', '42'],
+    ['string acima de Number.MAX_SAFE_INTEGER', '9007199254740992'],
+    ['Number.MAX_SAFE_INTEGER', Number.MAX_SAFE_INTEGER],
+  ])('aceita amount válido: %s e preserva tipo e conteúdo', async (_label, amount) => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(makeResponse(200, { data: [{ ...subscriptionPlan, amount }] }));
+    const service = createLivePixApiService({ fetchImpl: fetchMock });
+
+    const [plan] = await service.listSubscriptionPlans('access-token');
+
+    expect(plan.amount).toBe(amount);
+    expect(typeof plan.amount).toBe(typeof amount);
+  });
+
+  test.each([
+    ['number acima de Number.MAX_SAFE_INTEGER', Number.MAX_SAFE_INTEGER + 1],
+    ['number negativo', -1],
+    ['number fracionário', 1.5],
+    ['string vazia', ''],
+    ['string com espaços', ' '],
+    ['string com espaço inicial', ' 1'],
+    ['string com espaço final', '1 '],
+    ['string com sinal positivo', '+1'],
+    ['string com sinal negativo', '-1'],
+    ['string com ponto decimal', '1.0'],
+    ['string com notação científica', '1e3'],
+  ])('rejeita amount inválido: %s', async (_label, amount) => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(makeResponse(200, { data: [{ ...subscriptionPlan, amount }] }));
+    const service = createLivePixApiService({ fetchImpl: fetchMock });
+
+    await expect(service.listSubscriptionPlans('access-token')).rejects.toMatchObject({
+      code: 'INVALID_SUBSCRIPTION_PLANS_RESPONSE',
+      httpStatus: 502,
+    });
+  });
+
+  test.each([
     ['data ausente', {}],
     ['data nulo', { data: null }],
     ['data como objeto', { data: { plan: subscriptionPlan } }],

@@ -121,6 +121,19 @@ function createLivePixApiService(options = {}) {
     );
   }
 
+  function isPlanAmount(value) {
+    if (typeof value === 'number') {
+      return Number.isSafeInteger(value) && value >= 0;
+    }
+
+    return (
+      typeof value === 'string' &&
+      value.length > 0 &&
+      value.trim() === value &&
+      /^[0-9]+$/.test(value)
+    );
+  }
+
   function isSubscriptionPlan(plan) {
     return (
       plan &&
@@ -133,9 +146,7 @@ function createLivePixApiService(options = {}) {
       plan.name.length >= 1 &&
       typeof plan.description === 'string' &&
       plan.description.length >= 1 &&
-      typeof plan.amount === 'number' &&
-      Number.isFinite(plan.amount) &&
-      plan.amount >= 0 &&
+      isPlanAmount(plan.amount) &&
       typeof plan.currency === 'string' &&
       /^[A-Z]{3}$/.test(plan.currency) &&
       isDateTime(plan.createdAt)
