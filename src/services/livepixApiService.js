@@ -26,11 +26,10 @@ function createLivePixApiService(options = {}) {
   }
 
   function invalidRequestOptions() {
-    return new LivePixApiError(
-      'INVALID_REQUEST_OPTIONS',
-      'Parâmetros inválidos para consulta LivePix.',
-      { httpStatus: 400, category: 'invalid_request_options' },
-    );
+    return new LivePixApiError('INVALID_REQUEST_OPTIONS', 'Parâmetros inválidos para consulta LivePix.', {
+      httpStatus: 400,
+      category: 'invalid_request_options',
+    });
   }
 
   function invalidResponse(code, message) {
@@ -45,9 +44,48 @@ function createLivePixApiService(options = {}) {
   }
 
   function isDateTime(value) {
+    if (typeof value !== 'string') {
+      return false;
+    }
+
+    const match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|([+-])(\d{2}):(\d{2}))$/);
+    if (!match) {
+      return false;
+    }
+
+    const [
+      ,
+      yearValue,
+      monthValue,
+      dayValue,
+      hourValue,
+      minuteValue,
+      secondValue,
+      ,
+      ,
+      offsetHourValue,
+      offsetMinuteValue,
+    ] = match;
+    const year = Number(yearValue);
+    const month = Number(monthValue);
+    const day = Number(dayValue);
+    const hour = Number(hourValue);
+    const minute = Number(minuteValue);
+    const second = Number(secondValue);
+    const daysPerMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    if (year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0)) {
+      daysPerMonth[1] = 29;
+    }
+
     return (
-      typeof value === 'string' &&
-      /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value) &&
+      month >= 1 &&
+      month <= 12 &&
+      day >= 1 &&
+      day <= daysPerMonth[month - 1] &&
+      hour <= 23 &&
+      minute <= 59 &&
+      second <= 59 &&
+      (!offsetHourValue || (Number(offsetHourValue) <= 23 && Number(offsetMinuteValue) <= 59)) &&
       !Number.isNaN(Date.parse(value))
     );
   }
@@ -78,15 +116,11 @@ function createLivePixApiService(options = {}) {
   }
 
   function validatePagination(options, additionalValidators = {}) {
-    return validateQueryOptions(
-      options,
-      new Set(['page', 'limit', ...Object.keys(additionalValidators)]),
-      {
-        page: (value) => Number.isSafeInteger(value) && value >= 1,
-        limit: (value) => Number.isSafeInteger(value) && value >= 1 && value <= 100,
-        ...additionalValidators,
-      },
-    );
+    return validateQueryOptions(options, new Set(['page', 'limit', ...Object.keys(additionalValidators)]), {
+      page: (value) => Number.isSafeInteger(value) && value >= 1,
+      limit: (value) => Number.isSafeInteger(value) && value >= 1 && value <= 100,
+      ...additionalValidators,
+    });
   }
 
   function requireAccessToken(accessToken) {
@@ -104,9 +138,10 @@ function createLivePixApiService(options = {}) {
       typeof subscription === 'object' &&
       !Array.isArray(subscription) &&
       isObjectId(subscription.id) &&
-      typeof subscription.subscriber === 'string' &&
-      subscription.subscriber.length >= 1 &&
-      subscription.subscriber.length <= 72 &&
+      (!Object.prototype.hasOwnProperty.call(subscription, 'subscriber') ||
+        (typeof subscription.subscriber === 'string' &&
+          subscription.subscriber.length >= 1 &&
+          subscription.subscriber.length <= 72)) &&
       Number.isSafeInteger(subscription.months) &&
       subscription.months >= 0 &&
       typeof subscription.currency === 'string' &&
@@ -114,7 +149,8 @@ function createLivePixApiService(options = {}) {
       Number.isSafeInteger(subscription.amount) &&
       subscription.amount >= 1 &&
       recurrences.has(subscription.recurrence) &&
-      subscriptionStatuses.has(subscription.status) &&
+      typeof subscription.status === 'string' &&
+      subscriptionStatuses.has(subscription.status.toLowerCase()) &&
       isDateTime(subscription.renewAt) &&
       isDateTime(subscription.updatedAt) &&
       isDateTime(subscription.createdAt)
@@ -126,12 +162,7 @@ function createLivePixApiService(options = {}) {
       return Number.isSafeInteger(value) && value >= 0;
     }
 
-    return (
-      typeof value === 'string' &&
-      value.length > 0 &&
-      value.trim() === value &&
-      /^[0-9]+$/.test(value)
-    );
+    return typeof value === 'string' && value.length > 0 && value.trim() === value && /^[0-9]+$/.test(value);
   }
 
   function isSubscriptionPlan(plan) {
@@ -169,12 +200,10 @@ function createLivePixApiService(options = {}) {
     }
 
     const entries = Object.entries(value);
-    const fields = entries
-      .slice(0, 20)
-      .map(([key, fieldValue]) => {
-        const safeKey = key.replace(/[^a-zA-Z0-9_$-]/g, '_').slice(0, 40) || 'unknown';
-        return `${safeKey}:${getValueType(fieldValue)}`;
-      });
+    const fields = entries.slice(0, 20).map(([key, fieldValue]) => {
+      const safeKey = key.replace(/[^a-zA-Z0-9_$-]/g, '_').slice(0, 40) || 'unknown';
+      return `${safeKey}:${getValueType(fieldValue)}`;
+    });
 
     if (entries.length > fields.length) {
       fields.push('more');
@@ -416,7 +445,7 @@ function createLivePixApiService(options = {}) {
       },
       body: form.toString(),
     });
-    const expiresIn = Number(body.expires_in);
+    const expiresIn = body.expires_in;
 
     if (
       typeof body.access_token !== 'string' ||
@@ -424,7 +453,8 @@ function createLivePixApiService(options = {}) {
       typeof body.token_type !== 'string' ||
       body.token_type.toLowerCase() !== 'bearer' ||
       !Number.isSafeInteger(expiresIn) ||
-      expiresIn <= 0
+      expiresIn <= 0 ||
+      (Object.prototype.hasOwnProperty.call(body, 'scope') && typeof body.scope !== 'string')
     ) {
       throw new LivePixApiError('INVALID_TOKEN_RESPONSE', 'Resposta de token inválida da LivePix API.', {
         httpStatus: 502,
@@ -459,9 +489,7 @@ function createLivePixApiService(options = {}) {
       !account.id.trim() ||
       typeof account.username !== 'string' ||
       !account.username.trim() ||
-      (account.displayName !== undefined &&
-        account.displayName !== null &&
-        typeof account.displayName !== 'string')
+      (account.displayName !== undefined && account.displayName !== null && typeof account.displayName !== 'string')
     ) {
       throw new LivePixApiError('INVALID_ACCOUNT_RESPONSE', 'Resposta de conta inválida da LivePix API.', {
         httpStatus: 502,
@@ -504,22 +532,16 @@ function createLivePixApiService(options = {}) {
       throw invalidRequestOptions();
     }
 
-    const body = await requestJson(
-      `${apiBaseUrl}/v2/subscriptions/${encodeURIComponent(subscriptionId)}`,
-      {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          Accept: 'application/json',
-        },
+    const body = await requestJson(`${apiBaseUrl}/v2/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
       },
-    );
+    });
 
     if (!isSubscription(body.data)) {
-      throw invalidResponse(
-        'INVALID_SUBSCRIPTION_RESPONSE',
-        'Resposta de assinatura inválida da LivePix API.',
-      );
+      throw invalidResponse('INVALID_SUBSCRIPTION_RESPONSE', 'Resposta de assinatura inválida da LivePix API.');
     }
     return body.data;
   }

@@ -85,22 +85,19 @@ function createLivePixAuthService(options = {}) {
           !token ||
           typeof token.accessToken !== 'string' ||
           !token.accessToken.trim() ||
-          !Number.isSafeInteger(Number(token.expiresIn)) ||
-          Number(token.expiresIn) <= 0 ||
-          !Number.isSafeInteger(Number(token.expiresIn) * 1000) ||
-          !Number.isSafeInteger(
-            tokenRequestStartedAt + Number(token.expiresIn) * 1000,
-          )
+          !Number.isSafeInteger(token.expiresIn) ||
+          token.expiresIn <= 0 ||
+          !Number.isSafeInteger(token.expiresIn * 1000) ||
+          !Number.isSafeInteger(tokenRequestStartedAt + token.expiresIn * 1000)
         ) {
-          throw new LivePixAuthError(
-            'INVALID_TOKEN_RESPONSE',
-            'Resposta de token inválida da LivePix API.',
-            { httpStatus: 502, category: 'invalid_token_response' },
-          );
+          throw new LivePixAuthError('INVALID_TOKEN_RESPONSE', 'Resposta de token inválida da LivePix API.', {
+            httpStatus: 502,
+            category: 'invalid_token_response',
+          });
         }
 
         cachedAccessToken = token.accessToken.trim();
-        const expiresInMs = Number(token.expiresIn) * 1000;
+        const expiresInMs = token.expiresIn * 1000;
         expiresAtMs = tokenRequestStartedAt + expiresInMs;
         const earlyRefreshMs = Math.min(refreshSkewMs, Math.floor(expiresInMs * 0.1));
         refreshAtMs = expiresAtMs - earlyRefreshMs;
@@ -117,11 +114,10 @@ function createLivePixAuthService(options = {}) {
   async function callAuthenticatedApi(methodName, ...args) {
     const apiMethod = apiService[methodName];
     if (typeof apiMethod !== 'function') {
-      throw new LivePixAuthError(
-        'API_METHOD_UNAVAILABLE',
-        'Método de consulta LivePix indisponível.',
-        { httpStatus: 500, category: 'api_method_unavailable' },
-      );
+      throw new LivePixAuthError('API_METHOD_UNAVAILABLE', 'Método de consulta LivePix indisponível.', {
+        httpStatus: 500,
+        category: 'api_method_unavailable',
+      });
     }
 
     const accessToken = await getAccessToken();
@@ -141,8 +137,7 @@ function createLivePixAuthService(options = {}) {
     getAccessToken,
     getAuthenticatedAccount: () => callAuthenticatedApi('getAccount'),
     listSubscriptions: (options) => callAuthenticatedApi('listSubscriptions', options),
-    getSubscription: (subscriptionId) =>
-      callAuthenticatedApi('getSubscription', subscriptionId),
+    getSubscription: (subscriptionId) => callAuthenticatedApi('getSubscription', subscriptionId),
     listSubscriptionTransactions: (subscriptionId, options) =>
       callAuthenticatedApi('listSubscriptionTransactions', subscriptionId, options),
     listSubscriptionPlans: (options) => callAuthenticatedApi('listSubscriptionPlans', options),
