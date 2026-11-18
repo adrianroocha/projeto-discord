@@ -13,6 +13,7 @@ function createLivePixApiService(options = {}) {
   const timeoutMs = Number(options.timeoutMs || 10_000);
   const oauthBaseUrl = (options.oauthBaseUrl || 'https://oauth.livepix.gg').replace(/\/$/, '');
   const apiBaseUrl = (options.apiBaseUrl || 'https://api.livepix.gg').replace(/\/$/, '');
+  const logger = options.logger || console;
   const subscriptionStatuses = new Set(['active', 'pending', 'cancelled']);
   const recurrences = new Set(['monthly', 'quarterly', 'semiannual', 'yearly']);
 
@@ -137,6 +138,59 @@ function createLivePixApiService(options = {}) {
     );
   }
 
+  function getValueType(value) {
+    if (value === null) {
+      return 'null';
+    }
+    if (Array.isArray(value)) {
+      return 'array';
+    }
+    return typeof value;
+  }
+
+  function describeFieldTypes(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+      return 'none';
+    }
+
+    const entries = Object.entries(value);
+    const fields = entries
+      .slice(0, 20)
+      .map(([key, fieldValue]) => {
+        const safeKey = key.replace(/[^a-zA-Z0-9_$-]/g, '_').slice(0, 40) || 'unknown';
+        return `${safeKey}:${getValueType(fieldValue)}`;
+      });
+
+    if (entries.length > fields.length) {
+      fields.push('more');
+    }
+    return fields.join(',') || 'none';
+  }
+
+  function logInvalidPlansResponse(status, body) {
+    const data = body.data;
+    const itemShapes = new Set();
+    if (Array.isArray(data)) {
+      for (const item of data) {
+        itemShapes.add(describeFieldTypes(item));
+        if (itemShapes.size >= 5) {
+          break;
+        }
+      }
+    }
+
+    logger.warn(
+      [
+        'LivePix plans response invalid',
+        `status=${status}`,
+        `root_fields=${describeFieldTypes(body)}`,
+        `data_type=${getValueType(data)}`,
+        `item_count=${Array.isArray(data) ? data.length : 'n/a'}`,
+        `item_fields=${itemShapes.size > 0 ? [...itemShapes].join('|') : 'none'}`,
+      ].join(' '),
+    );
+  }
+
   function isSubscriptionTransaction(transaction) {
     return (
       transaction &&
@@ -158,7 +212,7 @@ function createLivePixApiService(options = {}) {
     return body.data;
   }
 
-  async function requestJson(url, requestOptions = {}) {
+  async function requestJson(url, requestOptions = {}, onHttpStatus) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -167,6 +221,9 @@ function createLivePixApiService(options = {}) {
         ...requestOptions,
         signal: controller.signal,
       });
+      if (typeof onHttpStatus === 'function') {
+        onHttpStatus(response.status);
+      }
 
       const rawBody = await response.text();
       let body = null;
@@ -418,20 +475,37 @@ function createLivePixApiService(options = {}) {
   async function listSubscriptionPlans(accessToken, options = {}) {
     requireAccessToken(accessToken);
     const query = validatePagination(options);
-    const body = await requestJson(`${apiBaseUrl}/v2/subscriptions/plans${query}`, {
-      method: 'GET',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: 'application/json',
-      },
-    });
+    let httpStatus = 'unknown';
+    let body;
+    try {
+      body = await requestJson(
+        `${apiBaseUrl}/v2/subscriptions/plans${query}`,
+        {
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            Accept: 'application/json',
+          },
+        },
+        (status) => {
+          httpStatus = status;
+        },
+      );
+    } catch (error) {
+      if (error?.code === 'INVALID_JSON_RESPONSE') {
+        logger.warn(`LivePix plans response invalid status=${httpStatus} json=invalid`);
+      }
+      throw error;
+    }
 
-    return validateDataArray(
-      body,
-      isSubscriptionPlan,
-      'INVALID_SUBSCRIPTION_PLANS_RESPONSE',
-      'Resposta de planos de assinatura inválida da LivePix API.',
-    );
+    if (!Array.isArray(body.data) || !body.data.every(isSubscriptionPlan)) {
+      logInvalidPlansResponse(httpStatus, body);
+      throw invalidResponse(
+        'INVALID_SUBSCRIPTION_PLANS_RESPONSE',
+        'Resposta de planos de assinatura inválida da LivePix API.',
+      );
+    }
+    return body.data;
   }
 
   return {

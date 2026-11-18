@@ -23,6 +23,16 @@ const subscription = {
   createdAt: '2023-01-01T10:00:00-03:00',
 };
 
+const subscriptionPlan = {
+  id: '61021c7bdabe5e001225b65b',
+  slug: 'basic',
+  name: 'Plano Básico',
+  description: 'Plano básico',
+  amount: 10,
+  currency: 'BRL',
+  createdAt: '2023-01-01T10:00:00-03:00',
+};
+
 describe('livepixApiService', () => {
   test('solicita token client_credentials no endpoint oficial e envia escopo', async () => {
     const fetchMock = jest.fn().mockResolvedValue(
@@ -206,25 +216,76 @@ describe('livepixApiService', () => {
   });
 
   test('consulta planos com paginação e escopo autorizado pelo endpoint', async () => {
-    const plan = {
-      id: '61021c7bdabe5e001225b65b',
-      slug: 'basic',
-      name: 'Plano Básico',
-      description: 'Plano básico',
-      amount: 10,
-      currency: 'BRL',
-      createdAt: '2023-01-01T10:00:00-03:00',
-    };
-    const fetchMock = jest.fn().mockResolvedValue(makeResponse(200, { data: [plan] }));
+    const fetchMock = jest.fn().mockResolvedValue(makeResponse(200, { data: [subscriptionPlan] }));
     const service = createLivePixApiService({ fetchImpl: fetchMock });
 
     await expect(service.listSubscriptionPlans('access-token', { page: 4, limit: 100 })).resolves
-      .toEqual([plan]);
+      .toEqual([subscriptionPlan]);
 
     expect(fetchMock.mock.calls[0][0]).toBe(
       'https://api.livepix.gg/v2/subscriptions/plans?page=4&limit=100',
     );
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer access-token');
+  });
+
+  test('aceita lista vazia de planos', async () => {
+    const fetchMock = jest.fn().mockResolvedValue(makeResponse(200, { data: [] }));
+    const service = createLivePixApiService({ fetchImpl: fetchMock });
+
+    await expect(service.listSubscriptionPlans('access-token')).resolves.toEqual([]);
+  });
+
+  test.each([
+    ['data ausente', {}],
+    ['data nulo', { data: null }],
+    ['data como objeto', { data: { plan: subscriptionPlan } }],
+    ['data como string', { data: 'plans' }],
+    ['item sem id obrigatório', { data: [{ ...subscriptionPlan, id: undefined }] }],
+    ['item sem descrição obrigatória', { data: [{ ...subscriptionPlan, description: undefined }] }],
+    ['descrição nula', { data: [{ ...subscriptionPlan, description: null }] }],
+  ])('rejeita estrutura incompatível com o schema de planos: %s', async (_label, body) => {
+    const fetchMock = jest.fn().mockResolvedValue(makeResponse(200, body));
+    const service = createLivePixApiService({ fetchImpl: fetchMock, logger: { warn: jest.fn() } });
+
+    await expect(service.listSubscriptionPlans('access-token')).rejects.toMatchObject({
+      code: 'INVALID_SUBSCRIPTION_PLANS_RESPONSE',
+      httpStatus: 502,
+    });
+  });
+
+  test('registra somente metadados estruturais seguros para resposta inválida de planos', async () => {
+    const logger = { warn: jest.fn() };
+    const privatePlanName = 'sensitive plan name';
+    const fetchMock = jest.fn().mockResolvedValue(
+      makeResponse(200, {
+        data: [{ ...subscriptionPlan, name: privatePlanName, description: null }],
+      }),
+    );
+    const service = createLivePixApiService({ fetchImpl: fetchMock, logger });
+
+    await expect(service.listSubscriptionPlans('access-token')).rejects.toMatchObject({
+      code: 'INVALID_SUBSCRIPTION_PLANS_RESPONSE',
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      'LivePix plans response invalid status=200 root_fields=data:array data_type=array item_count=1 item_fields=id:string,slug:string,name:string,description:null,amount:number,currency:string,createdAt:string',
+    );
+    expect(logger.warn.mock.calls.flat().join(' ')).not.toContain(privatePlanName);
+    expect(logger.warn.mock.calls.flat().join(' ')).not.toContain('access-token');
+  });
+
+  test('mapeia JSON inválido em consulta de planos sem registrar o corpo', async () => {
+    const logger = { warn: jest.fn() };
+    const fetchMock = jest.fn().mockResolvedValue(makeResponse(200, 'private response body'));
+    const service = createLivePixApiService({ fetchImpl: fetchMock, logger });
+
+    await expect(service.listSubscriptionPlans('access-token')).rejects.toMatchObject({
+      code: 'INVALID_JSON_RESPONSE',
+      httpStatus: 502,
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      'LivePix plans response invalid status=200 json=invalid',
+    );
+    expect(logger.warn.mock.calls.flat().join(' ')).not.toContain('private response body');
   });
 
   test('rejeita IDs e parâmetros inválidos sem enviar requisição', async () => {
@@ -283,6 +344,24 @@ describe('livepixApiService', () => {
 
     await expect(service.listSubscriptions('token')).rejects.toMatchObject({ code, httpStatus: status });
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer token');
+  });
+
+  test.each([
+    [401, 'UNAUTHORIZED'],
+    [403, 'FORBIDDEN'],
+    [429, 'RATE_LIMITED'],
+  ])('preserva o mapeamento HTTP %i em consulta de planos', async (status, code) => {
+    const fetchMock = jest
+      .fn()
+      .mockResolvedValue(makeResponse(status, { message: 'private response body' }));
+    const logger = { warn: jest.fn() };
+    const service = createLivePixApiService({ fetchImpl: fetchMock, logger });
+
+    await expect(service.listSubscriptionPlans('access-token')).rejects.toMatchObject({
+      code,
+      httpStatus: status,
+    });
+    expect(logger.warn).not.toHaveBeenCalled();
   });
 
   test('mapeia 404 da assinatura sem expor o corpo da resposta', async () => {
